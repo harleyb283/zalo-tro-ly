@@ -1,0 +1,97 @@
+{
+  "_ghi_chu": [
+    "HỢP ĐỒNG G0 — tên trường chốt cứng, KHÔNG gói nào được đổi.",
+    "Mọi khoá bắt đầu bằng dấu _ là ghi chú, access.js PHẢI BỎ QUA.",
+    "File này là BẢN MẪU. Copy thành config/assistant.config.json rồi sửa.",
+    "Bản thật KHÔNG BAO GIỜ commit (đã có trong .gitignore).",
+    "",
+    "duongDan.*  — ★ MẶC ĐỊNH ĐỂ NGOÀI project (~/.zalo-tro-ly/). Đây là MỨC SIẾT CAO:",
+    "              phiên Claude không có --add-dir tới đó nên không đọc thẳng DB được,",
+    "              buộc mọi truy vấn đi qua tool và để lại dấu vết nguồn.",
+    "              Trỏ ngược vào trong repo là vô hiệu hoá luật chống rò chéo.",
+    "              Dấu ~ phải đi qua moRong() ở src/lib/duong_dan.js — Node KHÔNG tự nở ~.",
+    "",
+    "hosts[].userId    — Zalo user_id dạng CHUỖI. Chưa biết thì chạy: node bin/zalo-login.js --whoami",
+    "hosts[].dmChatId  — threadId của DM giữa trợ lý và host. Đích của luật chống rò chéo.",
+    "groups[].chatId   — threadId của nhóm. bin/zalo-login.js in ra danh sách sau khi quét QR.",
+    "groups[].ghiLichSu    — false = vẫn nghe nhưng KHÔNG ghi DB.",
+    "groups[].traLoiKhiTag — false = không bao giờ nói trong nhóm này, kể cả host tag.",
+    "",
+    "⛔ CẤM dùng ký tự đại diện (* hoặc rỗng) trong hosts/groups.",
+    "   access.js phải TỪ CHỐI CHẠY khi gặp — thà không chạy còn hơn chạy mở toang.",
+    "",
+    "cauTrungTinh — ★ HẰNG SỐ. Đây là câu DUY NHẤT được nói trong nhóm khi đáp án",
+    "               dùng dữ liệu của nhóm khác. KHÔNG để model tự viết câu này:",
+    "               model viết 'em nhắn riêng anh vụ báo giá bên <ten khach hang>' la da ro roi.",
+    "",
+    "anTrangThai  — ⚠️ gọi updateSettings(ShowOnlineStatus,0) là cài đặt CẤP TÀI KHOẢN,",
+    "               ẩn online với TẤT CẢ mọi người, không tách riêng cho bot được.",
+    "",
+    "notifyCommand — lệnh shell nhận JSON qua stdin khi có cảnh báo sức khoẻ.",
+    "                Pack KHÔNG hardcode kênh nào — kênh nhắn tin nào cũng là của",
+    "                riêng người setup, người clone về không chắc có. null = bỏ tầng này.",
+    "",
+    "═══ kenhPhu — trả kết quả DÀI đi đường nào ═══",
+    "  \"zalo\"     MẶC ĐỊNH. Trả hết vào Zalo, dài quá thì tự CHIA nhiều tin",
+    "              (cắt theo ranh giới đoạn, đánh số 1/3, 2/3…). Người tải pack",
+    "              về dùng cái này — không cần cài thêm gì.",
+    "  \"telegram\" Zalo chỉ báo một câu ngắn, chi tiết đi kênh phụ.",
+    "              ⚠️ BẮT BUỘC phải điền tichHop.kenhPhuLenh, nếu không thì",
+    "              trợ lý TỰ RƠI VỀ \"zalo\" và NÓI CHO HOST BIẾT là đã rơi về.",
+    "  \"khong\"    Chỉ Zalo, câu ngắn, không kênh phụ.",
+    "",
+    "═══ tichHop — TÍCH HỢP TUỲ CHỌN, MẶC ĐỊNH TẮT (null) ═══",
+    "  Là LỆNH SHELL do người setup tự cắm, nhận JSON qua stdin —",
+    "  cùng khuôn với notifyCommand. Pack KHÔNG biết Router/Telegram/Herdr là gì,",
+    "  KHÔNG chứa đường dẫn máy ai. Bỏ trống thì pack chạy Zalo-vào-Zalo-ra bình thường.",
+    "",
+    "  kenhPhuLenh    — gửi bản chi tiết qua kênh phụ.",
+    "                   stdin: {tieuDe, noiDung, tuHost}",
+    "                   exit 0 = đã gửi. Khác 0 ⇒ rơi về Zalo + báo host.",
+    "",
+    "  ⚠️ Đừng đưa đường dẫn tuyệt đối của máy mình vào BẢN MẪU này — file mẫu",
+    "     đi lên git. Điền vào bản thật (config/assistant.config.json) thôi."
+  ],
+
+  "hosts": [
+    {
+      "userId": "0000000000000000000",
+      "ten": "Chu nha",
+      "dmChatId": "0000000000000000000"
+    }
+  ],
+
+  "groups": [
+    {
+      "chatId": "0000000000000000000",
+      "ten": "Nhom vi du",
+      "ghiLichSu": true,
+      "traLoiKhiTag": true
+    }
+  ],
+
+  "duongDan": {
+    "db": "~/.zalo-tro-ly/lichsu.db",
+    "session": "~/.zalo-tro-ly/session.json",
+    "health": "~/.zalo-tro-ly/health.json"
+  },
+
+  "thoiGian": {
+    "keepAliveMs": 120000,
+    "watchdogMs": 300000,
+    "imLangMs": 900000,
+    "queueTtlMs": 1800000
+  },
+
+  "cauTrungTinh": "Em nhắn riêng anh rồi ạ.",
+
+  "notifyCommand": null,
+
+  "anTrangThai": true,
+
+  "kenhPhu": "zalo",
+
+  "tichHop": {
+    "kenhPhuLenh": null
+  }
+}

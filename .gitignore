@@ -1,0 +1,42 @@
+# ═══════════════════════════════════════════════════════════════════════
+# ⚠️ PACK NÀY ĐƯỢC CHIA SẺ QUA GIT PRIVATE.
+# Lọt session.json = MẤT TÀI KHOẢN ZALO. Lọt lichsu.db = lộ tin nhắn
+# của người khác trong các nhóm. Một lần lỡ commit là lộ VĨNH VIỄN
+# trong lịch sử git — xoá file ở commit sau không cứu được.
+#
+# Nhiều lớp chặn là CÓ CHỦ ĐÍCH, không phải thừa: nếu ai đó đổi
+# duongDan.db sang một chỗ khác trong repo thì lớp theo đuôi vẫn đỡ.
+# ═══════════════════════════════════════════════════════════════════════
+
+node_modules/
+
+# ─── Lớp 1: chặn cả thư mục dữ liệu ───────────────────────────────────
+data/
+.zalo-tro-ly/
+
+# ─── Lớp 2: chặn theo đuôi, phòng khi đổi đường dẫn ───────────────────
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# ─── Lớp 3: chặn đích danh file bí mật ────────────────────────────────
+session.json
+health.json
+.env
+.env.*
+config/assistant.config.json
+
+# ─── Nhưng LUÔN GIỮ các bản mẫu ───────────────────────────────────────
+!.env.example
+!config/assistant.config.example.json
+
+# ─── Rác hệ điều hành / trình soạn thảo ───────────────────────────────
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/

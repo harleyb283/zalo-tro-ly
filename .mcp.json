@@ -1,0 +1,28 @@
+{
+  "_doc": "MCP server của HỆ TRỢ LÝ ZALO. File này nằm ở GỐC repo, và đó là điều kiện để mọi thứ chạy: Claude Code tìm gốc project bằng cách đi NGƯỢC LÊN tìm .claude/ hoặc .git/ — có .claude/ ở đây nghĩa là phiên mở trong thư mục này lấy ĐÂY làm gốc, và KHÔNG còn đọc .mcp.json của bất kỳ project nào bên ngoài.",
+
+  "_vi_sao_tach_ra": "Repo này ĐÃ TÁCH khỏi cây thư mục của hệ khác (21/08/2026). Lý do KHÔNG phải cho gọn: một agent có quyền chạy lệnh thì một dòng lệnh đi tới bất kỳ đường dẫn nào — luật 'chỉ đụng thư mục X' KHÔNG tự đứng vững. Sáng 21/08 chuyện đó đã xảy ra thật. Tách thư mục là biến ranh giới thành SỰ THẬT VẬT LÝ.",
+
+  "_bay_1_bien": "🔴 ${CLAUDE_PROJECT_DIR} KHÔNG nở trong khối `env` (chỉ nở trong command/args) — nó rơi về default `.` rồi hỏng IM LẶNG. ${HOME} thì CÓ nở (đã đo). Vì vậy mọi đường dẫn trong `env` dùng ${HOME}.",
+
+  "_bay_2_alwaysLoad": "🔴 GIỮ `alwaysLoad: true`. Bỏ nó ⇒ lược đồ tool bị hoãn ⇒ mỗi lần model chạm bộ tool chưa nạp mất nguyên một vòng ToolSearch (đo thật 63,8s = 43% của một lượt 147,9s). Triệu chứng là CHẬM DẦN, ⛔ KHÔNG phải lỗi — rất khó thấy.",
+
+  "_bay_3_du_lieu_ngoai_repo": "ZTL_DATA_DIR trỏ RA NGOÀI repo (~/.zalo-tro-ly). Đây là mức siết đã chốt: phiên Claude không có --add-dir tới đó nên KHÔNG đọc thẳng được file DB, buộc mọi truy vấn đi qua tool và để lại dấu vết nguồn (luật chống rò chéo nhóm). Trỏ ngược vào trong repo là vô hiệu hoá luật đó — và chính pack cũng TỪ CHỐI CHẠY nếu thấy DB nằm trong repo.",
+
+  "_bay_4_channel": "Server chỉ tự bơm tin Zalo vào phiên khi pane có cờ --dangerously-load-development-channels server:zalo-tro-ly. Pane không có cờ chỉ thấy thêm các tool zalo, KHÔNG nhận tin. Cờ đó phân giải tên server theo .mcp.json ở GỐC PROJECT — tức chính file này.",
+
+  "mcpServers": {
+    "zalo-tro-ly": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PROJECT_DIR:-.}/src/index.js"
+      ],
+      "alwaysLoad": true,
+      "env": {
+        "ZTL_CONFIG": "${HOME}/.zalo-tro-ly/assistant.config.json",
+        "ZTL_DATA_DIR": "${HOME}/.zalo-tro-ly",
+        "MCP_PROTOCOL_NEGOTIATION": "legacy"
+      }
+    }
+  }
+}

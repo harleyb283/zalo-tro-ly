@@ -1,0 +1,110 @@
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * ★ LƯỚI VỚT CÂU HỎI MỒ CÔI — dựng lại lớp đã BIẾN MẤT.
+ *
+ * 🔴 CHUYỆN THẬT, ngày 21/08/2026, ba lần trong một buổi chiều:
+ *      12:47 nhóm Haceco  "nói các rule e cần tuân theo đi"
+ *      13:42 DM host      "Xong thì báo a nhé"
+ *      14:29 DM host      "Alo xong chưa"
+ *    Cả ba nằm lại ở `da_day` — nghĩa là ĐÃ ĐẨY, ⛔ CHƯA AI TRẢ LỜI. Anh ngồi
+ *    chờ hơn một tiếng và tưởng trợ lý lờ mình.
+ *
+ * 🔴 VÌ SAO KHÔNG AI VỚT:
+ *    · `gomDaDay` (đẩy bù dòng mồ côi) CHỈ chạy lúc daemon khởi động và lúc
+ *      Claude bắt tay lại. Vòng poll truyền `gomDaDay: false` — đúng, vì bật
+ *      nó mỗi 2 giây là đẩy lại chính câu đang soạn dở.
+ *    · Lưới "hết hạn 30 phút rồi báo host" nghe thì có, nhưng nó chỉ được TÍNH
+ *      khi có ai đó QUÉT tới dòng đó — mà không ai quét `da_day` cả. Dòng 12:47
+ *      nằm im hơn hai tiếng, ⛔ không hết hạn, ⛔ không báo. Một lưới không bao
+ *      giờ được chạm tới thì ⛔ không phải là lưới.
+ *    ⇒ Giữa hai lần bắt tay, ⛔ KHÔNG có lớp nào cứu. Đó là lỗ hổng, không phải
+ *      thiết kế.
+ *
+ * ★ LƯỚI NÀY: mỗi `NHIP_VOT_MS`, quét dòng `da_day`/`dang_xu_ly` đã quá
+ *   `TUOI_MO_COI_MS` mà chưa ai trả lời -> ĐẨY LẠI. Quá `TRAN_VOT` lần vẫn im
+ *   thì BÁO HOST ngay, ⛔ không đợi hết 30 phút.
+ *
+ * ⚠️ ⛔ KHÔNG SỢ TRẢ LỜI HAI LẦN: `tra_loi` đã chặn sẵn ở tầng tool — câu đã
+ *   trả lời rồi thì gọi lần hai bị từ chối bằng mã `HANG_DOI_HET_HAN`. Đẩy
+ *   thừa một lượt model là phí, ⛔ không phải là hai tin vào nhóm người thật.
+ *
+ * ⚠️ Sổ đếm nằm trong RAM — CÓ CHỦ Ý. Client chết thì sổ mất, nhưng client mới
+ *   khởi động lại chạy `gomDaDay` ở `khiSanSang` nên mọi dòng mồ côi được đẩy
+ *   lại từ đầu. ⛔ Không cần thêm cột vào DB cho một con số sống 3 phút.
+ * ═══════════════════════════════════════════════════════════════════════
+ */
+
+/** 3 phút — bằng đúng nhịp `giao_lai` của lưới cũ đã mất. */
+export const TUOI_MO_COI_MS = 180_000;
+
+/** Mỗi phút quét một lần. Rẻ: một câu SELECT có index. */
+export const NHIP_VOT_MS = 60_000;
+
+/** Đẩy lại tối đa 2 lần rồi báo host — đẩy mãi là vòng lặp câm. */
+export const TRAN_VOT = 2;
+
+const _log = (s) => process.stderr.write(`[vot] ${s}\n`);
+
+/**
+ * Sổ đếm số lần đã vớt cho từng câu hỏi.
+ *
+ * @param {{tran?: number, log?: (s: string) => void, baoHost?: (s: string) => any}} [p]
+ */
+export function taoSoVot(p = {}) {
+  const tran = Number.isFinite(Number(p.tran)) && Number(p.tran) > 0 ? Number(p.tran) : TRAN_VOT;
+  const log = typeof p.log === 'function' ? p.log : _log;
+  const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;
+
+  /** @type {Map<string, number>} */
+  const dem = new Map();
+  /** @type {Set<string>} */
+  const daBao = new Set();
+
+  return {
+    /**
+     * Dòng này có được đẩy (lại) không?
+     *
+     * 🔴 Dòng `cho` LUÔN được đẩy và ⛔ KHÔNG bị đếm: nó là câu hỏi bình thường
+     * chưa từng tới ai. Đếm nó là tự đặt trần lên đường đi chính.
+     *
+     * @param {{request_id?: any, trang_thai?: any, ts_tao?: any, noi_dung?: any}} r
+     * @returns {boolean}
+     */
+    choPhep(r) {
+      if (String(r?.trang_thai ?? '') === 'cho') return true;
+
+      const rid = String(r?.request_id ?? '');
+      if (!rid) return false;
+
+      const n = (dem.get(rid) ?? 0) + 1;
+      dem.set(rid, n);
+
+      if (n <= tran) {
+        log(`vớt lần ${n}/${tran}: ${rid} (${String(r?.trang_thai)}, ${String(r?.ts_tao)})`);
+        return true;
+      }
+
+      if (!daBao.has(rid)) {
+        daBao.add(rid);
+        const gio = String(r?.ts_tao ?? '').slice(11, 16);
+        const trich = String(r?.noi_dung ?? '').replace(/\s+/g, ' ').slice(0, 80);
+        log(`vớt QUÁ ${tran} lần vẫn im -> báo host: ${rid}`);
+        baoHost?.(
+          `⚠️ Câu hỏi lúc ${gio} "${trich}" em đã đẩy lại ${tran} lần mà phiên trả lời `
+          + 'vẫn không nhận. Anh nhắn lại giúp em, hoặc kiểm xem pane trợ lý còn sống không.',
+        );
+      }
+      return false;
+    },
+
+    /** Câu đã được trả lời -> quên đi, ⛔ đừng để sổ phình mãi. */
+    quen(requestId) {
+      const rid = String(requestId ?? '');
+      dem.delete(rid);
+      daBao.delete(rid);
+    },
+
+    /** Chỉ để test/log. */
+    soDong() { return dem.size; },
+  };
+}
