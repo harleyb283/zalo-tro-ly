@@ -363,7 +363,7 @@ const PHAI_QUET = [
   //   · `.d.ts` / `.example` / `.gitignore` bị loại theo ĐUÔI FILE
   // Cả hai đều là hệ quả của việc hỏi sai câu: bản cũ hỏi "có phải mã nguồn
   // không", câu đúng phải là "có lên git không".
-  'test/chia_tin.test.js',
+  'test/split_message.test.js',
   'src/types.d.ts',
   '.env.example',
   '.gitignore',
