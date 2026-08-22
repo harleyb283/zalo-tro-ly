@@ -315,7 +315,7 @@ test('D4 ★★★ cảnh báo gửi qua Zalo PHẢI vào sổ lịch sử', asy
 
 test('E1 ★★★ client nối `baoHetHan` vào đường XẾP HÀNG, ⛔ không phải notifyHost trần', () => {
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function rutOutbox'));
+  const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function drainOutbox'));
   const sach = kh.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
   assert.match(sach, /xepHangDm:\s*\(dmChatId, text\)\s*=>\s*\{\s*enqueueOutbound\(db,/,

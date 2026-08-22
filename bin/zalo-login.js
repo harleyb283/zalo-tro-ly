@@ -140,7 +140,7 @@ async function hoiCo(cauHoi) {
   }
 }
 
-export function moAnhBangHeDieuHanh(duongDan) {
+export function openImageWithOs(duongDan) {
   // 🔴 CÙNG HỌ LỖI với vụ popup osascript (20/08/2026): đây cũng là một đường
   // CHẠM RA NGOÀI tiến trình — nó mở hẳn trình xem ảnh trên màn hình anh.
   // Hôm nay chưa bài test nào với tới (phải đăng nhập QR thật mới gọi được),
@@ -255,7 +255,7 @@ async function lenhQuetQr(cauHinh, tuyChon) {
         out('');
         out(`  ✅ Ảnh QR đã ghi: ${dl.qrPath}`);
         if (tuyChon.moAnh) {
-          moAnhBangHeDieuHanh(dl.qrPath)
+          openImageWithOs(dl.qrPath)
             ? out('  Đã mở bằng trình xem ảnh của máy.')
             : out('  (không tự mở được — hãy tự mở file trên)');
         }

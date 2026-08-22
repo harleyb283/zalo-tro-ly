@@ -102,7 +102,7 @@ function moiTruong() {
 }
 
 function chayHook(thuMuc, chatId, vao = '{}') {
-  return execFileSync(process.execPath, [path.join(process.cwd(), 'bin', 'hook-chua-tra-loi.js')], {
+  return execFileSync(process.execPath, [path.join(process.cwd(), 'bin', 'hook-reply-guard.js')], {
     input: vao,
     encoding: 'utf8',
     env: { ...process.env, ZTL_DATA_DIR: thuMuc, ZTL_CHAT_ID: chatId, ZTL_TUYEN: '' },
@@ -159,5 +159,5 @@ test('C4 ★★★ HOOK PHẢI ĐƯỢC CẮM trong .claude/settings.json', () =
   // lỗi "code đúng, dây không nối" đã mất cả buổi chiều 21/08.
   const st = JSON.parse(fs.readFileSync(path.join(process.cwd(), '.claude', 'settings.json'), 'utf8'));
   const lenh = (st?.hooks?.Stop ?? []).flatMap((m) => m.hooks ?? []).map((h) => h.command).join(' ');
-  assert.match(lenh, /hook-chua-tra-loi\.js/, '🔴 hook chưa được cắm vào settings');
+  assert.match(lenh, /hook-reply-guard\.js/, '🔴 hook chưa được cắm vào settings');
 });

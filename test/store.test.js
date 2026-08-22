@@ -945,10 +945,10 @@ test('I9 hàng đợi KHÔNG phải cửa sau: hội thoại tắt nghe thì kh�
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// J. BACKFILL — bin/va_lai_noi_dung.js
+// J. BACKFILL — bin/patch-content.js
 // ═══════════════════════════════════════════════════════════════════════════
 
-const { vaLai } = await import('../bin/va_lai_noi_dung.js');
+const { patchContent } = await import('../bin/patch-content.js');
 
 /** DB có đúng 3 ca như kho thật: mất chữ, đã có chữ, và tin không phải text. */
 function dbCanVa() {
@@ -992,21 +992,21 @@ function dbCanVa() {
 
 test('J1 ★ chạy thử KHÔNG ghi gì — mặc định phải an toàn', () => {
   const dd = dbCanVa();
-  const kq = vaLai(dd, false);
+  const kq = patchContent(dd, false);
   assert.equal(kq.truoc.co_chu, kq.sau.co_chu, 'chạy thử mà ghi là mất an toàn mặc định');
   assert.equal(kq.ketQua.find((b) => b.ten === 'do-chu').soKhop, 2, 'vẫn phải ĐẾM đúng');
 });
 
 test('J2 ★ ghi thật: số dòng KHÔNG đổi, số dòng có chữ CHỈ TĂNG', () => {
   const dd = dbCanVa();
-  const kq = vaLai(dd, true);
+  const kq = patchContent(dd, true);
   assert.equal(Number(kq.sau.tong), Number(kq.truoc.tong));
   assert.equal(Number(kq.sau.co_chu), Number(kq.truoc.co_chu) + 2);
 });
 
 test('J3 🔴 KHÔNG đè lên dòng đã có chữ', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
+  patchContent(dd, true);
   const db = openDb(dd);
   assert.equal(db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='co1'").get().n, 'chữ sẵn có');
   closeDb(db);
@@ -1014,7 +1014,7 @@ test('J3 🔴 KHÔNG đè lên dòng đã có chữ', () => {
 
 test('J3b 🔴 dòng đã có chữ mà content_raw còn `_text` cũ -> TUYỆT ĐỐI không đè', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
+  patchContent(dd, true);
   const db = openDb(dd);
   assert.equal(
     db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='ca_hai'").get().n,
@@ -1026,7 +1026,7 @@ test('J3b 🔴 dòng đã có chữ mà content_raw còn `_text` cũ -> TUYỆT 
 
 test('J4 sticker KHÔNG bị đụng (spec H: loại khác text thì noi_dung phải NULL)', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
+  patchContent(dd, true);
   const db = openDb(dd);
   const r = db.prepare("SELECT noi_dung AS n, msg_type AS t FROM tin_nhan WHERE msg_id='stk'").get();
   assert.equal(r.n, null);
@@ -1036,7 +1036,7 @@ test('J4 sticker KHÔNG bị đụng (spec H: loại khác text thì noi_dung ph
 
 test('J5 msg_type của dòng vừa lấp phải thành chat.text, không để nửa vời', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
+  patchContent(dd, true);
   const db = openDb(dd);
   const r = db.prepare("SELECT noi_dung AS n, msg_type AS t FROM tin_nhan WHERE msg_id='mat1'").get();
   assert.equal(r.n, 'Test trợ lý 1');
@@ -1046,7 +1046,7 @@ test('J5 msg_type của dòng vừa lấp phải thành chat.text, không để 
 
 test('J6 tên bot lấy TỪ DB, không viết cứng', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
+  patchContent(dd, true);
   const db = openDb(dd);
   assert.equal(
     db.prepare("SELECT ten_luc_gui AS t FROM tin_nhan WHERE msg_id='bot1'").get().t,
@@ -1057,7 +1057,7 @@ test('J6 tên bot lấy TỪ DB, không viết cứng', () => {
 
 test('J7 chạy lại lần hai là no-op (idempotent)', () => {
   const dd = dbCanVa();
-  vaLai(dd, true);
-  const lan2 = vaLai(dd, true);
+  patchContent(dd, true);
+  const lan2 = patchContent(dd, true);
   for (const b of lan2.ketQua) assert.equal(b.soKhop, 0, `bước ${b.ten} còn khớp ${b.soKhop} dòng`);
 });

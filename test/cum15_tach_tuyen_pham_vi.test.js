@@ -202,7 +202,7 @@ test('★★★ R3 🔴 `ZTL_TUYEN` ⛔ KHÔNG tự nới phạm vi đọc', () 
   // Kiểu hỏng này ⛔ KHÔNG có triệu chứng nào ngoài dữ liệu rò ra: pane vẫn
   // nhận đúng dòng, vẫn trả lời, chỉ là nó đọc được thứ không được phép.
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
-  const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox')
+  const kh = khoiGiua(idx, 'async function chayClient', 'export async function drainOutbox')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.ok(!/setReadScope\([^)]*tuyenTho/.test(kh),
     '🔴 `tuyenTho` đi vào setReadScope = khoá định tuyến mở luôn quyền đọc');

@@ -422,7 +422,7 @@ test('★★★ M1 chế độ MỘT TIẾN TRÌNH: không ai gọi setReadScope
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
   // `setReadScope` chỉ được gọi trong `chayClient`, ⛔ không ở đường daemon.
   const truocClient = truocNeo(idx, 'async function chayClient');
-  const sauClient = tuNeo(idx, 'export async function rutOutbox');
+  const sauClient = tuNeo(idx, 'export async function drainOutbox');
   assert.ok(!truocClient.includes('setReadScope('), 'đường daemon ⛔ không được khoá phạm vi');
   assert.ok(!sauClient.includes('setReadScope('), 'đường daemon ⛔ không được khoá phạm vi');
 

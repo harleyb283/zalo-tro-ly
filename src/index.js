@@ -78,7 +78,7 @@ import {
 /** @typedef {import('./types.d.ts').CauHinh} CauHinh */
 /** @typedef {import('./types.d.ts').TinChuanHoa} TinChuanHoa */
 
-export const MA_THOAT = Object.freeze({
+export const EXIT_CODE = Object.freeze({
   OK: 0,
   LOI_CHUNG: 1,
   CAU_HINH_SAI: 2,
@@ -112,7 +112,7 @@ function log(msg) {
  * @param {string} duongDan
  * @returns {{nha: () => void, pid: number}}
  */
-export function giuKhoaPid(duongDan) {
+export function acquirePidLock(duongDan) {
   const p = expandPath(duongDan);
   ensureParentDir(p);
 
@@ -145,7 +145,7 @@ export function giuKhoaPid(duongDan) {
             'Hai bản cùng ghi một DB và cùng nghe một websocket là hỏng dữ liệu — TỪ CHỐI chạy.',
         );
         // @ts-ignore
-        loi.maThoat = MA_THOAT.DANG_CHAY_ROI;
+        loi.maThoat = EXIT_CODE.DANG_CHAY_ROI;
         throw loi;
       }
       log(`dọn khoá mồ côi của pid ${cu} (tiến trình đó đã chết)`);
@@ -185,12 +185,12 @@ function _conSong(pid) {
  *          tenHoiThoai: (chatId: string) => string|null,
  *          tuCauHinhNhomMoi?: (sk: any) => void}} p
  */
-export function ganXuLyTin(p) {
+export function attachMessageHandlers(p) {
   const { boPhat, db, cauHinh } = p;
 
   boPhat.on(SU_KIEN.TIN_NHAN, (tin) => {
     try {
-      xuLyMotTin(p, tin);
+      handleMessage(p, tin);
     } catch (e) {
       log(`xử lý tin thất bại (đã nuốt): ${safeLogText(e)}`);
     }
@@ -240,7 +240,7 @@ export function ganXuLyTin(p) {
   // emit('error') mà không ai nghe. Vẫn phải có người nghe cho tử tế.
   boPhat.on(SU_KIEN.LOI, (e) => log(`listener báo lỗi: ${safeLogText(e)}`));
 
-  // Không có handler nào cho `cauHinh` ở đây — nó đi theo `p` vào xuLyMotTin.
+  // Không có handler nào cho `cauHinh` ở đây — nó đi theo `p` vào handleMessage.
   void cauHinh;
 }
 
@@ -249,7 +249,7 @@ export function ganXuLyTin(p) {
  * @param {any} p
  * @param {TinChuanHoa} tin
  */
-export function xuLyMotTin(p, tin) {
+export function handleMessage(p, tin) {
   const { db, cauHinh } = p;
   const chatId = toId(tin?.chatId, 'index.chatId');
   if (chatId === null) {
@@ -426,7 +426,7 @@ export function xuLyMotTin(p, tin) {
  * @param {(loiNhan: string) => Promise<any>} baoRa
  * @returns {(ten: string, ra: {loi?: number}|null|undefined) => void}
  */
-export function taoBoDemLoiGui(baoRa) {
+export function createSendFailureCounter(baoRa) {
   const lienTiep = new Map();
   const daBao = new Set();
   return function dem(ten, ra) {
@@ -471,7 +471,7 @@ export function taoBoDemLoiGui(baoRa) {
  * @param {import('./types.d.ts').BoTichLuyNguon} boTichLuy
  * @returns {(requestId: string, nguonChatIds: string[]) => void}
  */
-export function noiGhiNhanNguon(boTichLuy) {
+export function bindRecordSources(boTichLuy) {
   return (requestId, nguonChatIds) => recordSources(boTichLuy, requestId, nguonChatIds);
 }
 
@@ -512,9 +512,9 @@ function docCo(argv) {
  * và ghi ra đĩa: khi có số, quyết định "có cần chuông không" dựa trên số chứ
  * ⛔ không dựa trên phán đoán này.
  *
- * ⚠️ Cùng nhịp `rutOutbox` (2 s) là CỐ Ý — một con số để nhớ, một chỗ để chỉnh.
+ * ⚠️ Cùng nhịp `drainOutbox` (2 s) là CỐ Ý — một con số để nhớ, một chỗ để chỉnh.
  */
-export const NHIP_POLL_CLIENT_MS = 2000;
+export const CLIENT_POLL_TICK_MS = 2000;
 
 /**
  * ★ Vòng lấy việc. Trả về `{ dung() }`.
@@ -535,8 +535,8 @@ export const NHIP_POLL_CLIENT_MS = 2000;
  * @param {{chay: () => Promise<any>, nhipMs?: number, log: (s: string) => void,
  *          datHen?: Function, xoaHen?: Function}} p
  */
-export function taoVongLayViec(p) {
-  const nhip = Number(p.nhipMs) > 0 ? Number(p.nhipMs) : NHIP_POLL_CLIENT_MS;
+export function createWorkPollLoop(p) {
+  const nhip = Number(p.nhipMs) > 0 ? Number(p.nhipMs) : CLIENT_POLL_TICK_MS;
   const datHen = p.datHen ?? setInterval;
   const xoaHen = p.xoaHen ?? clearInterval;
   let dangChay = false;
@@ -579,7 +579,7 @@ export function taoVongLayViec(p) {
  * ⚠️ Ghi hỏng thì IM và trả `false` — đây là sổ đo, ⛔ không được làm chết một
  * lượt trả lời thật vì không ghi được số liệu.
  */
-export function taoSoDoTre(duongDan, tran = 5000) {
+export function createLatencyLog(duongDan, tran = 5000) {
   let dem = 0;
   return {
     duongDan,
@@ -606,7 +606,7 @@ export function taoSoDoTre(duongDan, tran = 5000) {
  * ⚠️ Sổ RỖNG trả `null`, ⛔ không trả 0. `0 ms` là một khẳng định ("nhanh
  * tuyệt đối"); `null` là sự thật ("chưa đo được gì").
  */
-export function docDoTre(duongDan) {
+export function readLatencyLog(duongDan) {
   let tho = '';
   try { tho = fs.readFileSync(duongDan, 'utf8'); } catch { return null; }
   const so = tho.split('\n').filter(Boolean)
@@ -624,7 +624,7 @@ export function docDoTre(duongDan) {
  *
  * 🔴 BỐN THỨ CLIENT TUYỆT ĐỐI KHÔNG LÀM, và mỗi cái là một ca hỏng thật:
  *
- *  1. ⛔ KHÔNG `giuKhoaPid`. Đây là ca DỄ MẮC NHẤT: pid-lock vốn nằm ngay đầu
+ *  1. ⛔ KHÔNG `acquirePidLock`. Đây là ca DỄ MẮC NHẤT: pid-lock vốn nằm ngay đầu
  *     `main()`, ai bê nguyên khối khởi động sang là N pane chết ngay lúc khởi
  *     động — pane thứ hai thấy khoá của pane thứ nhất rồi thoát.
  *  2. ⛔ KHÔNG đăng nhập Zalo. Tài khoản chỉ có MỘT suất "máy tính"; client
@@ -779,7 +779,7 @@ async function chayClient(co, log, cauHinh) {
   if (co.kiemKhoiDong) {
     log('[client] --kiem-khoi-dong: đã qua config + DB + phạm vi, thoát mà KHÔNG nối MCP');
     closeDb(db);
-    return MA_THOAT.OK;
+    return EXIT_CODE.OK;
   }
 
   const { createChannel, pushPendingQueue } = await import('./mcp/channel.js');
@@ -794,7 +794,7 @@ async function chayClient(co, log, cauHinh) {
     findGroup(cauHinh, chatId)?.ten ?? findHostByDm(cauHinh, chatId)?.ten ?? null;
 
   // Sổ đo độ trễ nằm cạnh file DB — cùng thư mục, cùng mức siết quyền.
-  const soDoTre = taoSoDoTre(
+  const soDoTre = createLatencyLog(
     path.join(path.dirname(expandPath(cauHinh.duongDan.db)), 'do_tre_lay_viec.jsonl'),
   );
 
@@ -890,7 +890,7 @@ async function chayClient(co, log, cauHinh) {
       // đợi ĐÚNG MỘT LẦN rồi `await new Promise(() => {})` ngồi im mãi ⇒ ở chế
       // độ tách, MỌI tin nhắn mới của người dùng chỉ được nhặt lúc pane khởi
       // động. Sau đó daemon ghi vào `hang_doi_hoi` bao nhiêu cũng nằm đó.
-      vong = taoVongLayViec({
+      vong = createWorkPollLoop({
         // ⚠️ `gomDaDay: false` trong vòng poll. Bật nó ở đây là mỗi 2 giây đẩy
         // lại chính câu Claude ĐANG xử lý dở — xem khối A7 ở `store/write.js`.
         chay: () => motNhipLayViec({ gomDaDay: false }),
@@ -957,14 +957,14 @@ async function chayClient(co, log, cauHinh) {
       try { if (henVot) clearInterval(henVot); } catch { /* nuốt */ }
       try { vong?.dung(); } catch { /* nuốt */ }
       try { closeDb(db); } catch { /* nuốt */ }
-      process.exit(MA_THOAT.OK);
+      process.exit(EXIT_CODE.OK);
     });
   }
 
   await channel.khoiDong();
   log('[client] đã nối stdio MCP — KHÔNG giữ pid-lock, KHÔNG chạm Zalo');
   await new Promise(() => {});
-  return MA_THOAT.OK;
+  return EXIT_CODE.OK;
 }
 
 /**
@@ -979,7 +979,7 @@ async function chayClient(co, log, cauHinh) {
  * chưa"), thử lại mù là rủi ro hai tin. Lưới canh outbox (bước 5, pane khác)
  * mới là chỗ quyết định có thử lại hay báo host.
  */
-export async function rutOutbox(p) {
+export async function drainOutbox(p) {
   const ra = { daGui: 0, loi: 0 };
   const { takePendingOutbound, claimOutbound, writeSendResult } = p.kho;
   let ds;
@@ -1073,7 +1073,7 @@ export async function main(argv = process.argv) {
     if (che.cheDo !== CHE_DO.MOT_TIEN_TRINH) log(`chế độ "${che.cheDo}" · vai "${che.vai}"`);
 
     // ① pid-lock — đường dẫn suy từ chính duongDan.db để khoá đi cùng kho dữ liệu
-    khoa = giuKhoaPid(path.join(path.dirname(cauHinh.duongDan.db), 'zalo-tro-ly.pid'));
+    khoa = acquirePidLock(path.join(path.dirname(cauHinh.duongDan.db), 'zalo-tro-ly.pid'));
     log(`giữ khoá pid ${process.pid}`);
 
     // ③ DB
@@ -1101,7 +1101,7 @@ export async function main(argv = process.argv) {
     if (co.kiemKhoiDong) {
       log('--kiem-khoi-dong: đã qua config + pid-lock + DB, thoát mà KHÔNG đăng nhập Zalo');
       dongSach();
-      return MA_THOAT.OK;
+      return EXIT_CODE.OK;
     }
 
     // ④ login bằng COOKIE — KHÔNG BAO GIỜ mở QR ở đây
@@ -1140,7 +1140,7 @@ export async function main(argv = process.argv) {
         ? 'CAN_QR — chạy TAY: node bin/zalo-login.js'
         : 'KHONG_BIET — chưa kết luận cookie chết, KHÔNG giục quét QR');
       dongSach();
-      return MA_THOAT.CAN_QR;
+      return EXIT_CODE.CAN_QR;
     }
 
     // ⑤ ẩn trạng thái
@@ -1278,7 +1278,7 @@ export async function main(argv = process.argv) {
 
     // ⑥ gắn 4 listener
     const boPhat = new EventEmitter();
-    ganXuLyTin({
+    attachMessageHandlers({
       boPhat,
       db,
       cauHinh,
@@ -1427,7 +1427,7 @@ export async function main(argv = process.argv) {
         // báo ngay thì thành phiền và người ta học cách bỏ qua cảnh báo.
         // Báo ĐÚNG MỘT LẦN cho mỗi đợt hỏng (im cho tới khi gửi lại được) —
         // nếu không thì nhịp 30 giây sẽ nhắn host 120 tin một giờ.
-        const demLoiGui = taoBoDemLoiGui((loiNhan) => baoHostDaemon(loiNhan));
+        const demLoiGui = createSendFailureCounter((loiNhan) => baoHostDaemon(loiNhan));
 
         hen.push(
           setInterval(() => {
@@ -1458,7 +1458,7 @@ export async function main(argv = process.argv) {
               // ⚠️ `boTichLuy` phải là ĐÚNG bộ đang dùng ở `registerTools` (dựng ở
               // ⑨-chuẩn bị) — hai bộ khác nhau thì `leak_guard` tra một sổ,
               // `bo_chay` ghi vào sổ kia, và lá chắn lại mù đúng ca cần nó.
-              recordSources: noiGhiNhanNguon(boTichLuy),
+              recordSources: bindRecordSources(boTichLuy),
               // 🔴 DÂY TREO THỨ HAI (tìm thấy 21/08/2026 khi rà `p.*`).
               // `_baoHetLuot()` — câu DM báo "lời nhắc dừng vì HẾT LƯỢT, KHÔNG
               // phải vì việc đã xong" — chỉ được gọi từ CHÍNH `runFollowUpTick`,
@@ -1494,7 +1494,7 @@ export async function main(argv = process.argv) {
 
     // ⑨ nối stdio MCP — TỪ ĐÂY TRỞ ĐI một dòng console.log là hỏng cả phiên
     // ⑬ v7 — RÚT OUTBOX. Chỉ ở chế độ TÁCH: đây là chỗ DUY NHẤT chạm Zalo,
-    // và là chỗ throttle được thi hành TOÀN CỤC (xem chú thích ở `rutOutbox`).
+    // và là chỗ throttle được thi hành TOÀN CỤC (xem chú thích ở `drainOutbox`).
     if (che.cheDo === CHE_DO.TACH) {
       const { sendToGroup, sendHostDm } = await import('./zalo/send.js');
       const { groupMembers } = await import('./store/query.js');
@@ -1503,7 +1503,7 @@ export async function main(argv = process.argv) {
       const uidTL = toId(api?.getOwnId?.(), 'index.uidTroLy');
 
       hen.push(setInterval(() => {
-        rutOutbox({
+        drainOutbox({
           db,
           log,
           kho: { takePendingOutbound, claimOutbound, writeSendResult },
@@ -1544,24 +1544,24 @@ export async function main(argv = process.argv) {
       process.on(tin, () => {
         log(`nhận ${tin} -> tắt sạch`);
         dongSach();
-        process.exit(MA_THOAT.OK);
+        process.exit(EXIT_CODE.OK);
       });
     }
 
     // Giữ tiến trình sống. `setInterval` ở trên đã đủ giữ event loop, đây chỉ
     // là promise không bao giờ giải để `main()` không trả về sớm.
     await new Promise(() => {});
-    return MA_THOAT.OK;
+    return EXIT_CODE.OK;
   } catch (e) {
     log(`KHỞI ĐỘNG THẤT BẠI: ${e?.message ?? e}`);
     dongSach();
-    // @ts-ignore — maThoat do giuKhoaPid gắn
+    // @ts-ignore — maThoat do acquirePidLock gắn
     if (e?.maThoat) return e.maThoat;
     // Lỗi từ readConfig (validate) là lỗi CẤU HÌNH, không phải lỗi chung.
     if (/[Cc]ấu hình|hosts|cauTrungTinh|MỞ TOANG|config/.test(String(e?.message ?? ''))) {
-      return MA_THOAT.CAU_HINH_SAI;
+      return EXIT_CODE.CAU_HINH_SAI;
     }
-    return MA_THOAT.LOI_CHUNG;
+    return EXIT_CODE.LOI_CHUNG;
   }
 }
 
@@ -1572,6 +1572,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     })
     .catch((e) => {
       process.stderr.write(`${e?.message ?? e}\n`);
-      process.exitCode = MA_THOAT.LOI_CHUNG;
+      process.exitCode = EXIT_CODE.LOI_CHUNG;
     });
 }

@@ -31,7 +31,7 @@
  *
  * 4. 🔴 `--den 2026-08-20` phải bao TRỌN ngày 20 THEO MÚI GIỜ HIỂN THỊ.
  *    `Date.parse('2026-08-20')` = 00:00 UTC = 07:00 giờ VN ⇒ cắt mất gần cả
- *    ngày mà không báo gì. Xem `mocNgay()`.
+ *    ngày mà không báo gì. Xem `dayBoundary()`.
  */
 
 import fs from 'node:fs';
@@ -111,7 +111,7 @@ export function docThamSo(argv) {
  * @param {string} tz
  * @returns {number} phút, vd 420 cho UTC+07:00
  */
-export function lechPhut(ms, tz) {
+export function tzOffsetMinutes(ms, tz) {
   const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' })
     .formatToParts(new Date(ms))
     .find((x) => x.type === 'timeZoneName');
@@ -133,7 +133,7 @@ export function lechPhut(ms, tz) {
  * @param {boolean} cuoiNgay  true = 23:59:59.999 của ngày đó
  * @returns {number}
  */
-export function mocNgay(chuoi, tz, cuoiNgay = false) {
+export function dayBoundary(chuoi, tz, cuoiNgay = false) {
   const s = String(chuoi).trim();
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) {
@@ -148,7 +148,7 @@ export function mocNgay(chuoi, tz, cuoiNgay = false) {
   const utcTam = Date.UTC(y, thang - 1, ngay, ...gio);
   // Lấy độ lệch TẠI CHÍNH NGÀY ĐÓ (không phải hôm nay) — vùng có đổi giờ theo
   // mùa thì lệch tháng 1 khác lệch tháng 7.
-  return utcTam - lechPhut(utcTam, tz) * 60_000;
+  return utcTam - tzOffsetMinutes(utcTam, tz) * 60_000;
 }
 
 /**
@@ -156,7 +156,7 @@ export function mocNgay(chuoi, tz, cuoiNgay = false) {
  * @param {string} tz
  * @returns {{ngay: string, tieuDeNgay: string, gio: string}}
  */
-export function dinhDangGio(ms, tz) {
+export function formatTime(ms, tz) {
   const d = new Date(ms);
   const bo = (o) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, ...o }).format(d);
   return {
@@ -185,7 +185,7 @@ function nhanLech(phut) {
  * @param {Record<string, any>} ts
  * @returns {{duongDan: string, nguon: string}}
  */
-export function timDuongDanDb(ts) {
+export function findDbPath(ts) {
   if (ts.db) return { duongDan: expandPath(String(ts.db)), nguon: '--db' };
   if (process.env.ZTL_DB) return { duongDan: expandPath(process.env.ZTL_DB), nguon: 'env ZTL_DB' };
   try {
@@ -208,7 +208,7 @@ export function timDuongDanDb(ts) {
  * @param {string} duongDan
  * @returns {import('node:sqlite').DatabaseSync}
  */
-export function moChiDoc(duongDan) {
+export function openReadOnly(duongDan) {
   if (!fs.existsSync(duongDan)) {
     throw new Error(
       `Không thấy file DB: ${duongDan}\n` +
@@ -261,7 +261,7 @@ function dieuKien(loc) {
  * `tongKhopBoLoc` đếm bằng câu SQL RIÊNG, KHÔNG suy ra từ mảng đã lấy — đó
  * chính là phép đối chiếu chống lệch âm thầm mà nghiệm thu đòi.
  */
-export function layTin(db, loc) {
+export function fetchMessages(db, loc) {
   const { menh, bien } = dieuKien(loc);
   const tong = Number(
     db.prepare(`SELECT count(*) AS c FROM tin_nhan t${menh}`).get(bien)?.c ?? 0,
@@ -277,7 +277,7 @@ export function layTin(db, loc) {
 }
 
 /** Sự kiện thu hồi theo (chat_id, msg_id_dich) — để biết AI thu hồi và LÚC NÀO. */
-export function bangThuHoi(db, chatId) {
+export function recallTable(db, chatId) {
   const rows = chatId
     ? db.prepare('SELECT * FROM su_kien_thu_hoi WHERE chat_id = ?').all(chatId)
     : db.prepare('SELECT * FROM su_kien_thu_hoi').all();
@@ -286,20 +286,20 @@ export function bangThuHoi(db, chatId) {
   return ra;
 }
 
-export function bangHoiThoai(db) {
+export function conversationTable(db) {
   const ra = new Map();
   for (const r of db.prepare('SELECT * FROM hoi_thoai').all()) ra.set(String(r.chat_id), r);
   return ra;
 }
 
-export function bangNguoi(db) {
+export function peopleTable(db) {
   const ra = new Map();
   for (const r of db.prepare('SELECT * FROM nguoi').all()) ra.set(String(r.user_id), r);
   return ra;
 }
 
 /** Danh sách hội thoại + số tin + khoảng thời gian, cho `--danh-sach`. */
-export function danhSachHoiThoai(db) {
+export function listConversations(db) {
   return db.prepare(`
     SELECT h.chat_id, h.ten, h.loai, h.duoc_nghe,
            count(t.msg_id) AS so_tin,
@@ -338,7 +338,7 @@ function trichDan(text) {
  * msgType lạ ⇒ lấy tên gốc từ `content_raw._msgTypeGoc` (G2 cố ý giữ lại), chứ
  * KHÔNG đoán tên. Không có thì nói thẳng là không rõ.
  */
-export function nhanLoaiTin(r) {
+export function messageKindLabel(r) {
   const loai = String(r.msg_type ?? '');
   if (loai in NHAN_LOAI && NHAN_LOAI[loai] !== null) return NHAN_LOAI[loai];
   if (loai === 'UNKNOWN' || !(loai in NHAN_LOAI)) {
@@ -356,7 +356,7 @@ export function nhanLoaiTin(r) {
  * ⚠️ CỐ Ý KHÔNG tra `nguoi.ten_hien_thi`: người đổi tên thì lịch sử phải giữ
  * nguyên bối cảnh lúc đó, nếu không đọc lại sẽ hiểu sai ai nói câu gì.
  */
-export function tenNguoiGui(r) {
+export function senderName(r) {
   if (r.do_tro_ly_tao === 1) return 'Trợ lý (tự gửi)';
   const ten = (r.ten_luc_gui ?? '').trim();
   if (ten) return ten;
@@ -368,12 +368,12 @@ export function tenNguoiGui(r) {
  * Ai thu hồi. Nguồn tin cậy giảm dần, và LUÔN nói rõ đang dùng nguồn nào —
  * cấm để người đọc tưởng đây là tên lúc thu hồi trong khi thực ra là tên hiện tại.
  */
-export function tenNguoiThuHoi(r, sk, nguoi) {
+export function recallerName(r, sk, nguoi) {
   const boi = toId(sk?.nguoi_thu_hoi ?? r.thu_hoi_boi, 'export.thu_hoi_boi');
   const tenLuu = (sk?.ten_nguoi_thu_hoi ?? '').trim();
   if (tenLuu) return tenLuu;
   if (!boi) return 'không rõ ai';
-  if (boi === toId(r.user_id, 'export.user_id')) return `${tenNguoiGui(r)} (chính người gửi)`;
+  if (boi === toId(r.user_id, 'export.user_id')) return `${senderName(r)} (chính người gửi)`;
   const ht = (nguoi.get(boi)?.ten_hien_thi ?? '').trim();
   return ht ? `${ht} (tên HIỆN TẠI, không phải tên lúc thu hồi)` : `<${boi}>`;
 }
@@ -382,9 +382,9 @@ export function tenNguoiThuHoi(r, sk, nguoi) {
  * @param {object} p
  * @returns {{md: string, soTinDaIn: number, soThuHoi: number, lech: boolean}}
  */
-export function dungMarkdown(p) {
+export function buildMarkdown(p) {
   const { tin, tongKhopBoLoc, thuHoi, hoiThoai, nguoi, loc, tz, duongDanDb, nguonDb, bayGio } = p;
-  const lech = Number(lechPhut(bayGio, tz));
+  const lech = Number(tzOffsetMinutes(bayGio, tz));
   const d = [];
 
   const nhieuHoiThoai = !loc.chatId;
@@ -404,8 +404,8 @@ export function dungMarkdown(p) {
     d.push('- **Hội thoại:** TẤT CẢ (không lọc theo `--chat`)');
   }
   d.push(
-    `- **Khoảng lọc:** ${loc.tu === null ? 'từ đầu' : dinhDangGio(loc.tu, tz).ngay}` +
-      ` → ${loc.den === null ? 'tới nay' : dinhDangGio(loc.den, tz).ngay}`,
+    `- **Khoảng lọc:** ${loc.tu === null ? 'từ đầu' : formatTime(loc.tu, tz).ngay}` +
+      ` → ${loc.den === null ? 'tới nay' : formatTime(loc.den, tz).ngay}`,
   );
 
   const soThuHoi = tin.filter((r) => Number(r.da_thu_hoi) === 1).length;
@@ -422,7 +422,7 @@ export function dungMarkdown(p) {
   );
   d.push(`- **Trong đó đã thu hồi:** ${soThuHoi}`);
   d.push(`- **Múi giờ hiển thị:** ${tz} (${nhanLech(lech)})`);
-  d.push(`- **Xuất lúc:** ${dinhDangGio(bayGio, tz).ngay} ${dinhDangGio(bayGio, tz).gio}`);
+  d.push(`- **Xuất lúc:** ${formatTime(bayGio, tz).ngay} ${formatTime(bayGio, tz).gio}`);
   d.push(`- **Nguồn:** \`${duongDanDb}\` (mở CHỈ ĐỌC, chọn theo ${nguonDb})`);
   d.push('');
   d.push(
@@ -440,13 +440,13 @@ export function dungMarkdown(p) {
 
   let ngayHienTai = null;
   for (const r of tin) {
-    const g = dinhDangGio(Number(r.ts_zalo), tz);
+    const g = formatTime(Number(r.ts_zalo), tz);
     if (g.ngay !== ngayHienTai) {
       ngayHienTai = g.ngay;
       d.push('', `## ${g.tieuDeNgay}`, '');
     }
 
-    const ten = tenNguoiGui(r);
+    const ten = senderName(r);
     const nhomNhan = nhieuHoiThoai
       ? ` · _${(hoiThoai.get(String(r.chat_id))?.ten ?? `<${r.chat_id}>`)}_`
       : '';
@@ -457,15 +457,15 @@ export function dungMarkdown(p) {
       // 🔴 ĐÂY LÀ LÝ DO TỒN TẠI CỦA CẢ CÔNG CỤ: hiện RÕ là đã thu hồi, nói AI
       // và LÚC NÀO, nhưng VẪN IN NGUYÊN NỘI DUNG GỐC.
       const lucMs = Number(sk?.ts_zalo ?? r.thu_hoi_luc ?? 0);
-      const luc = lucMs > 0 ? `${dinhDangGio(lucMs, tz).ngay} ${dinhDangGio(lucMs, tz).gio}` : 'không rõ lúc nào';
+      const luc = lucMs > 0 ? `${formatTime(lucMs, tz).ngay} ${formatTime(lucMs, tz).gio}` : 'không rõ lúc nào';
       d.push(`**[${g.gio}] ${ten}${nhomNhan}** — 🗑️ **TIN ĐÃ THU HỒI**`);
-      d.push(`_Thu hồi bởi ${tenNguoiThuHoi(r, sk, nguoi)} lúc ${luc}. Nội dung gốc vẫn giữ:_`);
+      d.push(`_Thu hồi bởi ${recallerName(r, sk, nguoi)} lúc ${luc}. Nội dung gốc vẫn giữ:_`);
       d.push('');
     } else {
       d.push(`**[${g.gio}] ${ten}${nhomNhan}**`);
     }
 
-    const nhan = nhanLoaiTin(r);
+    const nhan = messageKindLabel(r);
     if (r.noi_dung !== null && r.noi_dung !== undefined && String(r.noi_dung) !== '') {
       d.push(trichDan(r.noi_dung));
     } else if (nhan) {
@@ -484,8 +484,8 @@ function mdDanhSach(ds, tz) {
     '| Mã hội thoại | Tên | Loại | Đang nghe | Số tin | Đã thu hồi | Tin cũ nhất | Tin mới nhất |',
     '|---|---|---|---|---|---|---|---|'];
   for (const r of ds) {
-    const som = r.som_nhat ? dinhDangGio(Number(r.som_nhat), tz).ngay : '—';
-    const muon = r.muon_nhat ? dinhDangGio(Number(r.muon_nhat), tz).ngay : '—';
+    const som = r.som_nhat ? formatTime(Number(r.som_nhat), tz).ngay : '—';
+    const muon = r.muon_nhat ? formatTime(Number(r.muon_nhat), tz).ngay : '—';
     const nghe = r.duoc_nghe === null ? '⚠️ chưa có trong hoi_thoai' : (Number(r.duoc_nghe) === 1 ? 'có' : 'KHÔNG');
     d.push(
       `| \`${r.chat_id}\` | ${(r.ten ?? '').trim() || '—'} | ${r.loai ?? '—'} | ${nghe} ` +
@@ -509,23 +509,23 @@ export async function main(argv) {
 
   const tz = String(ts.tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
   try {
-    dinhDangGio(Date.now(), tz);
+    formatTime(Date.now(), tz);
   } catch {
     throw new Error(`Múi giờ không hợp lệ: '${tz}' (dùng dạng IANA, vd Asia/Ho_Chi_Minh).`);
   }
 
-  const { duongDan, nguon } = timDuongDanDb(ts);
-  const db = moChiDoc(duongDan);
+  const { duongDan, nguon } = findDbPath(ts);
+  const db = openReadOnly(duongDan);
   try {
     if (ts['danh-sach']) {
-      const md = mdDanhSach(danhSachHoiThoai(db), tz);
+      const md = mdDanhSach(listConversations(db), tz);
       return ghiRa(md, ts, `Đã liệt kê hội thoại từ ${duongDan}`);
     }
 
     const loc = {
       chatId: ts.chat ? toId(String(ts.chat), 'export.--chat') : null,
-      tu: ts.tu ? mocNgay(String(ts.tu), tz, false) : null,
-      den: ts.den ? mocNgay(String(ts.den), tz, true) : null,
+      tu: ts.tu ? dayBoundary(String(ts.tu), tz, false) : null,
+      den: ts.den ? dayBoundary(String(ts.den), tz, true) : null,
       soLuong: ts.so ? Number(ts.so) : null,
     };
     if (ts.so && (!Number.isFinite(loc.soLuong) || loc.soLuong <= 0)) {
@@ -535,13 +535,13 @@ export async function main(argv) {
       throw new Error('--tu muộn hơn --den, không có tin nào lọt qua. Kiểm lại hai mốc.');
     }
 
-    const { tin, tongKhopBoLoc } = layTin(db, loc);
-    const kq = dungMarkdown({
+    const { tin, tongKhopBoLoc } = fetchMessages(db, loc);
+    const kq = buildMarkdown({
       tin,
       tongKhopBoLoc,
-      thuHoi: bangThuHoi(db, loc.chatId),
-      hoiThoai: bangHoiThoai(db),
-      nguoi: bangNguoi(db),
+      thuHoi: recallTable(db, loc.chatId),
+      hoiThoai: conversationTable(db),
+      nguoi: peopleTable(db),
       loc,
       tz,
       duongDanDb: duongDan,

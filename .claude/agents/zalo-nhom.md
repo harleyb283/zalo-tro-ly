@@ -86,7 +86,7 @@ ra. Anh phải hỏi lại lần hai. Chính pane đó thừa nhận: *"em quên
 🔴 Lý do đáng nhớ: **soạn xong CẢM GIÁC như đã xong việc.** Đó là lúc dễ quên nhất —
 lời dặn kỹ hơn ⛔ không sửa được cảm giác đó.
 
-⇒ Nay có **chốt cơ học**: hook `Stop` (`bin/hook-chua-tra-loi.js`) soi kho trước khi
+⇒ Nay có **chốt cơ học**: hook `Stop` (`bin/hook-reply-guard.js`) soi kho trước khi
 lượt được phép kết thúc. Còn dòng nào của nhóm này ở trạng thái *đã nhận, chưa trả lời*
 ⇒ nó **CHẶN**, kèm đúng `request_id` cần xử lý. Gặp câu chặn đó thì ⛔ đừng tìm cách đi
 vòng — gọi tool là xong.

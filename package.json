@@ -15,7 +15,7 @@
   "scripts": {
     "cai-dat": "node bin/cai-dat.js",
     "init-db": "node bin/init-db.js",
-    "check": "node bin/kiem-cu-phap.js",
+    "check": "node bin/check-syntax.js",
     "login": "node bin/zalo-login.js",
     "health": "node bin/zalo-health.js",
     "export": "node bin/zalo-export.js",

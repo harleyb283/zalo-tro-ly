@@ -64,7 +64,7 @@ export const MA = Object.freeze({
  * ba chu kỳ liên tiếp thì không còn là ngẫu nhiên. Sàn 15 phút để cấu hình
  * watchdog quá ngắn không sinh báo động giả liên miên.
  */
-export function hanNhipTimMs(cauHinh) {
+export function heartbeatDeadlineMs(cauHinh) {
   const w = cauHinh?.thoiGian?.watchdogMs || DEFAULT_TIMINGS.watchdogMs;
   return Math.max(15 * 60_000, w * 3);
 }
@@ -75,7 +75,7 @@ export function hanNhipTimMs(cauHinh) {
  * lại tử tế xong trong ~12 phút. Quá 30 phút mà vẫn "đang nối lại" nghĩa là
  * nó đang quay vòng chứ không phải đang hồi phục.
  */
-export const HAN_NOI_LAI_MS = 30 * 60_000;
+export const RECONNECT_DEADLINE_MS = 30 * 60_000;
 
 function docThamSo(argv) {
   const t = { xem: false, json: false, config: null, imLang: false, help: false };
@@ -121,7 +121,7 @@ Mã thoát: 0 ok · 1 lỗi · 2 cấu hình · 3 CAN_QR · 4 LISTENER_CHET
  * @param {number} [bayGioMs]
  * @returns {{ma: number, nghiemTrong: boolean, tomTat: string, chiTiet: object}}
  */
-export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
+export function judgeHealth(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
   // 🔴 BỐN TRẠNG THÁI KHÁC HẲN NHAU, lâu nay bị gộp thành một câu "cần quét QR":
   //   ① daemon không chạy   ② chưa từng đăng nhập   ③ đang khởi động lại   ④ cookie chết thật
   // CHỈ ④ mới cần quét QR. `tienTrinh` (isDaemonRunning) là dữ kiện để tách ① và ③
@@ -151,14 +151,14 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
 
   const nhipTim = heartbeatAgeMs(tt, bayGioMs);
   const tuoiTt = stateAgeMs(tt, bayGioMs);
-  const han = hanNhipTimMs(cauHinh);
+  const han = heartbeatDeadlineMs(cauHinh);
   const chiTiet = {
     trangThai: tt.trangThai,
     lyDo: tt.lyDo,
     soLanThuLai: tt.soLanThuLai,
     nhipTimMs: nhipTim,
     stateAgeMs: tuoiTt,
-    hanNhipTimMs: han,
+    heartbeatDeadlineMs: han,
     tienTrinh: dt,
   };
 
@@ -225,7 +225,7 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
     case TRANG_THAI_SUC_KHOE.DANG_NOI_LAI: {
       // Đang nối lại là chuyện BÌNH THƯỜNG trong chốc lát — báo động ngay thì
       // mỗi lần mạng chớp là một mail. Chỉ kêu khi nó KẸT.
-      const ket = tuoiTt !== null && tuoiTt > HAN_NOI_LAI_MS;
+      const ket = tuoiTt !== null && tuoiTt > RECONNECT_DEADLINE_MS;
       return {
         ma: ket ? MA.NOI_LAI_KET : MA.OK,
         nghiemTrong: ket,
@@ -282,9 +282,9 @@ export async function main(argv) {
 
   const tt = readHealth(duongDanHealth);
   // Đọc tiến trình daemon TRƯỚC khi phán: thiếu dữ kiện này thì không tách nổi
-  // "đang khởi động lại" với "cookie chết thật" (xem chú thích ở phanDinh).
+  // "đang khởi động lại" với "cookie chết thật" (xem chú thích ở judgeHealth).
   const tienTrinh = isDaemonRunning(cauHinh);
-  const kq = phanDinh(tt, cauHinh, Date.now(), tienTrinh);
+  const kq = judgeHealth(tt, cauHinh, Date.now(), tienTrinh);
 
   if (t.json) {
     out(JSON.stringify({ duongDanHealth, ma: kq.ma, ...kq, ...{ chiTiet: kq.chiTiet } }, null, 2));

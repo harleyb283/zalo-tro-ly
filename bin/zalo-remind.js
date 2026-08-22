@@ -120,7 +120,7 @@ Mã thoát: 0 đã gửi · 1 lỗi (gồm cả "từ chối vì daemon đang ch
  * @param {{text: string|null, tuFile: string|null}} t
  * @returns {string}
  */
-export function layNoiDung(t) {
+export function reminderBody(t) {
   if (t.text && t.tuFile) {
     throw new Error('Chỉ được dùng MỘT trong hai: --text hoặc --tu-file');
   }
@@ -150,7 +150,7 @@ export function layNoiDung(t) {
  * @param {{nhom: string|null, host: string|null}} t
  * @returns {{loai: 'nhom'|'dm', chatId: string, nhan: string}}
  */
-export function chonDich(cauHinh, t) {
+export function pickTarget(cauHinh, t) {
   if (t.nhom) {
     const n = findGroup(cauHinh, t.nhom);
     if (!n) {
@@ -194,8 +194,8 @@ export async function main(argv) {
   let noiDung;
   let dich;
   try {
-    noiDung = layNoiDung(t);
-    dich = chonDich(cauHinh, t);
+    noiDung = reminderBody(t);
+    dich = pickTarget(cauHinh, t);
   } catch (e) {
     err(`⛔ ${e.message}`);
     return MA.THAM_SO;

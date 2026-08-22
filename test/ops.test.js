@@ -23,8 +23,8 @@ import {
   isRunningTests, getBlockedNotifications, clearBlockedLog, osascriptArgs,
   OSASCRIPT_SOURCE, stampReal,
 } from '../src/ops/notify_host.js';
-import { phanDinh, MA, hanNhipTimMs, HAN_NOI_LAI_MS } from '../bin/zalo-health.js';
-import { layNoiDung, chonDich, MA as MA_REMIND } from '../bin/zalo-remind.js';
+import { judgeHealth, MA, heartbeatDeadlineMs, RECONNECT_DEADLINE_MS } from '../bin/zalo-health.js';
+import { reminderBody, pickTarget, MA as MA_REMIND } from '../bin/zalo-remind.js';
 import { TRANG_THAI_SUC_KHOE, DANH_SACH_TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 
 const SAN = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-g6-'));
@@ -151,7 +151,7 @@ test('A11 describeDuration đọc được bằng tiếng Việt', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B. phanDinh() — bộ não của cron. Hàm thuần, test không cần đĩa.
+// B. judgeHealth() — bộ não của cron. Hàm thuần, test không cần đĩa.
 // ═══════════════════════════════════════════════════════════════════════
 
 const CH = cauHinhGia();
@@ -163,13 +163,13 @@ const tt = (ma, { tuLucMs = T0, ghiLucMs = T0, thu = 0, lyDo = '' } = {}) => ({
 });
 
 test('B1 chưa có health.json -> mã CHUA_CHAY, nghiêm trọng', () => {
-  const k = phanDinh(null, CH, T0);
+  const k = judgeHealth(null, CH, T0);
   assert.equal(k.ma, MA.CHUA_CHAY);
   assert.equal(k.nghiemTrong, true);
 });
 
 test('B2 OK và nhịp tim tươi -> exit 0, KHÔNG nghiêm trọng', () => {
-  const k = phanDinh(tt('OK'), CH, T0 + 60_000);
+  const k = judgeHealth(tt('OK'), CH, T0 + 60_000);
   assert.equal(k.ma, MA.OK);
   assert.equal(k.nghiemTrong, false);
 });
@@ -177,30 +177,30 @@ test('B2 OK và nhịp tim tươi -> exit 0, KHÔNG nghiêm trọng', () => {
 test('🔴 B3 NHỊP TIM CHẾT thắng cả trạng thái "OK" — ca hỏng câm tệ nhất', () => {
   // Tiến trình chết hẳn: không ai ghi nữa, trangThai đông cứng ở "OK".
   // Nếu chỉ nhìn trangThai thì cron báo khoẻ mạnh trong khi bot đã chết.
-  const han = hanNhipTimMs(CH);
-  const k = phanDinh(tt('OK'), CH, T0 + han + 1000);
+  const han = heartbeatDeadlineMs(CH);
+  const k = judgeHealth(tt('OK'), CH, T0 + han + 1000);
   assert.equal(k.ma, MA.NHIP_TIM_CHET, 'phải bắt được, không được trả OK');
   assert.equal(k.nghiemTrong, true);
   assert.match(k.tomTat, /NHỊP TIM CHẾT/);
 });
 
 test('B4 ngưỡng nhịp tim = 3 chu kỳ watchdog, sàn 15 phút', () => {
-  assert.equal(hanNhipTimMs(CH), 900_000, '300s x 3 = 15 phút');
-  assert.equal(hanNhipTimMs({ thoiGian: { watchdogMs: 10_000 } }), 900_000,
+  assert.equal(heartbeatDeadlineMs(CH), 900_000, '300s x 3 = 15 phút');
+  assert.equal(heartbeatDeadlineMs({ thoiGian: { watchdogMs: 10_000 } }), 900_000,
     'watchdog ngắn bất thường vẫn phải có sàn, không thì báo động giả liên miên');
-  assert.equal(hanNhipTimMs({ thoiGian: { watchdogMs: 600_000 } }), 1_800_000);
-  assert.equal(hanNhipTimMs({}), 900_000, 'thiếu config -> mặc định');
+  assert.equal(heartbeatDeadlineMs({ thoiGian: { watchdogMs: 600_000 } }), 1_800_000);
+  assert.equal(heartbeatDeadlineMs({}), 900_000, 'thiếu config -> mặc định');
 });
 
 test('B5 CAN_QR -> exit 3, chỉ đúng lệnh phải chạy tay', () => {
-  const k = phanDinh(tt('CAN_QR', { lyDo: 'cookie hỏng' }), CH, T0 + 60_000);
+  const k = judgeHealth(tt('CAN_QR', { lyDo: 'cookie hỏng' }), CH, T0 + 60_000);
   assert.equal(k.ma, MA.CAN_QR);
   assert.equal(k.nghiemTrong, true);
   assert.match(k.tomTat, /bin\/zalo-login\.js/);
 });
 
 test('B6 LISTENER_CHET -> exit 4, nói rõ tin trong khoảng đó MẤT HẲN', () => {
-  const k = phanDinh(tt('LISTENER_CHET'), CH, T0 + 60_000);
+  const k = judgeHealth(tt('LISTENER_CHET'), CH, T0 + 60_000);
   assert.equal(k.ma, MA.LISTENER_CHET);
   assert.match(k.tomTat, /KHÔNG.*ghi lại|không lấy lại được/);
 });
@@ -208,7 +208,7 @@ test('B6 LISTENER_CHET -> exit 4, nói rõ tin trong khoảng đó MẤT HẲN',
 test('🔴 B7 DANG_NOI_LAI mới -> IM (exit 0); mắc kẹt -> KÊU (exit 5)', () => {
   // Mạng chớp một cái mà bắn mail ngay thì 10 phút một mail, hai ngày sau
   // không ai đọc mail của nó nữa — cảnh báo thật cũng chìm theo.
-  const moi = phanDinh(tt('DANG_NOI_LAI', { thu: 2 }), CH, T0 + 120_000);
+  const moi = judgeHealth(tt('DANG_NOI_LAI', { thu: 2 }), CH, T0 + 120_000);
   assert.equal(moi.ma, MA.OK);
   assert.equal(moi.nghiemTrong, false);
 
@@ -216,8 +216,8 @@ test('🔴 B7 DANG_NOI_LAI mới -> IM (exit 0); mắc kẹt -> KÊU (exit 5)', 
   // SỐNG và vẫn ghi health mỗi chu kỳ watchdog. Nếu để ghiLuc cũ luôn thì
   // NHIP_TIM_CHET (mã 7) thắng trước — và nó thắng ĐÚNG, vì lúc đó nghĩa là
   // tiến trình chết hẳn chứ không phải đang nối lại.
-  const bayGio = T0 + HAN_NOI_LAI_MS + 1000;
-  const ket = phanDinh(
+  const bayGio = T0 + RECONNECT_DEADLINE_MS + 1000;
+  const ket = judgeHealth(
     tt('DANG_NOI_LAI', { thu: 5, ghiLucMs: bayGio - 30_000 }), CH, bayGio);
   assert.equal(ket.ma, MA.NOI_LAI_KET);
   assert.equal(ket.nghiemTrong, true);
@@ -226,14 +226,14 @@ test('🔴 B7 DANG_NOI_LAI mới -> IM (exit 0); mắc kẹt -> KÊU (exit 5)', 
 
 test('🔴 B7b nhịp tim chết THẮNG "đang nối lại" — chết hẳn khác với đang hồi phục', () => {
   // Cùng trạng thái DANG_NOI_LAI, chỉ khác ở chỗ có ai còn ghi health không.
-  const bayGio = T0 + HAN_NOI_LAI_MS + 1000;
-  const chetHan = phanDinh(tt('DANG_NOI_LAI', { thu: 5 }), CH, bayGio); // ghiLuc cũ
+  const bayGio = T0 + RECONNECT_DEADLINE_MS + 1000;
+  const chetHan = judgeHealth(tt('DANG_NOI_LAI', { thu: 5 }), CH, bayGio); // ghiLuc cũ
   assert.equal(chetHan.ma, MA.NHIP_TIM_CHET,
     'không ai ghi nữa ⇒ tiến trình chết hẳn, không phải đang nối lại');
 });
 
 test('🔴 B8 KHONG_BIET có MÃ RIÊNG, không trùng LISTENER_CHET', () => {
-  const k = phanDinh(tt('KHONG_BIET'), CH, T0 + 60_000);
+  const k = judgeHealth(tt('KHONG_BIET'), CH, T0 + 60_000);
   assert.equal(k.ma, MA.KHONG_BIET);
   assert.notEqual(k.ma, MA.LISTENER_CHET);
   assert.equal(k.nghiemTrong, true, 'không phải "chết" nhưng vẫn phải cho người biết');
@@ -481,7 +481,7 @@ test('🔴 C12e TRIPWIRE: file MỚI nào sinh tiến trình con cũng phải qu
     //     hình. Cố ý spawn thay vì `import`: init-db là script, nạp bằng import
     //     là chạy luôn `main()` + `process.exit` của nó trong tiến trình cài đặt.
     'bin/cai-dat.js',
-    'bin/kiem-cu-phap.js',      // công cụ dev, chỉ chạy `node --check`
+    'bin/check-syntax.js',      // công cụ dev, chỉ chạy `node --check`
     'bin/zalo-login.js',        // mở ảnh QR — ĐÃ có cổng isRunningTests()
     'src/ops/notify_host.js',   // notifyCommand của người dùng + osascript — ĐÃ có cổng
   ], `File MỚI sinh tiến trình con: ${JSON.stringify(dinh)}. `
@@ -489,8 +489,8 @@ test('🔴 C12e TRIPWIRE: file MỚI nào sinh tiến trình con cũng phải qu
 });
 
 test('🔴 C12d RÀ CÙNG HỌ: mở ảnh QR cũng bị chặn trong test (không bật Preview lên màn hình)', async () => {
-  const { moAnhBangHeDieuHanh } = await import('../bin/zalo-login.js');
-  assert.equal(moAnhBangHeDieuHanh('/tmp/khong-co-that.png'), false,
+  const { openImageWithOs } = await import('../bin/zalo-login.js');
+  assert.equal(openImageWithOs('/tmp/khong-co-that.png'), false,
     'đây cũng là một đường CHẠM RA NGOÀI tiến trình — cùng họ với popup osascript');
 });
 
@@ -505,39 +505,39 @@ test('C13 notifyHost redact thông điệp trước khi đưa ra ngoài', async 
 // D. zalo-remind — lịch nằm trong crontab, không đẻ định dạng mới
 // ═══════════════════════════════════════════════════════════════════════
 
-test('D1 layNoiDung: --text, --tu-file, và các ca từ chối', () => {
-  assert.equal(layNoiDung({ text: '  xin chao  ', tuFile: null }), 'xin chao');
+test('D1 reminderBody: --text, --tu-file, và các ca từ chối', () => {
+  assert.equal(reminderBody({ text: '  xin chao  ', tuFile: null }), 'xin chao');
   const f = path.join(SAN, 'nhac.txt');
   fs.writeFileSync(f, '\nNhac hop 3h\n');
-  assert.equal(layNoiDung({ text: null, tuFile: f }), 'Nhac hop 3h');
-  assert.throws(() => layNoiDung({ text: 'a', tuFile: f }), /MỘT trong hai/);
-  assert.throws(() => layNoiDung({ text: '   ', tuFile: null }), /rỗng/);
-  assert.throws(() => layNoiDung({ text: null, tuFile: null }), /rỗng/);
-  assert.throws(() => layNoiDung({ text: null, tuFile: hp('khong-co.txt') }), /Không thấy file/);
+  assert.equal(reminderBody({ text: null, tuFile: f }), 'Nhac hop 3h');
+  assert.throws(() => reminderBody({ text: 'a', tuFile: f }), /MỘT trong hai/);
+  assert.throws(() => reminderBody({ text: '   ', tuFile: null }), /rỗng/);
+  assert.throws(() => reminderBody({ text: null, tuFile: null }), /rỗng/);
+  assert.throws(() => reminderBody({ text: null, tuFile: hp('khong-co.txt') }), /Không thấy file/);
 });
 
 test('🔴 D2 mặc định gửi DM host, KHÔNG phải nhóm (lịch cá nhân không vào nhóm)', () => {
-  const d = chonDich(cauHinhGia(), { nhom: null, host: null });
+  const d = pickTarget(cauHinhGia(), { nhom: null, host: null });
   assert.equal(d.loai, 'dm');
   assert.equal(d.chatId, 'dm111');
 });
 
 test('D3 --host chọn đúng người; host lạ bị từ chối', () => {
-  assert.equal(chonDich(cauHinhGia(), { nhom: null, host: '222' }).chatId, 'dm222');
-  assert.throws(() => chonDich(cauHinhGia(), { nhom: null, host: '999' }), /không có trong config/);
+  assert.equal(pickTarget(cauHinhGia(), { nhom: null, host: '222' }).chatId, 'dm222');
+  assert.throws(() => pickTarget(cauHinhGia(), { nhom: null, host: '999' }), /không có trong config/);
 });
 
 test('🔴 D4 --nhom LẠ bị từ chối (allowlist áp cho cả chiều GỬI RA)', () => {
-  assert.equal(chonDich(cauHinhGia(), { nhom: 'g1', host: null }).chatId, 'g1');
-  assert.throws(() => chonDich(cauHinhGia(), { nhom: 'nhom-la', host: null }),
+  assert.equal(pickTarget(cauHinhGia(), { nhom: 'g1', host: null }).chatId, 'g1');
+  assert.throws(() => pickTarget(cauHinhGia(), { nhom: 'nhom-la', host: null }),
     /không có trong config\.groups/);
 });
 
 test('D5 hosts rỗng / thiếu dmChatId -> báo rõ cách sửa', () => {
-  assert.throws(() => chonDich(cauHinhGia({ hosts: [] }), { nhom: null, host: null }),
+  assert.throws(() => pickTarget(cauHinhGia({ hosts: [] }), { nhom: null, host: null }),
     /hosts\[\] rỗng/);
   assert.throws(
-    () => chonDich(cauHinhGia({ hosts: [{ userId: '111', ten: 'x', dmChatId: '' }] }),
+    () => pickTarget(cauHinhGia({ hosts: [{ userId: '111', ten: 'x', dmChatId: '' }] }),
       { nhom: null, host: null }),
     /dmChatId/);
 });

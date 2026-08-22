@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { MA_THOAT, ganXuLyTin, giuKhoaPid, xuLyMotTin } from '../src/index.js';
+import { EXIT_CODE, attachMessageHandlers, acquirePidLock, handleMessage } from '../src/index.js';
 import { WS, readWsState, isListenerAlive, createWatchdog } from '../src/zalo/watchdog.js';
 import { openDb, closeDb } from '../src/store/db.js';
 import { validateConfig } from '../src/policy/access.js';
@@ -83,7 +83,7 @@ test('A1 ★ config THIẾU hosts -> TỪ CHỐI CHẠY, mã thoát khác 0', ()
   const p = vietConfig(d, { hosts: [] });
   const r = chayThat(['--config', p]);
   assert.notEqual(r.ma, 0, 'chạy được với allowlist rỗng = ai cũng điều khiển được trợ lý');
-  assert.equal(r.ma, MA_THOAT.CAU_HINH_SAI, `mã thoát ${r.ma}`);
+  assert.equal(r.ma, EXIT_CODE.CAU_HINH_SAI, `mã thoát ${r.ma}`);
   assert.match(r.err, /TỪ CHỐI CHẠY/);
   assert.equal(r.hetGio, false, 'phải thoát ngay, không được treo');
 });
@@ -92,7 +92,7 @@ test('A2 ★ config có WILDCARD -> TỪ CHỐI CHẠY', () => {
   const d = thuMucTam();
   const p = vietConfig(d, { hosts: [{ userId: '*', dmChatId: 'd' }] });
   const r = chayThat(['--config', p]);
-  assert.equal(r.ma, MA_THOAT.CAU_HINH_SAI, `mã thoát ${r.ma}`);
+  assert.equal(r.ma, EXIT_CODE.CAU_HINH_SAI, `mã thoát ${r.ma}`);
   assert.match(r.err, /MỞ TOANG/);
 });
 
@@ -105,7 +105,7 @@ test('B1 ★ chưa có cookie -> health=CAN_QR, thoát mã 3, KHÔNG treo, KHÔN
   const p = vietConfig(d);
   const r = chayThat(['--config', p]);
 
-  assert.equal(r.ma, MA_THOAT.CAN_QR, `mã thoát ${r.ma}, mong đợi 3`);
+  assert.equal(r.ma, EXIT_CODE.CAN_QR, `mã thoát ${r.ma}, mong đợi 3`);
   assert.equal(r.hetGio, false, 'tiến trình nền treo chờ ai đó quét QR = hỏng câm');
 
   const health = JSON.parse(fs.readFileSync(path.join(d, 'data', 'health.json'), 'utf8'));
@@ -282,8 +282,8 @@ test('D1 ★ hai tiến trình THẬT cùng lúc -> cái thứ hai TỪ CHỐI',
   const giu = path.join(d, 'giu.mjs');
   fs.writeFileSync(
     giu,
-    `import { giuKhoaPid } from '${path.join(GOC, 'src', 'index.js')}';\n` +
-      `giuKhoaPid(${JSON.stringify(khoa)});\n` +
+    `import { acquirePidLock } from '${path.join(GOC, 'src', 'index.js')}';\n` +
+      `acquirePidLock(${JSON.stringify(khoa)});\n` +
       `process.stdout.write('DA_GIU\\n');\n` +
       `setTimeout(() => {}, 20000);\n`,
   );
@@ -295,7 +295,7 @@ test('D1 ★ hai tiến trình THẬT cùng lúc -> cái thứ hai TỪ CHỐI',
       setTimeout(() => tu(new Error('quá hạn chờ giữ khoá')), 10_000);
     });
     assert.equal(fs.existsSync(khoa), true);
-    assert.throws(() => giuKhoaPid(khoa), /Đã có tiến trình trợ lý đang chạy/,
+    assert.throws(() => acquirePidLock(khoa), /Đã có tiến trình trợ lý đang chạy/,
       'hai bản cùng ghi một DB và cùng nghe một websocket = hỏng dữ liệu');
   } finally {
     con.kill('SIGKILL');
@@ -307,7 +307,7 @@ test('D2 khoá MỒ CÔI (pid đã chết) -> tự dọn, KHÔNG chặn khởi �
   const khoa = path.join(d, 'data', 'x.pid');
   fs.mkdirSync(path.dirname(khoa), { recursive: true });
   fs.writeFileSync(khoa, '999999');      // pid gần như chắc chắn không tồn tại
-  const g = giuKhoaPid(khoa);
+  const g = acquirePidLock(khoa);
   assert.equal(fs.readFileSync(khoa, 'utf8').trim(), String(process.pid));
   g.nha();
   assert.equal(fs.existsSync(khoa), false);
@@ -316,7 +316,7 @@ test('D2 khoá MỒ CÔI (pid đã chết) -> tự dọn, KHÔNG chặn khởi �
 test('D3 nha() chỉ xoá khoá CỦA MÌNH, không xoá nhầm của tiến trình khác', () => {
   const d = thuMucTam();
   const khoa = path.join(d, 'data', 'y.pid');
-  const g = giuKhoaPid(khoa);
+  const g = acquirePidLock(khoa);
   fs.writeFileSync(khoa, '424242');      // ai đó khác vừa giành được
   g.nha();
   assert.equal(fs.existsSync(khoa), true, 'đã xoá nhầm khoá của tiến trình khác');
@@ -337,7 +337,7 @@ test('E1 ★ notify NÉM LỖI -> tin VẪN được ghi vào DB', async () => {
   const { db, cauHinh } = dungHe();
   upsertConversation(db, { chatId: 'A', loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
 
-  xuLyMotTin(
+  handleMessage(
     {
       db, cauHinh,
       guiThongBao: async () => { throw new Error('kênh MCP chết'); },
@@ -355,7 +355,7 @@ test('E1 ★ notify NÉM LỖI -> tin VẪN được ghi vào DB', async () => {
 
 test('E2 ★ notify trả FALSE -> hàng đợi GIỮ "cho" để đẩy bù, không mất câu hỏi', async () => {
   const { db, cauHinh } = dungHe();
-  xuLyMotTin(
+  handleMessage(
     { db, cauHinh, guiThongBao: async () => false, tenHoiThoai: () => null },
     tinGia({ msgId: 'chua-day' }),
   );
@@ -368,7 +368,7 @@ test('E2 ★ notify trả FALSE -> hàng đợi GIỮ "cho" để đẩy bù, kh
 
 test('E3 ★ notify TRẢ TRUE -> chỉ được chuyển "da_day", TUYỆT ĐỐI không "da_tra_loi"', async () => {
   const { db, cauHinh } = dungHe();
-  xuLyMotTin(
+  handleMessage(
     { db, cauHinh, guiThongBao: async () => true, tenHoiThoai: () => null },
     tinGia({ msgId: 'da-day' }),
   );
@@ -386,7 +386,7 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
   // `tra_loi` + mọi tool ghi trên nó ⇒ vẫn 0 tin đi ra Zalo.
   const { db, cauHinh } = dungHe();
   const daBao = [];
-  xuLyMotTin(
+  handleMessage(
     { db, cauHinh, guiThongBao: async (p) => { daBao.push(p); return true; }, tenHoiThoai: () => null },
     tinGia({ msgId: 'nguoi-la', userId: '9990000000999' }),
   );
@@ -404,7 +404,7 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
 
 test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng duoc_nghe=0 nên tầng đọc không trả ra', async () => {
   const { db, cauHinh } = dungHe();
-  xuLyMotTin(
+  handleMessage(
     { db, cauHinh, guiThongBao: async () => true, tenHoiThoai: () => null },
     tinGia({ msgId: 'nhom-la', chatId: 'Z' }),
   );
@@ -421,7 +421,7 @@ test('E6 nhóm ghiLichSu=false -> nghe nhưng KHÔNG ghi tin', async () => {
   const { db, cauHinh } = dungHe({
     groups: [{ chatId: 'A', ten: 'Nhóm A', ghiLichSu: false, traLoiKhiTag: true }],
   });
-  xuLyMotTin(
+  handleMessage(
     { db, cauHinh, guiThongBao: async () => true, tenHoiThoai: () => null },
     tinGia({ msgId: 'khong-ghi' }),
   );
@@ -441,7 +441,7 @@ test('E7 ★ GHI DB hỏng KHÔNG chặn gate — mất 1 dòng còn hơn mất 
   });
   let daNotify = 0;
   assert.doesNotThrow(() =>
-    xuLyMotTin(
+    handleMessage(
       { db: dbHong, cauHinh, guiThongBao: async () => { daNotify += 1; return true; },
         tenHoiThoai: () => null },
       tinGia({ msgId: 'db-hong' }),
@@ -454,7 +454,7 @@ test('E8 handler KHÔNG để lỗi nổ ngược lên websocket', async () => {
   const { db, cauHinh } = dungHe();
   const { EventEmitter } = await import('node:events');
   const boPhat = new EventEmitter();
-  ganXuLyTin({ boPhat, db, cauHinh, guiThongBao: null, tenHoiThoai: () => null });
+  attachMessageHandlers({ boPhat, db, cauHinh, guiThongBao: null, tenHoiThoai: () => null });
   // Payload dị dạng ở CẢ 5 kênh: emit() chạy đồng bộ, một lỗi lọt ra là giết
   // cả tiến trình vì MỘT tin hỏng.
   for (const sk of Object.values(SU_KIEN)) {

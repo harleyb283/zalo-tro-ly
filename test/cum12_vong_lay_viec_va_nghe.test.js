@@ -25,7 +25,7 @@ import {
   updateQueueState, writeMessage, getQueueRow, takePendingQueue, claimQuestion, enqueueQuestion, upsertConversation,
 } from '../src/store/write.js';
 import { pushPendingQueue, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
-import { docDoTre, taoSoDoTre, taoVongLayViec, NHIP_POLL_CLIENT_MS } from '../src/index.js';
+import { readLatencyLog, createLatencyLog, createWorkPollLoop, CLIENT_POLL_TICK_MS } from '../src/index.js';
 import { quyetDinh, LY_DO } from '../src/policy/gate.js';
 import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI,
@@ -91,13 +91,13 @@ test('★★★ V1 CHẶN CỨNG: `chayClient` PHẢI bật vòng lấy việc',
   // 🔴 Đây là bài canh chính lỗi Router báo. Không có vòng thì ở chế độ tách,
   // pane câm sau lượt đầu — và câm KHÔNG có lỗi nào để lần ra.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const tho = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
+  const tho = khoiGiua(idx, 'async function chayClient', 'export async function drainOutbox');
   // 🔴 GỠ CHÚ THÍCH TRƯỚC KHI SO. Bản đầu bài này canh thẳng trên mã thô và
   // đột biến "vòng poll bật gomDaDay" SỐNG SÓT — vì chuỗi `gomDaDay: false`
   // vẫn còn nguyên trong một dòng chú thích ngay phía trên lời gọi.
   // Canh cấu trúc mà không gỡ chú thích là canh chữ, ⛔ không phải canh code.
   const kh = tho.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(kh, /taoVongLayViec\(/, 'client KHÔNG có vòng lấy việc');
+  assert.match(kh, /createWorkPollLoop\(/, 'client KHÔNG có vòng lấy việc');
   assert.match(kh, /chay: \(\) => motNhipLayViec\(\{ gomDaDay: false \}\)/,
     'vòng poll PHẢI tắt gomDaDay — bật là mỗi nhịp đẩy lại câu đang xử lý dở');
   assert.match(kh, /motNhipLayViec\(\{ gomDaDay: true \}\)/,
@@ -127,7 +127,7 @@ test('★★★ V6 HÀNH VI: `gomDaDay: false` thật sự KHÔNG đụng dòng 
 test('★★★ V2 vòng chạy LẶP LẠI, ⛔ không phải một lần', async () => {
   let dem = 0;
   const hen = [];
-  const v = taoVongLayViec({
+  const v = createWorkPollLoop({
     chay: async () => { dem += 1; },
     log: () => {},
     datHen: (f) => { hen.push(f); return { unref() {} }; },
@@ -144,7 +144,7 @@ test('★★★ V3 MỘT NHỊP NÉM ⛔ KHÔNG ĐƯỢC GIẾT CẢ VÒNG', asy
   let dem = 0;
   const log = [];
   const hen = [];
-  const v = taoVongLayViec({
+  const v = createWorkPollLoop({
     chay: async () => { dem += 1; if (dem === 2) throw new Error('DB chết một nhịp'); },
     log: (s) => log.push(s),
     datHen: (f) => { hen.push(f); return { unref() {} }; },
@@ -161,7 +161,7 @@ test('★★ V4 nhịp trước chưa xong -> BỎ nhịp sau (⛔ không chồn
   let dangChay = 0;
   let toiDa = 0;
   const hen = [];
-  const v = taoVongLayViec({
+  const v = createWorkPollLoop({
     chay: async () => {
       dangChay += 1; toiDa = Math.max(toiDa, dangChay);
       await new Promise((r) => setTimeout(r, 30));
@@ -178,9 +178,9 @@ test('★★ V4 nhịp trước chưa xong -> BỎ nhịp sau (⛔ không chồn
 });
 
 test('★★ V5 nhịp mặc định 2000ms, và `dung()` phải THẬT SỰ dừng', () => {
-  assert.equal(NHIP_POLL_CLIENT_MS, 2000);
+  assert.equal(CLIENT_POLL_TICK_MS, 2000);
   let daXoa = null;
-  const v = taoVongLayViec({
+  const v = createWorkPollLoop({
     chay: async () => {}, log: () => {},
     datHen: () => ({ id: 'x', unref() {} }), xoaHen: (id) => { daXoa = id; },
   });
@@ -310,11 +310,11 @@ test('★★★ Đ1 độ trễ ĐƯỢC GHI, và chỉ bên THẮNG CAS mới g
 
 test('★★★ Đ2 sổ đo đọc ra được TRUNG VỊ + P95 (số thiết kế đang cần)', () => {
   const f = path.join(tam(), 'do_tre.jsonl');
-  const so = taoSoDoTre(f);
+  const so = createLatencyLog(f);
   for (const ms of [100, 200, 300, 400, 500, 600, 700, 800, 900, 5000]) {
     assert.equal(so.ghi({ requestId: `r${ms}`, treMs: ms }), true);
   }
-  const k = docDoTre(f);
+  const k = readLatencyLog(f);
   assert.equal(k.soMau, 10);
   assert.equal(k.trungVi, 600);
   assert.equal(k.p95, 5000);
@@ -324,14 +324,14 @@ test('★★★ Đ2 sổ đo đọc ra được TRUNG VỊ + P95 (số thiết k
 
 test('★★★ Đ3 sổ RỖNG trả `null`, ⛔ KHÔNG phải 0', () => {
   // `0 ms` là một KHẲNG ĐỊNH ("nhanh tuyệt đối"); `null` là sự thật ("chưa đo").
-  assert.equal(docDoTre(path.join(tam(), 'chua-co.jsonl')), null);
+  assert.equal(readLatencyLog(path.join(tam(), 'chua-co.jsonl')), null);
   const f = path.join(tam(), 'rong.jsonl');
   fs.writeFileSync(f, '');
-  assert.equal(docDoTre(f), null);
+  assert.equal(readLatencyLog(f), null);
 });
 
 test('★★ Đ4 ghi sổ HỎNG ⛔ không được làm chết lượt trả lời', () => {
-  const so = taoSoDoTre('/khong-ton-tai-duoc/999/do.jsonl');
+  const so = createLatencyLog('/khong-ton-tai-duoc/999/do.jsonl');
   assert.equal(so.ghi({ requestId: 'r', treMs: 1 }), false, 'phải trả false, ⛔ không ném');
 });
 

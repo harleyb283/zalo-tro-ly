@@ -33,7 +33,7 @@ import {
 import { runFollowUpTick } from '../src/lich/runner.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
 import { registerTools } from '../src/mcp/tools.js';
-import { taoBoDemLoiGui } from '../src/index.js';
+import { createSendFailureCounter } from '../src/index.js';
 import { resetThrottle, setThrottle, sendHostDm, sendToGroup } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
@@ -380,7 +380,7 @@ test('T3d-3 ★★★ bộ đếm lỗi: 2 nhịp liên tiếp -> BÁO host; bá
   // closure bên trong `main()` của index.js, và vô hiệu hoá cả nhánh báo host
   // thì TOÀN BỘ 752 bài vẫn XANH. Thứ gì cần canh thì phải lôi ra khỏi `main()`.
   const bao = [];
-  const dem = taoBoDemLoiGui(async (s) => { bao.push(s); });
+  const dem = createSendFailureCounter(async (s) => { bao.push(s); });
 
   dem('nhắc theo đuổi', { loi: 1 });
   assert.equal(bao.length, 0, 'một nhịp hỏng thường chỉ là mạng chớp — báo ngay là làm phiền');

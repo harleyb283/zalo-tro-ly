@@ -716,10 +716,10 @@ test('★★★ T12 đường XIN host fail-closed HAI LỚP (⛔ hai lớp ph�
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// W — NỐI DÂY ĐẦU-CUỐI (`xuLyMotTin`) — chỗ 4 đột biến từng SỐNG SÓT
+// W — NỐI DÂY ĐẦU-CUỐI (`handleMessage`) — chỗ 4 đột biến từng SỐNG SÓT
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Dựng bộ đủ để chạy `xuLyMotTin` mà ⛔ không chạm mạng. */
+/** Dựng bộ đủ để chạy `handleMessage` mà ⛔ không chạm mạng. */
 function boDauCuoi(db) {
   const daBao = [];
   return {
@@ -738,10 +738,10 @@ test('★★★ W1 ĐẦU-CUỐI: người phụ trách nói -> phiên MANG id v
   // 🔴 Bốn đột biến ở `index.js` từng SỐNG vì không bài nào chạy qua đường nối
   // dây thật: "không tra cửa 2", "ghi hàng đợi bỏ mất id", "tra hỏng thì ném",
   // "lấy id từ biến riêng". Cả bốn đều làm tính năng CHẾT CÂM hoặc SAI CÂM.
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const { db, id } = dbCoNhac();
   const { p, daBao } = boDauCuoi(db);
-  xuLyMotTin(p, tin({ msgId: 'w1', userId: PHU_TRACH, noiDung: 'sắp xong rồi anh' }));
+  handleMessage(p, tin({ msgId: 'w1', userId: PHU_TRACH, noiDung: 'sắp xong rồi anh' }));
   await new Promise((r) => setTimeout(r, 25));
 
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w1'").get();
@@ -754,10 +754,10 @@ test('★★★ W1 ĐẦU-CUỐI: người phụ trách nói -> phiên MANG id v
 });
 
 test('★★★ W2 ĐẦU-CUỐI: người KHÔNG phụ trách -> phiên KHÔNG mang id', async () => {
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const { db } = dbCoNhac();
   const { p } = boDauCuoi(db);
-  xuLyMotTin(p, tin({ msgId: 'w2', userId: NGUOI_KHAC }));
+  handleMessage(p, tin({ msgId: 'w2', userId: NGUOI_KHAC }));
   await new Promise((r) => setTimeout(r, 25));
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w2'").get();
   assert.equal(dong.id_viec_mo_cua, null, '🔴 cửa mở cho người không phụ trách');
@@ -768,10 +768,10 @@ test('★★★ W2 ĐẦU-CUỐI: người KHÔNG phụ trách -> phiên KHÔNG 
 test('★★★ W3 ĐẦU-CUỐI: HOST gửi -> lượt đầy đủ, ⛔ KHÔNG dính cờ cửa 2', async () => {
   // Đột biến "lấy id từ BIẾN riêng thay vì payload gate" lộ ra ở đây: gate trả
   // `allow` (không có id) trong khi biến `boiCanhCua2` có thể vẫn mang giá trị.
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const { db, id } = dbCoNhac({ nguoiPhuTrach: HOST });   // host CHÍNH LÀ người phụ trách
   const { p } = boDauCuoi(db);
-  xuLyMotTin(p, tin({ msgId: 'w3', userId: HOST, hasHostMention: true }));
+  handleMessage(p, tin({ msgId: 'w3', userId: HOST, hasHostMention: true }));
   await new Promise((r) => setTimeout(r, 25));
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w3'").get();
   assert.equal(dong.chi_nghe, 0, 'host phải là lượt đầy đủ');
@@ -789,7 +789,7 @@ test('★★★ W5 id cửa 2 lấy từ PAYLOAD GATE, ⛔ không từ biến tr
   // là hai vế tách ra, và không có gì báo.
   // ⇒ Canh CẤU TRÚC: gate là nguồn sự thật DUY NHẤT về quyền.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const than = khoiGiua(idx, 'export function xuLyMotTin', '// MAIN')
+  const than = khoiGiua(idx, 'export function handleMessage', '// MAIN')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(than, /idViecMoCua: kq\.payload\?\.idViecMoCua \?\? null/,
     'phải đọc quyền từ payload của GATE');
@@ -800,7 +800,7 @@ test('★★★ W5 id cửa 2 lấy từ PAYLOAD GATE, ⛔ không từ biến tr
 test('★★★ W4 ĐẦU-CUỐI: tra cửa 2 HỎNG -> coi như ĐÓNG, ⛔ KHÔNG giết đường nhận tin', async () => {
   // Một lỗi đọc DB ⛔ không được làm rơi cả tin nhắn — tin vẫn phải được GHI và
   // phiên vẫn phải mở, chỉ là cửa 2 đóng.
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const { db } = dbCoNhac();
   const goc = db.prepare.bind(db);
   db.prepare = (sql) => {
@@ -808,7 +808,7 @@ test('★★★ W4 ĐẦU-CUỐI: tra cửa 2 HỎNG -> coi như ĐÓNG, ⛔ KH�
     return goc(sql);
   };
   const { p } = boDauCuoi(db);
-  assert.doesNotThrow(() => xuLyMotTin(p, tin({ msgId: 'w4', userId: PHU_TRACH })));
+  assert.doesNotThrow(() => handleMessage(p, tin({ msgId: 'w4', userId: PHU_TRACH })));
   await new Promise((r) => setTimeout(r, 25));
   db.prepare = goc;
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w4'").get();

@@ -12,7 +12,7 @@
  *
  * 🔴 Khối wiring nằm trong `main()` của `index.js`, chỉ chạy SAU khi đăng nhập
  *    Zalo thật — thứ pack này CẤM thử. `node --check` không với tới. Nên:
- *      · closure sản xuất được LÔI RA thành `noiGhiNhanNguon()` để nạp THẬT mà chạy
+ *      · closure sản xuất được LÔI RA thành `bindRecordSources()` để nạp THẬT mà chạy
  *      · chỗ gọi trong `main()` thì canh bằng đọc mã nguồn
  * ═══════════════════════════════════════════════════════════════════════
  */
@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { noiGhiNhanNguon } from '../src/index.js';
+import { bindRecordSources } from '../src/index.js';
 import { runFollowUpTick } from '../src/lich/runner.js';
 import { confirmSchedule } from '../src/lich/schedule.js';
 import { createFollowUp } from '../src/lich/follow_up.js';
@@ -90,7 +90,7 @@ function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
     sendHostDm: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { thu.giaoModel += 1; return true; },
     // ★★★ ĐÂY LÀ THỨ ĐANG ĐƯỢC CANH: closure SẢN XUẤT, nạp thật từ `index.js`.
-    recordSources: noiGhiNhanNguon(boTichLuy),
+    recordSources: bindRecordSources(boTichLuy),
   });
 }
 
@@ -98,14 +98,14 @@ function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
 // N1-N2 — đường dây có tồn tại không
 // ═══════════════════════════════════════════════════════════════════════
 
-test('N1 ★ index.js export `noiGhiNhanNguon` và nó nhận ĐÚNG 2 đối số như bo_chay gọi', () => {
+test('N1 ★ index.js export `bindRecordSources` và nó nhận ĐÚNG 2 đối số như bo_chay gọi', () => {
   // `runner.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số.
   // `leak_guard.recordSources()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
   // là lỗi ném ra, `bo_chay` nuốt vào catch, lời nhắc lặng lẽ rơi xuống câu dự
   // phòng — không có dấu hiệu nào ngoài log.
-  assert.equal(typeof noiGhiNhanNguon, 'function', 'index.js không còn export noiGhiNhanNguon');
+  assert.equal(typeof bindRecordSources, 'function', 'index.js không còn export bindRecordSources');
   const bo = createSourceLedger();
-  const f = noiGhiNhanNguon(bo);
+  const f = bindRecordSources(bo);
   assert.equal(typeof f, 'function');
   assert.equal(f.length, 2, 'closure phải nhận đúng (requestId, nguonChatIds)');
 
@@ -121,7 +121,7 @@ test('N2 ★★★ `main()` THẬT SỰ truyền closure đó vào runFollowUpTi
   const i = SRC_INDEX.indexOf('runFollowUpTick({');
   assert.ok(i > 0, 'không tìm thấy chỗ gọi runFollowUpTick trong index.js');
   const khoiGoi = SRC_INDEX.slice(i, i + 1600);
-  assert.match(khoiGoi, /recordSources:\s*noiGhiNhanNguon\(boTichLuy\)/,
+  assert.match(khoiGoi, /recordSources:\s*bindRecordSources\(boTichLuy\)/,
     'index.js KHÔNG truyền recordSources -> bo_chay fail-closed, lời nhắc mất giọng model '
     + 'đúng những ca bối cảnh chạm nhóm khác');
   assert.match(SRC_INDEX, /import \{[^}]*\brecordSources\b[^}]*\} from '\.\/policy\/leak_guard\.js'/,
@@ -218,7 +218,7 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
     sendToGroup: async () => ({ msgId: 'x' }),
     sendHostDm: async (_a, chatId, t) => { dm.push({ chatId, t }); return { msgId: 'y' }; },
     guiThongBao: async () => true,
-    recordSources: noiGhiNhanNguon(createSourceLedger()),
+    recordSources: bindRecordSources(createSourceLedger()),
     dmHostChatId: HOST,          // ★ thứ index.js trước đây KHÔNG truyền
   });
   await new Promise((r) => setTimeout(r, 20));   // _baoHetLuot chạy nền, không chặn vòng nhắc

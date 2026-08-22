@@ -203,7 +203,7 @@ test('E1 ★★★ daemon PHẢI gọi tuCauHinhNhomMoi khi có sự kiện nhó
 
   assert.match(than, /boPhat\.on\(SU_KIEN\.SU_KIEN_NHOM[\s\S]{0,400}?p\.tuCauHinhNhomMoi\?\.\(sk\)/,
     '🔴 nhánh sự kiện nhóm phải gọi tới hàm tự cấu hình');
-  assert.match(than, /ganXuLyTin\(\{[\s\S]{0,300}?tuCauHinhNhomMoi,/,
+  assert.match(than, /attachMessageHandlers\(\{[\s\S]{0,300}?tuCauHinhNhomMoi,/,
     '🔴 daemon phải NỐI hàm đó vào — thiếu dây thì luật "tự cấu hình" ⛔ không tồn tại');
   assert.match(than, /addGroupToConfig\(duongDanConfig, n\)/,
     'phải ghi vào ĐÚNG file config mà bộ nạp nóng đang soi');
@@ -227,6 +227,6 @@ test('E2 ★★★ CHỈ daemon ghi config — client ⛔ KHÔNG được đụn
   // Hai tiến trình cùng ghi một file config là hỏng file. Client có 8 bản
   // đang chạy; cho nó quyền ghi là mời tai nạn.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function rutOutbox'));
+  const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function drainOutbox'));
   assert.ok(!/addGroupToConfig/.test(kh), '⛔ client ⛔ không được gọi hàm ghi config');
 });

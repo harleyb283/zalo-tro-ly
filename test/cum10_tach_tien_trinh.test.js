@@ -29,7 +29,7 @@ import {
 } from '../src/lib/hang_so.js';
 import { createSourceLedger } from '../src/policy/leak_guard.js';
 import { registerTools } from '../src/mcp/tools.js';
-import { rutOutbox } from '../src/index.js';
+import { drainOutbox } from '../src/index.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
 const NHOM = '9990000000001';
@@ -149,7 +149,7 @@ test('★★★ D6 KHÔNG có `xepHangGuiRa` -> `tra_loi` gửi THẲNG như hô
   assert.match(src, /typeof kho\?\.xepHangGuiRa === 'function' \? kho\.xepHangGuiRa : null/,
     'cửa outbox phải là tuỳ chọn, vắng thì về đường cũ');
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
-  const khoiClient = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
+  const khoiClient = khoiGiua(idx, 'async function chayClient', 'export async function drainOutbox');
   assert.match(khoiClient, /xepHangGuiRa: enqueueOutbound/, 'client phải nối cửa outbox');
 });
 
@@ -222,8 +222,8 @@ test('★★★ C2 NGHIỆM THU⑤: client mở DB CŨ HƠN -> thoát mã ≠0 k
 
 test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việc của daemon', () => {
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
-  const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
-  for (const cam of ['giuKhoaPid', 'loginWithCookie', 'startListening', 'runFollowUpTick', 'runOneTick', 'keepAlive']) {
+  const kh = khoiGiua(idx, 'async function chayClient', 'export async function drainOutbox');
+  for (const cam of ['acquirePidLock', 'loginWithCookie', 'startListening', 'runFollowUpTick', 'runOneTick', 'keepAlive']) {
     assert.ok(!kh.includes(cam), `vai client gọi \`${cam}\` — đó là việc của daemon`);
   }
   // ⚠️ Neo vào ĐÚNG khối `registerTools`. Bản đầu em canh `/api: null/` trên cả
@@ -239,7 +239,7 @@ test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việ
   // chỉ nhặt việc đúng MỘT LẦN lúc khởi động (lỗi chặn cứng, sửa 21/08/2026).
   // Cấm là cấm bộ hẹn giờ CỦA DAEMON (keepAlive, nhịp theo đuổi), ⛔ không
   // phải cấm mọi bộ hẹn giờ.
-  assert.match(kh, /taoVongLayViec\(/, 'client PHẢI bật vòng lấy việc — thiếu nó là pane câm sau lượt đầu');
+  assert.match(kh, /createWorkPollLoop\(/, 'client PHẢI bật vòng lấy việc — thiếu nó là pane câm sau lượt đầu');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -387,19 +387,19 @@ test('★★★ K1 NGHIỆM THU②: KILL daemon GIỮA CHỪNG -> tin CÒN, lên
   closeDb(db);
 });
 
-test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `rutOutbox` thật)', async () => {
+test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `drainOutbox` thật)', async () => {
   const db = dbTam();
   enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
   const daGui = [];
   const kho = { takePendingOutbound, claimOutbound, writeSendResult };
   const gui = async (chatId, text) => { daGui.push({ chatId, text }); return { msgId: '9996000000001' }; };
 
-  const r1 = await rutOutbox({ db, log: () => {}, kho, gui });
+  const r1 = await drainOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r1, { daGui: 1, loi: 0 });
   assert.equal(daGui.length, 1);
 
   // Chạy lại nhịp -> ⛔ KHÔNG được gửi lần hai.
-  const r2 = await rutOutbox({ db, log: () => {}, kho, gui });
+  const r2 = await drainOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r2, { daGui: 0, loi: 0 });
   assert.equal(daGui.length, 1, '🔴 gửi đôi — tin Zalo KHÔNG thu hồi được');
 
@@ -422,8 +422,8 @@ test('★★★ K3 HAI vòng rút chồng nhau -> ĐÚNG MỘT bên gửi', asyn
     return { msgId: '9996000000001' };
   };
   const [a, b] = await Promise.all([
-    rutOutbox({ db, log: () => {}, kho, gui }),
-    rutOutbox({ db, log: () => {}, kho, gui }),
+    drainOutbox({ db, log: () => {}, kho, gui }),
+    drainOutbox({ db, log: () => {}, kho, gui }),
   ]);
   assert.equal(daGui.length, 1, `hai vòng cùng gửi -> ${daGui.length} tin vào nhóm người thật`);
   assert.equal(a.daGui + b.daGui, 1);
@@ -438,14 +438,14 @@ test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử l�
   const kho = { takePendingOutbound, claimOutbound, writeSendResult };
   const gui = async () => { throw new Error('mạng rớt'); };
 
-  const r1 = await rutOutbox({ db, log: () => {}, kho, gui });
+  const r1 = await drainOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r1, { daGui: 0, loi: 1 });
   const d = db.prepare('SELECT * FROM hang_doi_gui').get();
   assert.equal(d.trang_thai, TRANG_THAI_GUI.LOI);
   assert.match(d.ly_do, /mạng rớt/);
   assert.equal(d.msg_id, null, 'gửi hỏng mà ghi msgId = sổ sách nói dối');
 
-  const r2 = await rutOutbox({ db, log: () => {}, kho, gui });
+  const r2 = await drainOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r2, { daGui: 0, loi: 0 }, "dòng 'loi' ⛔ không được tự quay lại hàng chờ");
   closeDb(db);
 });
@@ -453,7 +453,7 @@ test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử l�
 test('★★ K5 đọc hàng đợi HỎNG -> nuốt và báo, ⛔ không làm chết vòng chạy daemon', async () => {
   const db = dbTam();
   const noi = [];
-  const ra = await rutOutbox({
+  const ra = await drainOutbox({
     db, log: (m) => noi.push(m),
     kho: { takePendingOutbound: () => { throw new Error('DB khoá'); }, claimOutbound, writeSendResult },
     gui: async () => ({ msgId: 'x' }),

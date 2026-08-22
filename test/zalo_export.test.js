@@ -16,9 +16,9 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
-  docThamSo, mocNgay, lechPhut, dinhDangGio, nhanLoaiTin, tenNguoiGui, tenNguoiThuHoi,
-  layTin, bangThuHoi, bangHoiThoai, bangNguoi, danhSachHoiThoai, dungMarkdown, moChiDoc,
-  timDuongDanDb, main,
+  docThamSo, dayBoundary, tzOffsetMinutes, formatTime, messageKindLabel, senderName, recallerName,
+  fetchMessages, recallTable, conversationTable, peopleTable, listConversations, buildMarkdown, openReadOnly,
+  findDbPath, main,
 } from '../bin/zalo-export.js';
 
 const TZ = 'Asia/Ho_Chi_Minh';
@@ -82,16 +82,16 @@ function dungDb() {
 }
 
 function xuat(duongDan, loc = {}) {
-  const db = moChiDoc(duongDan);
+  const db = openReadOnly(duongDan);
   try {
     const day = { chatId: null, tu: null, den: null, soLuong: null, ...loc };
-    const { tin, tongKhopBoLoc } = layTin(db, day);
-    return dungMarkdown({
+    const { tin, tongKhopBoLoc } = fetchMessages(db, day);
+    return buildMarkdown({
       tin,
       tongKhopBoLoc,
-      thuHoi: bangThuHoi(db, day.chatId),
-      hoiThoai: bangHoiThoai(db),
-      nguoi: bangNguoi(db),
+      thuHoi: recallTable(db, day.chatId),
+      hoiThoai: conversationTable(db),
+      nguoi: peopleTable(db),
       loc: day,
       tz: TZ,
       duongDanDb: duongDan,
@@ -106,7 +106,7 @@ function xuat(duongDan, loc = {}) {
 // ═══ A. Chỉ đọc ═══
 test('A1 DB mở ở chế độ CHỈ ĐỌC — mọi lệnh ghi bị chặn', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
+  const db = openReadOnly(duongDan);
   try {
     assert.throws(() => db.exec("INSERT INTO tin_nhan (chat_id,msg_id,msg_type,ts_zalo,ts_ghi) VALUES ('x','y','chat.text',1,'x')"));
     assert.throws(() => db.exec('DELETE FROM tin_nhan'));
@@ -118,7 +118,7 @@ test('A1 DB mở ở chế độ CHỈ ĐỌC — mọi lệnh ghi bị chặn',
 
 test('A2 DB không tồn tại -> lỗi NÓI RÕ, không tự tạo file', () => {
   const p = path.join(os.tmpdir(), `ztl-khong-co-${Date.now()}.db`);
-  assert.throws(() => moChiDoc(p), /Không thấy file DB/);
+  assert.throws(() => openReadOnly(p), /Không thấy file DB/);
   assert.equal(fs.existsSync(p), false, 'tuyệt đối không được tạo DB rỗng rồi báo "0 tin"');
 });
 
@@ -128,7 +128,7 @@ test('A3b mở chỉ-đọc DB WAL vẫn sinh -shm/-wal -> phải siết 0600, �
   // vào WAL của tin nhắn người khác nằm 0644 cho mọi user trên máy đọc.
   const { duongDan } = dungDb();
   for (const p of [`${duongDan}-shm`, `${duongDan}-wal`]) fs.rmSync(p, { force: true });
-  const db = moChiDoc(duongDan);
+  const db = openReadOnly(duongDan);
   try {
     for (const p of [duongDan, `${duongDan}-shm`, `${duongDan}-wal`]) {
       if (!fs.existsSync(p)) continue;
@@ -172,12 +172,12 @@ test('B3 --so LỚN HƠN số tin có thật -> vẫn khớp, không lệch', ()
 
 test('B4 lệch số -> đánh dấu ❌ ĐỪNG TIN FILE NÀY (dựng lệch giả để chứng minh còn răng)', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
-  const { tin } = layTin(db, { chatId: CHAT_A });
-  const kq = dungMarkdown({
+  const db = openReadOnly(duongDan);
+  const { tin } = fetchMessages(db, { chatId: CHAT_A });
+  const kq = buildMarkdown({
     tin: tin.slice(0, 2),          // giả cảnh "mất tin âm thầm"
     tongKhopBoLoc: 7,
-    thuHoi: bangThuHoi(db, CHAT_A), hoiThoai: bangHoiThoai(db), nguoi: bangNguoi(db),
+    thuHoi: recallTable(db, CHAT_A), hoiThoai: conversationTable(db), nguoi: peopleTable(db),
     loc: { chatId: CHAT_A, tu: null, den: null, soLuong: null },
     tz: TZ, duongDanDb: duongDan, nguonDb: 'test', bayGio: T(18, 0),
   });
@@ -198,27 +198,27 @@ test('C1 tin thu hồi: hiện RÕ đã thu hồi + AI + LÚC NÀO + VẪN CÓ n
 
 test('C2 ten_nguoi_thu_hoi trống + người thu hồi CHÍNH LÀ người gửi -> nói rõ, không bịa tên', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
+  const db = openReadOnly(duongDan);
   const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m2');
-  const sk = bangThuHoi(db, CHAT_A).get(`${CHAT_A}|m2`);
-  const ten = tenNguoiThuHoi(r, sk, bangNguoi(db));
+  const sk = recallTable(db, CHAT_A).get(`${CHAT_A}|m2`);
+  const ten = recallerName(r, sk, peopleTable(db));
   db.close();
   assert.equal(ten, 'Người B lúc đó (chính người gửi)');
 });
 
 test('C3 người thu hồi là NGƯỜI KHÁC -> dùng tên hiện tại NHƯNG phải nói rõ đó là tên hiện tại', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
+  const db = openReadOnly(duongDan);
   const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m2');
-  const ten = tenNguoiThuHoi({ ...r, user_id: 'u9' }, { nguoi_thu_hoi: 'u1' }, bangNguoi(db));
+  const ten = recallerName({ ...r, user_id: 'u9' }, { nguoi_thu_hoi: 'u1' }, peopleTable(db));
   db.close();
   assert.match(ten, /Tên MỚI của Người A \(tên HIỆN TẠI, không phải tên lúc thu hồi\)/);
 });
 
 test('C4 chỉ có cờ da_thu_hoi mà KHÔNG có bản ghi sự kiện -> vẫn hiện, ghi "không rõ ai"', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
-  const ten = tenNguoiThuHoi({ user_id: 'u1', thu_hoi_boi: null }, undefined, bangNguoi(db));
+  const db = openReadOnly(duongDan);
+  const ten = recallerName({ user_id: 'u1', thu_hoi_boi: null }, undefined, peopleTable(db));
   db.close();
   assert.equal(ten, 'không rõ ai');
 });
@@ -240,7 +240,7 @@ test('D2 tin do trợ lý tự gửi có nhãn riêng', () => {
 });
 
 test('D3 thiếu cả tên lẫn user_id -> nói không rõ, không in "null"', () => {
-  assert.equal(tenNguoiGui({ ten_luc_gui: null, user_id: null, do_tro_ly_tao: 0 }),
+  assert.equal(senderName({ ten_luc_gui: null, user_id: null, do_tro_ly_tao: 0 }),
     '<không rõ người gửi>');
 });
 
@@ -252,12 +252,12 @@ test('E1 ảnh: không có nội dung, ghi rõ là ảnh, KHÔNG bịa', () => {
 });
 
 test('E2 msgType lạ: lấy tên GỐC từ content_raw._msgTypeGoc', () => {
-  assert.equal(nhanLoaiTin({ msg_type: 'UNKNOWN', content_raw: '{"_msgTypeGoc":"chat.voice"}' }),
+  assert.equal(messageKindLabel({ msg_type: 'UNKNOWN', content_raw: '{"_msgTypeGoc":"chat.voice"}' }),
     'loại khác: chat.voice');
 });
 
 test('E3 content_raw hỏng -> "không rõ", không nổ', () => {
-  assert.equal(nhanLoaiTin({ msg_type: 'UNKNOWN', content_raw: '{{{hỏng' }), 'loại khác: không rõ');
+  assert.equal(messageKindLabel({ msg_type: 'UNKNOWN', content_raw: '{{{hỏng' }), 'loại khác: không rõ');
 });
 
 // ═══ F. Lọc ═══
@@ -270,7 +270,7 @@ test('F1 --chat chỉ lấy đúng hội thoại đó', () => {
 
 test('F2 ★ --den NGÀY TRẦN bao TRỌN ngày theo múi giờ hiển thị (bẫy lệch 7 tiếng)', () => {
   const { duongDan } = dungDb();
-  const den = mocNgay('2026-08-20', TZ, true);
+  const den = dayBoundary('2026-08-20', TZ, true);
   const kq = xuat(duongDan, { chatId: CHAT_A, den });
   assert.equal(kq.soTinDaIn, 6, 'phải còn đủ 6 tin ngày 20, chỉ rụng tin ngày 21');
   assert.ok(!kq.md.includes('hôm sau'));
@@ -282,16 +282,16 @@ test('F2 ★ --den NGÀY TRẦN bao TRỌN ngày theo múi giờ hiển thị (b
 });
 
 test('F3 --tu NGÀY TRẦN = 00:00 giờ VN = 17:00 UTC hôm trước', () => {
-  const tu = mocNgay('2026-08-20', TZ, false);
+  const tu = dayBoundary('2026-08-20', TZ, false);
   assert.equal(new Date(tu).toISOString(), '2026-08-19T17:00:00.000Z');
 });
 
 test('F4 mốc ISO đầy đủ vẫn dùng được nguyên vẹn', () => {
-  assert.equal(mocNgay('2026-08-20T10:00:00Z', TZ), Date.parse('2026-08-20T10:00:00Z'));
+  assert.equal(dayBoundary('2026-08-20T10:00:00Z', TZ), Date.parse('2026-08-20T10:00:00Z'));
 });
 
 test('F5 mốc rác -> NÉM lỗi rõ ràng chứ không im lặng bỏ qua điều kiện', () => {
-  assert.throws(() => mocNgay('tuần trước', TZ), /Không đọc được mốc thời gian/);
+  assert.throws(() => dayBoundary('tuần trước', TZ), /Không đọc được mốc thời gian/);
 });
 
 test('F6 ★ --so N lấy N tin MỚI NHẤT nhưng in theo thứ tự TĂNG DẦN', () => {
@@ -355,8 +355,8 @@ test('G7 không có tin nào -> file vẫn hợp lệ và nói rõ 0 tin', () =>
 // ═══ H. --danh-sach ═══
 test('H1 liệt kê hội thoại kèm số tin, số thu hồi, trạng thái nghe', () => {
   const { duongDan } = dungDb();
-  const db = moChiDoc(duongDan);
-  const ds = danhSachHoiThoai(db);
+  const db = openReadOnly(duongDan);
+  const ds = listConversations(db);
   db.close();
   const a = ds.find((r) => String(r.chat_id) === CHAT_A);
   assert.equal(Number(a.so_tin), 7);
@@ -376,8 +376,8 @@ test('I2 tham số thiếu giá trị -> nổ ngay chứ không nuốt', () => {
 
 test('I3 --db thắng env và config', () => {
   const p = path.join(os.tmpdir(), 'x.db');
-  assert.equal(timDuongDanDb({ db: p }).duongDan, p);
-  assert.equal(timDuongDanDb({ db: p }).nguon, '--db');
+  assert.equal(findDbPath({ db: p }).duongDan, p);
+  assert.equal(findDbPath({ db: p }).nguon, '--db');
 });
 
 test('I4 CHẠY THẬT đầu-cuối: ghi file .md, mã thoát 0, số tin khớp', async () => {
@@ -442,13 +442,13 @@ test('I7 múi giờ rác -> nổ với hướng dẫn, không âm thầm dùng g
   );
 });
 
-test('I8 lechPhut đọc đúng offset của vùng', () => {
-  assert.equal(lechPhut(T(9, 0), 'Asia/Ho_Chi_Minh'), 420);
-  assert.equal(lechPhut(T(9, 0), 'UTC'), 0);
+test('I8 tzOffsetMinutes đọc đúng offset của vùng', () => {
+  assert.equal(tzOffsetMinutes(T(9, 0), 'Asia/Ho_Chi_Minh'), 420);
+  assert.equal(tzOffsetMinutes(T(9, 0), 'UTC'), 0);
 });
 
-test('I9 dinhDangGio trả ngày/giờ theo đúng vùng, không theo giờ máy', () => {
-  const g = dinhDangGio(Date.UTC(2026, 7, 20, 2, 12, 0), TZ);
+test('I9 formatTime trả ngày/giờ theo đúng vùng, không theo giờ máy', () => {
+  const g = formatTime(Date.UTC(2026, 7, 20, 2, 12, 0), TZ);
   assert.equal(g.ngay, '2026-08-20');
   assert.equal(g.gio, '09:12:00');
 });

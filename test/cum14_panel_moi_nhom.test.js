@@ -19,9 +19,9 @@ import {
   GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, NGHI_SAU_GIO_MAC_DINH,
   THU_LAI_MO_PHIEN_MS, TRAN_SO_CLIENT_MAC_DINH,
 } from '../src/lib/hang_so.js';
-// ⚠️ `NHIP_POLL_CLIENT_MS` nằm ở `src/index.js` (cạnh vòng poll dùng nó), ⛔
+// ⚠️ `CLIENT_POLL_TICK_MS` nằm ở `src/index.js` (cạnh vòng poll dùng nó), ⛔
 // không ở `hang_so.js`. Bài `R5` cộng ba số hạng nên phải lấy đúng nguồn.
-import { NHIP_POLL_CLIENT_MS } from '../src/index.js';
+import { CLIENT_POLL_TICK_MS } from '../src/index.js';
 import { validateConfig } from '../src/policy/access.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -224,7 +224,7 @@ test('★★★ R4 dòng QUÁ HẠN vẫn được đánh `het_han` dù chưa đ
 test('★★★ R5 NGƯỠNG 37s = TỔNG CÓ TÊN, ⛔ không phải số chọn cho tròn', () => {
   // Ba số hạng, mỗi số hạng một lý do. Đổi một số hạng mà tổng không đổi theo
   // là dấu hiệu ai đó vừa "làm tròn" nó.
-  assert.equal(GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS + 30_000 + NHIP_POLL_CLIENT_MS);
+  assert.equal(GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS + 30_000 + CLIENT_POLL_TICK_MS);
   assert.equal(GIAN_CHO_MO_PANE_MS, 37_000);
   // Ngắn hơn TTL hàng đợi (30 phút) rất nhiều ⇒ ⛔ không có ca "chờ dự phòng
   // lâu tới mức câu hỏi hết hạn".
@@ -305,17 +305,17 @@ test('★★★ N2 pack ⛔ KHÔNG có đường nào GIẾT tiến trình nó k
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// W — NỐI DÂY THẬT (`xuLyMotTin` + `chayClient`) — chỗ 8 đột biến từng SỐNG
+// W — NỐI DÂY THẬT (`handleMessage` + `chayClient`) — chỗ 8 đột biến từng SỐNG
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ W1 ĐẦU-CUỐI: tin mới -> GỌI baoDam đúng nhóm, SAU khi ghi hàng đợi', async () => {
   // 🔴 Bốn đột biến ở `index.js` từng sống vì ⛔ không bài nào chạy qua đường
   // nối dây: "không gọi baoDam", "gọi trước khi ghi hàng đợi", … Cả bốn làm
   // tính năng CHẾT CÂM.
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const db = dbTam();
   const goi = [];
-  xuLyMotTin({
+  handleMessage({
     db,
     cauHinh: {
       cauTrungTinh: 'x',
@@ -353,11 +353,11 @@ test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm'
   // riêng của anh. DM đã có chủ (pane router) ⇒ HAI pane tranh nhau một hộp
   // thư, và bên thắng lại là agent NHÓM — sai cả vai lẫn bộ luật.
   // Tên tính năng là "panel-mỗi-NHÓM": ⛔ không phải nhóm thì ⛔ không mở.
-  const { xuLyMotTin } = await import('../src/index.js');
+  const { handleMessage } = await import('../src/index.js');
   const db = dbTam();
   const DM_HOST = '9993000000000000003';
   const goi = [];
-  xuLyMotTin({
+  handleMessage({
     db,
     cauHinh: {
       cauTrungTinh: 'x',
@@ -383,12 +383,12 @@ test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm'
 test('★★★ W2 lời gọi mở pane ⛔ KHÔNG được `await` (chặn callback websocket)', () => {
   // Lệnh do NGƯỜI VẬN HÀNH viết và có thể treo. `await` ở đây là giữ luôn
   // callback của websocket ⇒ MỌI nhóm câm, không riêng nhóm đang mở pane.
-  // ⚠️ Canh CẤU TRÚC vì hành vi khó dựng: `xuLyMotTin` không phải `async`, nên
+  // ⚠️ Canh CẤU TRÚC vì hành vi khó dựng: `handleMessage` không phải `async`, nên
   // thêm `await` là LỖI CÚ PHÁP — mà lỗi cú pháp thì cả file test không nạp
   // được và bộ đo báo "chết" vì lý do sai. (Đã dính đúng thế: một lần chạy chỉ
   // 87/107 bài mà vẫn được tính là CHẾT.)
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const than = khoiGiua(idx, 'export function xuLyMotTin', '// MAIN')
+  const than = khoiGiua(idx, 'export function handleMessage', '// MAIN')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(than, /p\.soMoPhien\.baoDam\(/, 'phải có lời gọi mở phiên');
   assert.ok(!/await\s+p\.soMoPhien/.test(than), '🔴 `await` lời gọi mở pane');
@@ -415,7 +415,7 @@ test('★★★ W4 client: `chatIdHoi` và `treToiThieuMs` nối ĐÚNG nguồn'
   // ngưỡng cho CẢ client riêng (làm pane riêng chậm 37 giây). Cả ba đều ⛔
   // không có bài hành vi nào với tới — muốn chạm phải spawn cả tiến trình.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
-  const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox')
+  const kh = khoiGiua(idx, 'async function chayClient', 'export async function drainOutbox')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   // 🔴 v10.3 — định tuyến nay lấy từ `ZTL_TUYEN` TRƯỚC, rồi mới tới `ZTL_CHAT_ID`.
   // 🔴 v11 — thêm đường ĐÈ cho LƯỚI VỚT, nhưng MẶC ĐỊNH phải y như cũ.

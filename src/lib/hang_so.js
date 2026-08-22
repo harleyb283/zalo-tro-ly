@@ -658,7 +658,7 @@ export const HAN_MO_PHIEN_MS = 5_000;
  *
  *     HAN_MO_PHIEN_MS        5 000 ms   trần lệnh mở pane (trên)
  *   + pane Claude khởi động 30 000 ms   BIÊN TRÊN đo từ log spawn (10–30 s)
- *   + nhịp poll của client   2 000 ms   NHIP_POLL_CLIENT_MS
+ *   + nhịp poll của client   2 000 ms   CLIENT_POLL_TICK_MS
  *   ─────────────────────────────────
  *   = 37 000 ms
  *

@@ -117,7 +117,7 @@ export function isSplitMode(p = {}, env = process.env, argv = process.argv) {
  * ⚠️ CÁI GIÁ: lưới ăn theo cờ `ZTL_LICH_HEN` — tắt bộ chạy lịch là tắt luôn nó.
  *
  * ⚠️ CỐ Ý KHÔNG cộng số liệu của lưới vào `ra.loi` của `runFollowUpTick`:
- * `taoBoDemLoiGui` đọc đúng trường đó để kết luận "bộ chạy GỬI hỏng 2 nhịp liên
+ * `createSendFailureCounter` đọc đúng trường đó để kết luận "bộ chạy GỬI hỏng 2 nhịp liên
  * tiếp" rồi báo động cho host. Trộn vào là báo động sai chuyện.
  *
  * ⚠️ Ở `cheDo:"mot-tien-trinh"` outbox LUÔN RỖNG ⇒ lưới chạy không tải, vô hại.

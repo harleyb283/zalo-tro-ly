@@ -34,7 +34,7 @@ function docThamSo(argv) {
   return ra;
 }
 
-function timDuongDanDb(chiDinh) {
+function findDbPath(chiDinh) {
   if (chiDinh) return expandPath(chiDinh);
 
   if (process.env.ZTL_DATA_DIR) {
@@ -55,7 +55,7 @@ function timDuongDanDb(chiDinh) {
 
 function main() {
   const ts = docThamSo(process.argv);
-  const duongDanDb = timDuongDanDb(ts.db);
+  const duongDanDb = findDbPath(ts.db);
   const duongDanSchema = path.join(PACK_ROOT, 'schema.sql');
 
   if (isInsidePack(duongDanDb, PACK_ROOT)) {

@@ -22,8 +22,8 @@
  *   · Chỉ CỘNG THÊM. Không DROP, không RENAME, không xoá dòng nào.
  *   · Chạy lại nhiều lần vô hại (lần hai không còn dòng nào khớp).
  *
- *   node bin/va_lai_noi_dung.js [đường/dẫn.db]          # chạy thử
- *   node bin/va_lai_noi_dung.js [đường/dẫn.db] --that   # ghi thật
+ *   node bin/patch-content.js [đường/dẫn.db]          # chạy thử
+ *   node bin/patch-content.js [đường/dẫn.db] --that   # ghi thật
  * ═══════════════════════════════════════════════════════════════════════
  */
 import { DatabaseSync } from 'node:sqlite';
@@ -95,7 +95,7 @@ const SOAT = `SELECT count(*) AS tong,
  * @param {string} duongDan
  * @param {boolean} ghiThat
  */
-export function vaLai(duongDan, ghiThat) {
+export function patchContent(duongDan, ghiThat) {
   const db = new DatabaseSync(duongDan);
   try {
     const truoc = db.prepare(SOAT).get();
@@ -124,7 +124,7 @@ const laChayTruocTiep = process.argv[1] && import.meta.url.endsWith(path.basenam
 if (laChayTruocTiep) {
   const dd = process.argv.find((a, i) => i >= 2 && !a.startsWith('--')) ?? MAC_DINH;
   const that = process.argv.includes('--that');
-  const kq = vaLai(dd, that);
+  const kq = patchContent(dd, that);
   process.stdout.write(`DB: ${dd}\n${that ? '★ GHI THẬT' : '(chạy thử — thêm --that để ghi)'}\n\n`);
   for (const b of kq.ketQua) process.stdout.write(`  ${b.soKhop === 0 ? '·' : '✔'} ${b.ten}: ${b.soKhop} dòng — ${b.moTa}\n`);
   process.stdout.write(

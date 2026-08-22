@@ -26,7 +26,7 @@ import {
   classifyLoginError, loginFailedError, loginWithCookie,
 } from '../src/zalo/session.js';
 import { isDaemonRunning, pidFilePath, writeHealth, readHealth } from '../src/ops/health.js';
-import { phanDinh, MA } from '../bin/zalo-health.js';
+import { judgeHealth, MA } from '../bin/zalo-health.js';
 import { createWatchdog, WS } from '../src/zalo/watchdog.js';
 import { main as remindMain, MA as MA_REMIND } from '../bin/zalo-remind.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
@@ -142,7 +142,7 @@ test('B4 file pid rác -> song=null (KHÔNG BIẾT), tuyệt đối không đoá
 
 // ═══ C. ★ Ca chính anh gặp: health nói CAN_QR mà daemon vẫn chạy ═══
 test('🔴 C1 CAN_QR + daemon ĐANG CHẠY -> KHÔNG hô quét QR, không nghiêm trọng, exit 0', () => {
-  const k = phanDinh(ttGia('CAN_QR', { lyDo: 'cookie hỏng' }), cauHinhGia(), Date.now(),
+  const k = judgeHealth(ttGia('CAN_QR', { lyDo: 'cookie hỏng' }), cauHinhGia(), Date.now(),
     { song: true, pid: 123, lyDo: 'tiến trình 123 đang chạy' });
   assert.equal(k.nghiemTrong, false, 'đây là trạng thái CŨ còn sót, không phải sự cố đang diễn ra');
   assert.equal(k.ma, MA.OK);
@@ -151,7 +151,7 @@ test('🔴 C1 CAN_QR + daemon ĐANG CHẠY -> KHÔNG hô quét QR, không nghiê
 });
 
 test('C2 CAN_QR + daemon KHÔNG chạy -> đúng là cần quét QR, exit 3', () => {
-  const k = phanDinh(ttGia('CAN_QR'), cauHinhGia(), Date.now(),
+  const k = judgeHealth(ttGia('CAN_QR'), cauHinhGia(), Date.now(),
     { song: false, pid: null, lyDo: 'không có file pid' });
   assert.equal(k.ma, MA.CAN_QR);
   assert.equal(k.nghiemTrong, true);
@@ -159,18 +159,18 @@ test('C2 CAN_QR + daemon KHÔNG chạy -> đúng là cần quét QR, exit 3', ()
 });
 
 test('C3 KHÔNG truyền tiến trình -> giữ nguyên hành vi cũ (không phá bài test có sẵn)', () => {
-  const k = phanDinh(ttGia('CAN_QR'), cauHinhGia(), Date.now());
+  const k = judgeHealth(ttGia('CAN_QR'), cauHinhGia(), Date.now());
   assert.equal(k.ma, MA.CAN_QR);
 });
 
 test('🔴 C4 chưa có health.json + daemon ĐANG CHẠY -> "đang khởi động", KHÔNG phải "chưa từng chạy"', () => {
-  const k = phanDinh(null, cauHinhGia(), Date.now(), { song: true, pid: 9, lyDo: 'tiến trình 9 đang chạy' });
+  const k = judgeHealth(null, cauHinhGia(), Date.now(), { song: true, pid: 9, lyDo: 'tiến trình 9 đang chạy' });
   assert.match(k.tomTat, /ĐANG KHỞI ĐỘNG/);
   assert.match(k.tomTat, /KHÔNG cần quét QR/);
 });
 
 test('C5 chưa có health.json + daemon KHÔNG chạy -> nói rõ đây không phải bằng chứng cookie chết', () => {
-  const k = phanDinh(null, cauHinhGia(), Date.now(), { song: false, pid: null, lyDo: 'x' });
+  const k = judgeHealth(null, cauHinhGia(), Date.now(), { song: false, pid: null, lyDo: 'x' });
   assert.equal(k.ma, MA.CHUA_CHAY);
   assert.match(k.tomTat, /KHÔNG phải bằng chứng cookie chết/);
 });

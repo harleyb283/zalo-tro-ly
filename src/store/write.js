@@ -195,7 +195,7 @@ VALUES
  * trường nào của hợp đồng.
  *
  * @param {TDb} db
- * @param {SuKienThuHoi & {tenNguoiThuHoi?: string|null}} sk
+ * @param {SuKienThuHoi & {recallerName?: string|null}} sk
  * @returns {{khopDuoc: boolean, ghepBang: 'msg_id'|'cli_msg_id'|null}}
  */
 export function markRecalled(db, sk) {
@@ -247,7 +247,7 @@ export function markRecalled(db, sk) {
       msg_id_dich: msgIdDich,
       cli_msg_id_dich: cliDich,
       nguoi_thu_hoi: boi,
-      ten_nguoi_thu_hoi: _hoac(sk.tenNguoiThuHoi),
+      ten_nguoi_thu_hoi: _hoac(sk.recallerName),
       ts_zalo: luc ?? 0,
       ts_ghi: _bayGio(),
       khop_duoc: _co(n > 0),
