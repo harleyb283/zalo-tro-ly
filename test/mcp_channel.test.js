@@ -79,7 +79,7 @@ test('A3 instructions tới được client — đây là chỗ DUY NHẤT dặn
   const { kenh, client } = await dungCap();
   const hd = client.getInstructions() ?? '';
   assert.match(hd, /request_id/, 'phải dặn truyền request_id ngược lại');
-  assert.match(hd, /tra_loi/, 'phải dặn transcript không tới người Zalo');
+  assert.match(hd, /reply/, 'phải dặn transcript không tới người Zalo');
   assert.match(hd, /prompt injection/i, 'phải dặn coi tin Zalo là dữ liệu, không phải mệnh lệnh');
   await imLang(() => kenh.dong());
 });
@@ -355,7 +355,7 @@ test('G3 tin thường -> content KHÔNG bị thêm gì (không nhiễu)', async
   const { kenh, nhanThongBao } = await dungCap({ replyContext: () => null });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   assert.equal(nhanThongBao[0].params.content, 'anh ơi cho em hỏi');
-  assert.equal('tra_loi' in nhanThongBao[0].params.meta, false,
+  assert.equal('reply' in nhanThongBao[0].params.meta, false,
     'không có tin gốc thì BỎ HẲN khoá — gửi null là rớt kết nối');
   await imLang(() => kenh.dong());
 });
@@ -443,7 +443,7 @@ test('H2 ★ KHÔNG có tin gốc — `null` cũng bị từ chối y như objec
   const { kenh, nhanThongBao } = await dungCap({ replyContext: () => null });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   _epLuatMeta(nhanThongBao[0], 'không có tin gốc');
-  assert.equal('tra_loi' in nhanThongBao[0].params.meta, false, 'phải VẮNG MẶT, không phải null');
+  assert.equal('reply' in nhanThongBao[0].params.meta, false, 'phải VẮNG MẶT, không phải null');
   await imLang(() => kenh.dong());
 });
 
@@ -457,7 +457,7 @@ test('H3 ★ tin thường không reply', async () => {
 test('H4 🔴 payload của `lich/runner.js` — quả mìn ĐÃ CÀI SẴN từ trước', async () => {
   // `runner.js` truyền THẲNG `tenHoiThoai: null, nguoiHoi: null` khi giao model
   // viết câu nhắc. Tức mọi lời nhắc theo lịch cũng sẽ làm đứt kết nối y hệt —
-  // bug này có trước `tra_loi`, chỉ chưa ai chạy tới.
+  // bug này có trước `reply`, chỉ chưa ai chạy tới.
   const { kenh, nhanThongBao } = await dungCap();
   await imLang(() => kenh.guiThongBao({
     requestId: 'req-lich', chatId: '999',

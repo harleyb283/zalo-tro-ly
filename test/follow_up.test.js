@@ -577,7 +577,7 @@ test('H3 ★★ hết lượt -> BÁO HOST, nói rõ dừng vì hết lượt KH
   assert.equal(dm.length, 1, 'im lặng tắt là bỏ rơi một việc thật mà không ai hay');
   assert.match(dm[0], /HẾT LƯỢT/);
   assert.match(dm[0], /KHÔNG phải vì việc đã xong/);
-  assert.match(dm[0], /chinh_nhip_nhac/, 'phải chỉ đường nới trần');
+  assert.match(dm[0], /followup_adjust/, 'phải chỉ đường nới trần');
   closeDb(db);
 });
 

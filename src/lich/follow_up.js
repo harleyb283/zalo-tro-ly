@@ -409,7 +409,7 @@ export function stalledModelReminders(db, bayGioMs) {
  * ═══ 🔴 TOKEN GỬI — `cho_model_tu_ms` KHÔNG chỉ là "mốc bắt đầu chờ" ═══
  *
  * Nó là **quyền gửi** của MỘT lượt nhắc, và chỉ MỘT bên được cầm:
- *   · model gửi qua `tra_loi`  → giành token ở đây
+ *   · model gửi qua `reply`  → giành token ở đây
  *   · lưới an toàn gửi câu dự phòng → giành token bằng CAS ở `runner.js`
  * Ai giành được (`changes === 1`) mới được chạm mạng. Bên thua **im**.
  *
@@ -424,7 +424,7 @@ export function stalledModelReminders(db, bayGioMs) {
  * chừng mà không ai gửi bù, lời nhắc biến mất âm thầm.
  *
  * @returns {{ok: boolean, mocCu: number|null}} `ok=false` ⇒ bên kia đã gửi rồi,
- *   HOẶC host vừa `dong_nhac`/`chinh_nhip_nhac` (hai hàm đó cũng xoá cột này).
+ *   HOẶC host vừa `followup_close`/`followup_adjust` (hai hàm đó cũng xoá cột này).
  */
 export function claimReminderSend(db, idNhac) {
   const d = db
@@ -474,7 +474,7 @@ export function writeReminderProof(db, idNhac, msgId) {
  * Lớp canh THỨ HAI, đọc ngay trước khi chạm mạng: lượt này còn được GỬI không?
  *
  * 🔴 Vì sao cần dù truy vấn ở trên đã lọc: giữa lúc `SELECT` và lúc `await` gửi tin
- * có thể có một lời gọi tool của host chen vào (`dong_nhac` / `chinh_nhip_nhac` chạy
+ * có thể có một lời gọi tool của host chen vào (`followup_close` / `followup_adjust` chạy
  * trong CÙNG tiến trình). Đây là chỗ chạm NGƯỜI THẬT — đọc thêm một dòng DB rẻ hơn
  * nhiều so với một tin nhắn không rút lại được.
  *
@@ -712,7 +712,7 @@ export function closeFollowUp(db, { id, nguoiDong, isHost, bayGioMs }) {
  * `msg_id_da_gui = NULL` và `ly_do_loi = NULL` — KHÔNG có gì phân biệt nó với
  * một lịch đã gửi thành công.
  *
- * ⛔ Chú thích ở `runner.js` nói "host đọc `xem_lich` thấy trạng thái lỗi rồi
+ * ⛔ Chú thích ở `runner.js` nói "host đọc `schedule_list` thấy trạng thái lỗi rồi
  * tự quyết" — nhánh đó CHỈ chạy khi `catch` bắt được. Bị `kill`, máy sập, OOM
  * thì KHÔNG có `catch` nào cả.
  *

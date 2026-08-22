@@ -7,7 +7,7 @@
  *      07:11:14  model gửi tin thứ NHẤT (17 giây — thừa sức trong hạn)
  *      07:12:27  🔴 tin thứ HAI: "Em nhắc lần 2…"   (= 07:10:57 + 90 giây)
  *    `cho_model_tu_ms` (cờ "đang chờ model") KHÔNG ai gỡ khi model trả lời qua
- *    `tra_loi`, nên đúng trần chờ sau, lưới an toàn tưởng model chết và bắn bù.
+ *    `reply`, nên đúng trần chờ sau, lưới an toàn tưởng model chết và bắn bù.
  *
  * 🔴 Và lỗi này do CHÍNH bản vá A5 đêm trước đẻ ra: trước A5 trần chờ là 10 phút
  *    cố định, nhịp 3 phút không bao giờ chạm tới ⇒ nhánh gửi bù NGỦ. A5 hạ trần

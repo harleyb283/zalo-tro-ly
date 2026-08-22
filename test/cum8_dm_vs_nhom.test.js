@@ -9,7 +9,7 @@
  *    tức mình gửi bằng `ThreadType.Group` tới một id DM.
  *
  * 🔴 Gốc: `HUONG_TRA_LOI.NHOM` nghĩa là *"trả lời NGAY CHỖ ĐÃ HỎI"*, KHÔNG có
- *    nghĩa *"chỗ đó là một nhóm"*. `tra_loi` chưa bao giờ hỏi `chat_id_hoi`
+ *    nghĩa *"chỗ đó là một nhóm"*. `reply` chưa bao giờ hỏi `chat_id_hoi`
  *    thuộc loại gì, trong khi nhánh `DM_HOST` ngay bên dưới thì CÓ truyền
  *    `{ laDm: true }` — nên đường DM CHỦ ĐỘNG chạy được, còn đường TRẢ LỜI MỘT
  *    CÂU HỎI ĐẾN TỪ DM thì rơi vào nhánh nhóm.
@@ -282,7 +282,7 @@ test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm men
   confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
   const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N1'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
-  // thì `tra_loi` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
+  // thì `reply` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
   // trạng thái mà production LUÔN tạo ra.
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), idNhac);
 
@@ -311,7 +311,7 @@ test('★★ C4 trả lời trong NHÓM vẫn cưỡng chế tag như cũ (chố
   confirmSchedule(db, { id: 'N2', ma: 'N2', nguoiDat: HOST });
   const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N2'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
-  // thì `tra_loi` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
+  // thì `reply` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
   // trạng thái mà production LUÔN tạo ra.
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), idNhac);
 

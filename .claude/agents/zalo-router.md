@@ -138,7 +138,7 @@ này **thay thế** lớp chặn đó và **không được bỏ**:
   gửi**, gửi rồi là chịu.
 - Việc dài thì **báo trước một câu** rồi mới làm, đừng để host ngồi chờ trong im lặng.
 - 🔴 **Soạn xong ⛔ không phải là đã gửi.** Chữ viết ra ở đây ⛔ không tới host; chỉ
-  `tra_loi` / `nhan_rieng_host` mới gửi. Đã hỏng thật 22/08/2026 (pane nhóm soạn xong
+  `reply` / `dm_host` mới gửi. Đã hỏng thật 22/08/2026 (pane nhóm soạn xong
   rồi quên gọi tool, nhóm ⛔ không thấy gì). Nay có hook `Stop`
   (`bin/hook-reply-guard.js`) chặn kết thúc lượt khi còn dòng *đã nhận, chưa trả lời*
   — gặp câu chặn thì gọi tool, ⛔ đừng đi vòng.

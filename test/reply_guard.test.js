@@ -51,14 +51,14 @@ test('A1 ★★★ còn lượt chưa gửi đi -> CHẶN kết thúc', () => {
 test('A2 ★★ câu chặn phải nêu ĐÍCH DANH tool và request_id', () => {
   // Nhắc chung chung ("nhớ trả lời nhé") là mời model quên lần nữa.
   const s = blockMessage(decideBlock({ dong: [moi()] }));
-  assert.match(s, /tra_loi/, 'phải nêu tên tool');
+  assert.match(s, /reply/, 'phải nêu tên tool');
   assert.match(s, /r-moi/, 'phải nêu request_id');
   assert.match(s, /KHÔNG tới người nhắn/, 'phải nói vì sao viết ra là chưa đủ');
 });
 
 test('A3 ★ lượt CHỈ NGHE thì chỉ đường sang bo_qua, ⛔ không bắt trả lời', () => {
   const s = blockMessage(decideBlock({ dong: [moi(5_000, { chi_nghe: 1 })] }));
-  assert.match(s, /bo_qua/);
+  assert.match(s, /skip/);
   assert.match(s, /CHỈ NGHE/);
 });
 

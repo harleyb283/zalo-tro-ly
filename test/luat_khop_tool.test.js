@@ -69,7 +69,7 @@ const CO_CORE = Boolean(F_CORE) && fs.existsSync(F_CORE);
 // NGUỒN SỰ THẬT: đọc thẳng tools.js
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Đổi `TEN_TOOL_NHAC.CHINH_NHIP_NHAC` -> `'chinh_nhip_nhac'` bằng hang_so.js. */
+/** Đổi `TEN_TOOL_NHAC.CHINH_NHIP_NHAC` -> `'followup_adjust'` bằng hang_so.js. */
 function tenThat(hangSo, nhom, khoa) {
   const than = hangSo.split(`export const ${nhom}`)[1] ?? '';
   const m = than.match(new RegExp(`${khoa}:\\s*'([^']+)'`));
@@ -138,7 +138,7 @@ function docTuLuat(duongDan, tenTool) {
     }
     // Một tool có thể xuất hiện ở nhiều bảng (bảng chi tiết + bảng tóm tắt).
     // Gộp lại: chỉ cần MỘT bảng khai đủ là coi như luật có ghi.
-    // ⚠️ Ghi nhận CẢ KHI ô tham số rỗng: `trang_thai` không có tham số nào và ô
+    // ⚠️ Ghi nhận CẢ KHI ô tham số rỗng: `status` không có tham số nào và ô
     //    của nó ghi "(không có)". Bỏ qua dòng rỗng thì T1 báo thiếu tool oan —
     //    đã dính thật lúc chạy lần đầu.
     const cu = ra.get(ten);
@@ -158,15 +158,15 @@ const CODE = docTuCode();
 
 test('T0 đọc được nguồn sự thật: tools.js khai ít nhất 14 tool', () => {
   assert.ok(CODE.size >= 14, `chỉ đọc được ${CODE.size} tool — bộ đọc hỏng?`);
-  for (const buoc of ['lich_su', 'tra_loi', 'dat_nhac_theo_duoi', 'chinh_nhip_nhac']) {
+  for (const buoc of ['history', 'reply', 'followup_start', 'followup_adjust']) {
     assert.ok(CODE.has(buoc), `thiếu ${buoc} — bộ đọc cắt sai ranh giới?`);
   }
-  // Chống lẫn tham số sang tool kế bên: `tra_loi` chỉ có đúng 2 tham số.
-  assert.deepEqual([...CODE.get('tra_loi').bat].sort(), ['request_id', 'text']);
-  // v6: `tra_loi` có ĐÚNG hai tham số tuỳ chọn — đường thoát của chốt chặn ghi.
+  // Chống lẫn tham số sang tool kế bên: `reply` chỉ có đúng 2 tham số.
+  assert.deepEqual([...CODE.get('reply').bat].sort(), ['request_id', 'text']);
+  // v6: `reply` có ĐÚNG hai tham số tuỳ chọn — đường thoát của chốt chặn ghi.
   // ⚠️ Vẫn là phép canh RANH GIỚI BỘ ĐỌC như bản cũ (trước đây là "0 tham số"):
   // liệt kê ĐÚNG TÊN thay vì đếm, nên bộ đọc mà lẫn sang tool kế bên là vẫn đỏ.
-  assert.deepEqual([...CODE.get('tra_loi').tuyChon].sort(), ['khongCanGhi', 'lyDo'],
+  assert.deepEqual([...CODE.get('reply').tuyChon].sort(), ['khongCanGhi', 'lyDo'],
     'tra_loi chỉ được có khongCanGhi + lyDo — khác đi = bộ đọc lẫn sang tool khác');
 });
 

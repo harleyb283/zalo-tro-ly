@@ -119,7 +119,7 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
 
 function phienNhac(db, idNhac, requestId = 'req-nhac') {
   // ⚠️ PHẢI đặt `cho_model_tu_ms` — production luôn đặt nó TRƯỚC khi tạo hàng đợi
-  // (`runner.js`). Đó là TOKEN quyền gửi: thiếu nó thì `tra_loi` từ chối, và từ
+  // (`runner.js`). Đó là TOKEN quyền gửi: thiếu nó thì `reply` từ chối, và từ
   // chối là ĐÚNG (nghĩa là lưới an toàn đã gửi câu dự phòng rồi). Helper dựng
   // thiếu token là dựng một trạng thái production KHÔNG tạo ra được.
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
@@ -317,7 +317,7 @@ test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội du
   // NHẬN cho anh đọc, không phải dựng mention. Canh văn bản kiểu đó là đúng cái bẫy
   // `ref_validator_false_alarm_traps`: kêu oan vài lần là người ta tắt bài test đi.
   // ⇒ Thay bằng: chứng minh HAI đường gửi (dự phòng do code dựng, và đường model
-  //   qua `tra_loi`) cho ra CÙNG một kết quả tag. Chung kết quả = chung luật.
+  //   qua `reply`) cho ra CÙNG một kết quả tag. Chung kết quả = chung luật.
   const db = dbTam();
   const nhac = taoNhac(db, { chuKyPhut: 3, nguoiPhuTrach: TRONG });
   const { groupMembers } = dsNguoiCache;
@@ -332,7 +332,7 @@ test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội du
     'đường dự phòng vẫn nhân đôi -> nó chưa dùng chung luật');
   assert.deepEqual(duongB.daCoSan, [TRONG]);
 
-  // Đường (a) — model viết, `tra_loi` cưỡng chế.
+  // Đường (a) — model viết, `reply` cưỡng chế.
   const req = phienNhac(db, nhac.id);
   const { goi, daGui } = dungTool(db);
   const kq = await goi(TEN_TOOL.TRA_LOI, { request_id: req, text: CAU });

@@ -165,7 +165,7 @@ Xong thứ đó thì spawn pane:
 bên ngoài như đang chạy tốt, nhưng **không tin nào vào được phiên Claude**.
 
 ⚠️ **Nghiệm thu phải GỌI TOOL THẬT, đừng tin banner.** Banner channel vẫn hiện
-kể cả khi pane nạp 0 MCP server. Gõ trong pane: *"gọi tool `trang_thai`"* — phải
+kể cả khi pane nạp 0 MCP server. Gõ trong pane: *"gọi tool `status`"* — phải
 ra JSON có `soTinDaLuu`.
 
 ---

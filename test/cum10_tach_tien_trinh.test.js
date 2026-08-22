@@ -58,7 +58,7 @@ function dbTam() {
   return db;
 }
 
-/** Dựng `tra_loi` ở CHẾ ĐỘ TÁCH (client): cửa gửi là XẾP HÀNG. */
+/** Dựng `reply` ở CHẾ ĐỘ TÁCH (client): cửa gửi là XẾP HÀNG. */
 function dungClient(db) {
   const daGuiThang = [];
   let xuLy;
@@ -142,7 +142,7 @@ test('★★ D5 thứ tự ưu tiên: cờ > env > config', () => {
   );
 });
 
-test('★★★ D6 KHÔNG có `xepHangGuiRa` -> `tra_loi` gửi THẲNG như hôm nay', () => {
+test('★★★ D6 KHÔNG có `xepHangGuiRa` -> `reply` gửi THẲNG như hôm nay', () => {
   // Đây là bằng chứng đường một-tiến-trình không đổi: cửa outbox chỉ mở khi
   // `src/index.js` nối `kho.xepHangGuiRa`, mà nó CHỈ nối ở vai client.
   const src = fs.readFileSync(path.join(GOC, 'src/mcp/tools.js'), 'utf8');

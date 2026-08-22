@@ -383,7 +383,7 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
   // 🔴 HÀNH VI ĐỔI CÓ CHỦ ĐÍCH (anh chốt 21/08/2026): trợ lý phải theo kịp
   // nhóm, nên tin người khác nay TẠO MỘT LƯỢT thay vì bị vứt.
   // ⚠️ Phần KHÔNG được đổi: lượt đó mang cờ `chi_nghe = 1`, và server chặn
-  // `tra_loi` + mọi tool ghi trên nó ⇒ vẫn 0 tin đi ra Zalo.
+  // `reply` + mọi tool ghi trên nó ⇒ vẫn 0 tin đi ra Zalo.
   const { db, cauHinh } = dungHe();
   const daBao = [];
   handleMessage(

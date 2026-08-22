@@ -232,7 +232,7 @@ test('D1 ★★★ tách: model trả lời rồi thì lưới KHÔNG bù thêm 
 
   await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
-  // Client nhặt, model gọi `tra_loi` -> tool GIỮ QUYỀN GỬI (xoá token).
+  // Client nhặt, model gọi `reply` -> tool GIỮ QUYỀN GỬI (xoá token).
   const giu = claimReminderSend(db, d0.id);
   assert.equal(giu.ok, true, 'tiền đề: model phải giành được quyền gửi');
 

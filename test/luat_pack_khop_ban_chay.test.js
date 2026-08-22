@@ -74,26 +74,26 @@ const LUAT_COT_LOI = [
   { id: 'bang-tool-co-the-tut-hau', y: /chưa có tính năng đó/i },
   { id: 'van-xa-chi-host',          y: /van xả/i },
   { id: 'khong-tu-ket-luan-xong',   y: /dấu hiệu/i },
-  { id: 'cau-nhac-khac-nhau',       y: /lich_su/ },
+  { id: 'cau-nhac-khac-nhau',       y: /history/ },
   { id: 'so-ngay-tu-tool',          y: /nhẩm/i },
   { id: 'tag-nguoi-co-that',        y: /user_id/ },
   { id: 'giong-lich-su',            y: /xẵng giọng|cộc lốc/i },
   // v6 (21/08/2026) — bộ luật chữa ca hỏng 08:03 "nói xong mà không ghi".
   // Mốc chọn là TÊN TOOL và MÃ LỖI: xoá chúng đi thì luật mất nghĩa hoàn toàn.
-  { id: 'luu-lai-la-lenh',          y: /ghi_nho/ },
+  { id: 'luu-lai-la-lenh',          y: /memo_save/ },
   { id: 'dem-viec-truoc-khi-tra-loi', y: /hai\*\* việc|nhiều vế|đếm số việc/i },
-  { id: 'host-tuyen-bo-la-bang-chung', y: /mo_lai_nhac/ },
+  { id: 'host-tuyen-bo-la-bang-chung', y: /followup_reopen/ },
   // v8 (21/08/2026) — quyền đi theo CHỖ HỎI, không theo NGƯỜI HỎI.
   // Mốc là câu chỉ đường, thứ duy nhất trong luật này không suy lại được.
   { id: 'pham-vi-theo-cho-hoi', y: /chỉ thấy nhóm này thôi/i },
-  { id: 'luot-chi-nghe',        y: /bo_qua/ },
+  { id: 'luot-chi-nghe',        y: /skip/ },
   { id: 'cua-2-dap-viec',      y: /CHỈ HOST ĐÓNG/ },
   // v10.1 — xin phép phải TAG TRONG NHÓM, ⛔ không nhắn riêng. Neo vào chính
   // tên tham số: đổi cách xin mà quên sửa luật thì model gõ tay `@tên` (chữ trần).
   { id: 'cua-2-dap-viec',      y: /xinHostDuyet/ },
   // ─── v11 (21/08/2026) — vai AGENT MỖI NHÓM ───
   { id: 'vai-mot-nhom',           y: /chỉ thấy nhóm này thôi/i },
-  { id: 'xin-duyet-khi-dung-file', y: /xin_duyet/ },
+  { id: 'xin-duyet-khi-dung-file', y: /approval_request/ },
   // 🔴 Neo vào chính chữ phân biệt "lời kể" với "sự thật" — đó là toàn bộ nội
   // dung của luật ghi vết, xoá nó đi thì luật còn cái vỏ.
   { id: 'ghi-vet-thay-lop-chan',  y: /nguonNguyenVan/ },

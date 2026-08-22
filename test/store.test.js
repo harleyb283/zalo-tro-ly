@@ -682,7 +682,7 @@ test('F1b ★ DB MỚI (schema.sql) và DB CŨ (migrate) phải cho CÙNG cấu 
 });
 
 test('F1c ★ v10 -> v11 TRÊN DB CÓ DỮ LIỆU: ⛔ không mất ghi nhớ nào, cột mới NULL', () => {
-  // 🔴 Bước v11 là bước DUY NHẤT của đợt này đụng vào BẢNG ĐÃ CÓ (`ghi_nho`).
+  // 🔴 Bước v11 là bước DUY NHẤT của đợt này đụng vào BẢNG ĐÃ CÓ (`memo_save`).
   // F1 chạy v1 -> mới nhất nên có phủ, nhưng nó ⛔ không nói được bước NÀO hỏng
   // khi đỏ. Bài này cô lập đúng một bước, trên dữ liệu THẬT hình dạng v10.
   //

@@ -66,26 +66,26 @@ Nguồn: `src/mcp/tools.js` · tên hằng ở `src/lib/hang_so.js`.
 
 | Tool | Làm gì | Ai gọi được | Mức |
 |---|---|---|---|
-| `lich_su` | Tra kho lịch sử đã lưu (`chatId`, `tuKhoa`, `soLuong`, `tuNgay`/`denNgay`) | mọi lượt hợp lệ | 🔒 chỉ đọc nhóm trong allowlist |
-| `tra_loi` | Trả lời vào chính nơi đang hỏi | mọi lượt hợp lệ | 🔒 luật chống rò chéo áp tự động |
-| `nhan_rieng_host` | Nhắn riêng cho host | mọi lượt hợp lệ | 🔒 chỉ gửi tới DM khai trong config |
-| `trang_thai` | Sức khoẻ + số tin đã lưu + hàng đợi | mọi lượt hợp lệ | — |
-| `dat_lich_nhap` | Soạn một lời nhắc **MỘT LẦN**, chờ duyệt | **chỉ host** | 🔒 kiểm lại host |
-| `dat_lich_chot` | Chốt lời nhắc một lần bằng mã 4 ký tự | **chỉ người đã đặt** | 🔒 |
-| `xem_lich` | Xem lịch nhắc một lần | mọi lượt hợp lệ | — |
-| `huy_lich` | Huỷ lịch chưa gửi | **chỉ người đã đặt** | 🔒 |
-| `dat_nhac_theo_duoi` | Mở một việc **theo đuổi tới khi xong** | **chỉ host** | 🔒 kiểm lại host |
-| `chinh_nhip_nhac` | ★ **Van xả** — đổi chu kỳ / giờ / tạm dừng tới ngày X | **chỉ host** | 🔒 kiểm lại host |
-| `dong_nhac` | **Đóng hẳn** một lời nhắc theo đuổi | **chỉ host** | 🔒 kiểm lại host |
-| `xem_nhac` | Liệt kê việc đang theo đuổi | mọi lượt hợp lệ | — |
+| `history` | Tra kho lịch sử đã lưu (`chatId`, `tuKhoa`, `soLuong`, `tuNgay`/`denNgay`) | mọi lượt hợp lệ | 🔒 chỉ đọc nhóm trong allowlist |
+| `reply` | Trả lời vào chính nơi đang hỏi | mọi lượt hợp lệ | 🔒 luật chống rò chéo áp tự động |
+| `dm_host` | Nhắn riêng cho host | mọi lượt hợp lệ | 🔒 chỉ gửi tới DM khai trong config |
+| `status` | Sức khoẻ + số tin đã lưu + hàng đợi | mọi lượt hợp lệ | — |
+| `schedule_draft` | Soạn một lời nhắc **MỘT LẦN**, chờ duyệt | **chỉ host** | 🔒 kiểm lại host |
+| `schedule_confirm` | Chốt lời nhắc một lần bằng mã 4 ký tự | **chỉ người đã đặt** | 🔒 |
+| `schedule_list` | Xem lịch nhắc một lần | mọi lượt hợp lệ | — |
+| `schedule_cancel` | Huỷ lịch chưa gửi | **chỉ người đã đặt** | 🔒 |
+| `followup_start` | Mở một việc **theo đuổi tới khi xong** | **chỉ host** | 🔒 kiểm lại host |
+| `followup_adjust` | ★ **Van xả** — đổi chu kỳ / giờ / tạm dừng tới ngày X | **chỉ host** | 🔒 kiểm lại host |
+| `followup_close` | **Đóng hẳn** một lời nhắc theo đuổi | **chỉ host** | 🔒 kiểm lại host |
+| `followup_list` | Liệt kê việc đang theo đuổi | mọi lượt hợp lệ | — |
 
-> ⚠️ **`dat_lich_*` ≠ `dat_nhac_theo_duoi`.** Nhóm `dat_lich_*` là nhắc **một lần**,
+> ⚠️ **`dat_lich_*` ≠ `followup_start`.** Nhóm `dat_lich_*` là nhắc **một lần**,
 > gửi xong là hết. Nhóm `*_nhac` là **lặp lại tới khi bạn bảo dừng**. Tên giống nhau
 > nhưng hành vi khác hẳn.
 
 ### 🔒 "Mọi lượt hợp lệ" nghĩa là gì — cổng thật nằm ở đây
 
-`request_id` là tham số **BẮT BUỘC** của 11/12 tool (trừ `trang_thai`), và phải đúng mã
+`request_id` là tham số **BẮT BUỘC** của 11/12 tool (trừ `status`), và phải đúng mã
 nhận được trong tin báo. Sai hoặc thiếu ⇒ 🔒 server từ chối (fail-closed).
 
 **Đây mới là cổng chính.** Một `request_id` hợp lệ chỉ được tạo ở đúng **hai** chỗ:
@@ -100,11 +100,11 @@ trong bảng trên **đã hàm ý là lượt do host khởi phát**.
 Bốn tool có ghi "🔒 kiểm lại host" là **lớp phòng thủ thứ hai**: chúng tra lại danh sách
 host trong cấu hình một lần nữa, không tin cổng phía trên.
 
-> ⚠️ **Nói cho chính xác:** `dat_lich_chot` và `huy_lich` kiểm **"người đã đặt lịch đó"**,
+> ⚠️ **Nói cho chính xác:** `schedule_confirm` và `schedule_cancel` kiểm **"người đã đặt lịch đó"**,
 > không phải "là host". Trên thực tế hai điều này trùng nhau — vì chỉ host mới tạo được
 > lịch ngay từ đầu — nhưng nếu bạn khai **nhiều host** thì host A **không** chốt/huỷ được
 > lịch của host B.
-> `xem_lich` và `xem_nhac` **không có lớp kiểm thứ hai**, chỉ dựa vào cổng `request_id`.
+> `schedule_list` và `followup_list` **không có lớp kiểm thứ hai**, chỉ dựa vào cổng `request_id`.
 
 ### 2.2. Quyền khác
 
@@ -220,10 +220,10 @@ khi việc xong**.
 | L19 | **Chừa Chủ Nhật**. **Thứ Bảy VẪN nhắc** | 🔒 `BO_CHU_NHAT_MAC_DINH = true`, thi hành ở `src/lich/theo_duoi.js` |
 | L20 | Chu kỳ tối đa **90 ngày** | 🔒 kẹp cứng trong `tools.js` |
 | L21 | Nhắc **trong nhóm, tag thẳng người phụ trách** | 📝 |
-| L22 | **Chỉ host** mới `dong_nhac` (đóng hẳn) | 🔒 `theo_duoi.js` trả `KHONG_PHAI_HOST` |
-| L23 | **Chỉ host** mới `chinh_nhip_nhac` (van xả) | 🔒 như trên |
+| L22 | **Chỉ host** mới `followup_close` (đóng hẳn) | 🔒 `theo_duoi.js` trả `KHONG_PHAI_HOST` |
+| L23 | **Chỉ host** mới `followup_adjust` (van xả) | 🔒 như trên |
 | L24 | Người khác nói *"ok xong rồi"* là **dấu hiệu, KHÔNG phải bằng chứng**. Trợ lý **BẮT BUỘC hỏi host** trước khi đóng | 📝 |
-| L25 | Câu nhắc hôm sau **BẮT BUỘC khác** hôm trước — tra `lich_su` từ lần nhắc trước tới nay để bám bối cảnh | 📝 |
+| L25 | Câu nhắc hôm sau **BẮT BUỘC khác** hôm trước — tra `history` từ lần nhắc trước tới nay để bám bối cảnh | 📝 |
 | L26 | Số ngày / mốc thời gian **BẮT BUỘC lấy từ dữ liệu tool trả về**. **CẤM tự nhẩm** | 📝 |
 | L27 | Chỉ tag người **đã từng nhắn trong chính nhóm đó**. Không tra ra được `user_id` ⇒ **BẮT BUỘC** để nguyên tên dạng chữ, **CẤM bịa** | 📝 |
 
@@ -233,7 +233,7 @@ chỉnh **bằng lời, ngay trong nhóm, có tag trợ lý**:
 > *"2 ngày check lại 1 lần cho anh"* · *"tuần sau nhắc lại"* · *"thôi dừng vụ này"*
 > · *"đổi sang nhắc chiều"*
 
-Trợ lý nhận ra → gọi `chinh_nhip_nhac` → xác nhận lại một câu ngắn.
+Trợ lý nhận ra → gọi `followup_adjust` → xác nhận lại một câu ngắn.
 
 > 🔴 **Vì sao van xả quan trọng:** nó là thứ **duy nhất** ngăn một lời nhắc bị quên
 > đóng khỏi việc nhắn vào mặt một người thật **mỗi sáng, vô thời hạn**.
@@ -243,8 +243,8 @@ Trợ lý nhận ra → gọi `chinh_nhip_nhac` → xác nhận lại một câu
 > cơ chế vô nghĩa. Code từ chối thẳng, không phụ thuộc vào việc trợ lý có tỉnh táo hay
 > không.
 
-⚠️ **`dong_nhac` là đóng HẲN.** Chỉ thấy phiền mà việc chưa xong ⇒ dùng
-`chinh_nhip_nhac` để giãn nhịp. Đóng nhầm = bỏ rơi một việc thật mà không ai biết.
+⚠️ **`followup_close` là đóng HẲN.** Chỉ thấy phiền mà việc chưa xong ⇒ dùng
+`followup_adjust` để giãn nhịp. Đóng nhầm = bỏ rơi một việc thật mà không ai biết.
 
 ### 3.6. Việc trợ lý KHÔNG bao giờ tự làm
 

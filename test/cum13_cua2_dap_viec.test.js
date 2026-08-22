@@ -136,7 +136,7 @@ test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
 });
 
 test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (bẫy em tự tìm ra)', () => {
-  // `cancelSchedule()` chỉ đổi `trang_thai` sang 'da_huy' và KHÔNG đụng
+  // `cancelSchedule()` chỉ đổi `status` sang 'da_huy' và KHÔNG đụng
   // `trang_thai_td` ⇒ chỉ kiểm ba điều kiện là cửa 2 MỞ CHO MỘT VIỆC ĐÃ HUỶ.
   const { db, id } = dbCoNhac();
   cancelSchedule(db, { id });
@@ -257,7 +257,7 @@ function phien(db, rid, idViec, noiDung = 'sắp xong rồi anh') {
   return rid;
 }
 
-test('★★★ T1 CỬA 2 MỞ: `tra_loi` chạy được và TIN THẬT SỰ ĐI RA nhóm', () => {
+test('★★★ T1 CỬA 2 MỞ: `reply` chạy được và TIN THẬT SỰ ĐI RA nhóm', () => {
   const { db, id } = dbCoNhac();
   const { goi, daGui } = dungTool(db);
   return goi(TEN_TOOL.TRA_LOI, {
@@ -504,7 +504,7 @@ test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệ
   //
   // Nhưng anh nới **quyền nghiệp vụ**, ⛔ KHÔNG nới **quyền RA LỆNH**. Bài này
   // nay canh đúng phần ⛔ KHÔNG đổi:
-  //   ① `nhan_rieng_host` — đường thẳng vào DM riêng của anh — VẪN CHẶN.
+  //   ① `dm_host` — đường thẳng vào DM riêng của anh — VẪN CHẶN.
   //   ② Tool nghiệp vụ **thiếu bằng chứng** (ai nói / nguyên văn) — VẪN CHẶN,
   //      và ⛔ không ghi nổi một dòng nào xuống DB.
   // Phần "có bằng chứng thì chạy" nằm ở cụm 16 (nghiệm thu GĐ5).
@@ -549,7 +549,7 @@ test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệ
 });
 
 test('★★★ T4 danh sách tool NÓI đúng MỘT cái, ⛔ không có tool ghi, ⛔ không nhắn riêng', () => {
-  // `nhan_rieng_host` ĐÃ BỎ 21/08/2026 — xin phép phải TAG TRONG NHÓM.
+  // `dm_host` ĐÃ BỎ 21/08/2026 — xin phép phải TAG TRONG NHÓM.
   assert.deepEqual([...TOOL_NOI_KHI_CUA2], [TEN_TOOL.TRA_LOI]);
   for (const cam of [
     TEN_TOOL.NHAN_RIENG_HOST, TEN_TOOL_NHAC.DONG_NHAC,
@@ -559,7 +559,7 @@ test('★★★ T4 danh sách tool NÓI đúng MỘT cái, ⛔ không có tool g
   }
 });
 
-test('★★★ T5 CỬA 2 ĐÓNG (lượt chỉ nghe thuần) -> `tra_loi` vẫn bị chặn', async () => {
+test('★★★ T5 CỬA 2 ĐÓNG (lượt chỉ nghe thuần) -> `reply` vẫn bị chặn', async () => {
   const { db } = dbCoNhac();
   const { goi, daGui } = dungTool(db);
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db, 'r3', null), text: 'Dạ' });
@@ -663,12 +663,12 @@ test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn
   // Bản đầu bài này định cô lập điều kiện `phien.idViecMoCua` trong
   // `_nhanRiengHost` bằng cách tiêm `taskOwnerHost` luôn trả host. Nó XANH,
   // và em tưởng lớp đó đang chặn. Thật ra tin bị chặn SỚM HƠN HAI TẦNG, ở
-  // `_chanKhiChiNghe` — `nhan_rieng_host` không nằm trong danh sách trắng của
+  // `_chanKhiChiNghe` — `dm_host` không nằm trong danh sách trắng của
   // lượt chỉ-nghe khi cửa 2 đóng, nên nó chưa bao giờ chạy tới `_nhanRiengHost`.
   //
   // ⇒ Bài này nay đo ĐÚNG thứ nó chặn được: LỚP DANH SÁCH TRẮNG.
   // Điều kiện `idViecMoCua` trong `_nhanRiengHost` là lớp DƯ THỪA có chủ đích
-  // (phòng khi ai đó thêm `nhan_rieng_host` vào danh sách trắng), và vì dư nên
+  // (phòng khi ai đó thêm `dm_host` vào danh sách trắng), và vì dư nên
   // ⛔ KHÔNG đo được — đã báo Router, ⛔ đừng viết bài giả vờ đo nó.
   const { db } = dbCoNhac();
   const daGui = [];
@@ -825,8 +825,8 @@ test('★★★ N1 nhãn cửa 2 nêu ĐÍCH DANH việc + 3 điều bắt buộ
   const n = gate2Label('gửi báo giá cho khách');
   assert.match(n, /gửi báo giá cho khách/, 'không nêu việc thì model không biết phạm vi là gì');
   assert.match(n, /Ngoài phạm vi/, 'phải dặn ra khỏi phạm vi thì im');
-  assert.match(n, /bo_qua/, 'phải chỉ đường đóng lượt');
-  assert.match(n, /nhan_rieng_host/, 'phải chỉ đường XIN host');
+  assert.match(n, /skip/, 'phải chỉ đường đóng lượt');
+  assert.match(n, /dm_host/, 'phải chỉ đường XIN host');
   assert.match(n, /không tự quyết/, 'phải nói rõ model KHÔNG phải chốt cuối');
 });
 

@@ -9,7 +9,7 @@
  *
  * 🔴 HAI nguyên nhân, và cái thứ hai mới là cái đắt:
  *    1. Trong 12 tool KHÔNG tool nào đáp được chữ "lưu lại".
- *    2. `tra_loi` gửi được mà KHÔNG cần bất kỳ tool ghi nào chạy trước ⇒ không
+ *    2. `reply` gửi được mà KHÔNG cần bất kỳ tool ghi nào chạy trước ⇒ không
  *       có gì trong hệ phân biệt "đã nói xong" với "đã làm xong".
  *    Vá (1) mà bỏ (2) thì lần sau model chọn nhầm tool khác là hỏng y hệt.
  *
@@ -320,7 +320,7 @@ test('★★★ B3 tool ghi KHÁC cũng mở được cổng (dat_nhac_theo_duoi
 
 test('★★★ B4 tool ghi gọi HỎNG thì KHÔNG mở được cổng', async () => {
   // Đánh dấu khi `ok:false` là mở toang cổng bằng một lời gọi HỎNG: model gọi
-  // thiếu tham số, tool trả lỗi, rồi `tra_loi` đi qua như thể đã ghi xong —
+  // thiếu tham số, tool trả lỗi, rồi `reply` đi qua như thể đã ghi xong —
   // đúng ca 08:03 nhưng khó thấy hơn vì trong log CÓ một lời gọi tool.
   const db = dbTam();
   const req = phien(db, { noiDung: 'lưu lại giúp anh' });
@@ -393,7 +393,7 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
   // khác vẫn xanh (đo thật: đột biến M10 sống sót vòng đầu).
   // Cách tách: nạp một BẢN MODULE MỚI (đổi query string để phá cache) — bản mới
   // có Map RỖNG, đúng như ca daemon nạp lại module giữa lượt, trong khi dòng
-  // `ghi_nho` trong DB thì vẫn còn.
+  // `memo_save` trong DB thì vẫn còn.
   const db = dbTam();
   const req = phien(db, { noiDung: 'lưu lại giùm anh vụ này' });
   const { goi } = dungTool(db);

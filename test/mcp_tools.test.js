@@ -562,7 +562,7 @@ test('H9 kenhPhu lạ -> coi như "zalo" (chuyện hiển thị, không được
 // ═══════════════════════════════════════════════════════════════════════
 // I. NHẮC THEO ĐUỔI — 4 tool v4
 //
-// 🔴 Pack đã có 4 tool lịch tên rất giống (`dat_lich_nhap`...). Model thấy
+// 🔴 Pack đã có 4 tool lịch tên rất giống (`schedule_draft`...). Model thấy
 //    tool sẵn là dùng ngay, mà lịch cũ chỉ nhắc MỘT LẦN — dùng nhầm thì mỗi
 //    sáng phải tự đặt lại, quên một hôm là việc rơi im lặng. Vì vậy có bài
 //    canh MÔ TẢ tool, không chỉ canh hành vi.
@@ -605,18 +605,18 @@ test('I2 ★ MÔ TẢ tool phải phân biệt với 4 tool lịch MỘT LẦN',
   // lại không thấy.
   const dat = mo(TN.DAT_NHAC_THEO_DUOI);
   assert.match(dat, /MỘT LẦN/, 'phải nói rõ tool lịch cũ chỉ nhắc một lần');
-  assert.match(dat, /dat_lich_nhap/, 'phải gọi đích danh tool dễ bị chọn nhầm');
+  assert.match(dat, /schedule_draft/, 'phải gọi đích danh tool dễ bị chọn nhầm');
   assert.match(dat, /LẶP/i);
 
   const xem = mo(TN.XEM_NHAC);
-  assert.match(xem, /xem_lich/, 'phải phân biệt với xem_lich');
+  assert.match(xem, /schedule_list/, 'phải phân biệt với xem_lich');
 });
 
-test('I3 🔴 mô tả `dong_nhac` phải DẶN model hỏi anh trước khi đóng', async () => {
+test('I3 🔴 mô tả `followup_close` phải DẶN model hỏi anh trước khi đóng', async () => {
   const { TOOL_DECLARATIONS } = await import('../src/mcp/tools.js');
   const mo = TOOL_DECLARATIONS.find((x) => x.name === TN.DONG_NHAC).description;
   assert.match(mo, /HỎI ANH/i, 'tự đóng vì "nghe như đã xong" là im lặng bỏ rơi một việc thật');
-  assert.match(mo, /chinh_nhip_nhac/, 'phải chỉ đường VAN XẢ để model không lấy đóng ra dùng thay');
+  assert.match(mo, /followup_adjust/, 'phải chỉ đường VAN XẢ để model không lấy đóng ra dùng thay');
 });
 
 test('I4 đặt nhắc: phải qua bước chốt, KHÔNG có đường tắt', async () => {
@@ -626,7 +626,7 @@ test('I4 đặt nhắc: phải qua bước chốt, KHÔNG có đường tắt', 
   });
   assert.equal(kq.ok, true);
   assert.equal(kq.duLieu.trangThai, 'cho_xac_nhan');
-  assert.match(kq.duLieu.nhac, /dat_lich_chot/, 'phải chỉ đúng bước chốt dùng chung');
+  assert.match(kq.duLieu.nhac, /schedule_confirm/, 'phải chỉ đúng bước chốt dùng chung');
   assert.match(kq.duLieu.cauXacNhan, /LẶP LẠI tới khi anh bảo xong/, 'câu duyệt phải nói rõ đây là nhắc lặp');
 });
 
@@ -687,7 +687,7 @@ test('I10 4 tool nhắc đều đi qua cửa request_id (fail-closed như mọi 
 // J. GÁC HOST CHO ĐƯỜNG ĐỌC XUYÊN NHÓM
 //
 // 🔴 `lich_hen` là bảng CHUNG cho mọi nhóm. Tool nào liệt kê nó mà không gác
-//    host là mở một đường rò chéo nhóm KHÔNG đi qua `lich_su` — tức LÁCH được
+//    host là mở một đường rò chéo nhóm KHÔNG đi qua `history` — tức LÁCH được
 //    lớp chống rò chính của cả pack.
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -749,7 +749,7 @@ test('J4 ★ xem_lich CÙNG HỌ LỖI — cũng phải gác host', async () => 
 
 test('J5 mọi tool ĐỌC DANH SÁCH xuyên nhóm đều gác host (chống sót lần sau)', async () => {
   // Bài này canh cả HỌ, không canh từng cái: thêm tool liệt kê mới mà quên gác
-  // thì đỏ ngay. `lich_su` KHÔNG nằm đây vì nó đã có tầng chống rò riêng
+  // thì đỏ ngay. `history` KHÔNG nằm đây vì nó đã có tầng chống rò riêng
   // (JOIN duoc_nghe + nguonChatIds).
   for (const ten of [TN.XEM_NHAC, TEN_TOOL_LICH.XEM_LICH]) {
     const t = dungTool({
@@ -766,7 +766,7 @@ test('J5 mọi tool ĐỌC DANH SÁCH xuyên nhóm đều gác host (chống só
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// K. `trang_thai` — CHIA ĐÔI ĐẦU RA THEO NGƯỜI GỌI
+// K. `status` — CHIA ĐÔI ĐẦU RA THEO NGƯỜI GỌI
 //
 // Router chốt: KHÔNG gác cả tool ("trợ lý còn sống không" là câu chính đáng
 // của bất kỳ ai, và gác cứng thì mất đường giám sát), nhưng QUY MÔ KHO thì

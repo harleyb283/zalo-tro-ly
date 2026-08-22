@@ -446,7 +446,7 @@ test('★★★ S1 NGHIỆM THU: 20 tin người khác LIÊN TIẾP -> 0 TIN ĐI
   closeDb(db);
 });
 
-test('★★★ S2 [ĐỔI v11] lượt chỉ-nghe: tool NGHIỆP VỤ chạy được KÈM NGUỒN · `nhan_rieng_host` VẪN chặn', async () => {
+test('★★★ S2 [ĐỔI v11] lượt chỉ-nghe: tool NGHIỆP VỤ chạy được KÈM NGUỒN · `dm_host` VẪN chặn', async () => {
   // 🔴 HÀNH VI ĐỔI CÓ CHỦ ĐÍCH (host chốt 21/08/2026): bỏ luật *"model không
   // bao giờ là chốt cuối"* cho **quyền nghiệp vụ**. Trước v11 những tool này
   // bị **chặn cứng** ở lượt chỉ-nghe.
@@ -475,7 +475,7 @@ test('★★★ S2 [ĐỔI v11] lượt chỉ-nghe: tool NGHIỆP VỤ chạy đ
   });
   assert.equal(ok.ok, true, `🔴 khai đủ nguồn mà vẫn bị chặn: ${JSON.stringify(ok)}`);
 
-  // ── (c) `nhan_rieng_host` VẪN chặn — đó là quyền RA LỆNH, ⛔ không phải nghiệp vụ ──
+  // ── (c) `dm_host` VẪN chặn — đó là quyền RA LỆNH, ⛔ không phải nghiệp vụ ──
   const rl = await goi(TEN_TOOL.NHAN_RIENG_HOST, { request_id: phien(db, 'rl', true), text: 'x' });
   assert.equal(rl.ok, false, '🔴 mở đường nhắn THẲNG vào tin riêng của host');
 
@@ -497,10 +497,10 @@ test('★★★ S3 [ĐỔI v11] vẫn là danh sách TRẮNG — thêm tool mớ
   assert.match(src, /BUSINESS_TOOLS_LISTEN_ONLY\.includes\(ten\)/,
     'phải kiểm "có TRONG danh sách không", ⛔ không phải "có trong danh sách cấm không"');
 
-  // 🔴 `nhan_rieng_host` ⛔ KHÔNG được lọt vào bất kỳ danh sách nào: đó là
+  // 🔴 `dm_host` ⛔ KHÔNG được lọt vào bất kỳ danh sách nào: đó là
   // đường nhắn THẲNG vào tin riêng của host = quyền RA LỆNH.
   for (const ds of [TOOLS_ALLOWED_LISTEN_ONLY, BUSINESS_TOOLS_LISTEN_ONLY]) {
-    assert.ok(!ds.includes(TEN_TOOL.NHAN_RIENG_HOST), '🔴 `nhan_rieng_host` lọt danh sách');
+    assert.ok(!ds.includes(TEN_TOOL.NHAN_RIENG_HOST), '🔴 `dm_host` lọt danh sách');
   }
   // 🔴 Mọi tool nghiệp vụ đều phải nằm trong nhóm ĐÒI NGUỒN — sót một cái là
   // một hành động đổi trạng thái ⛔ không để lại dấu vết nào.
@@ -518,7 +518,7 @@ test('★★★ S4 lượt ĐƯỢC NÓI vẫn gửi bình thường (⛔ không
   closeDb(db);
 });
 
-test('★★★ S5 `bo_qua` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG THẬT', async () => {
+test('★★★ S5 `skip` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG THẬT', async () => {
   const db = dbTam();
   const { goi, daGui } = dungTool(db);
   const rid = phien(db, 'r-boqua', true);
@@ -533,7 +533,7 @@ test('★★★ S5 `bo_qua` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG TH�
   closeDb(db);
 });
 
-test('★★★ S6 `bo_qua` KHÔNG có đường nào chạm mạng', () => {
+test('★★★ S6 `skip` KHÔNG có đường nào chạm mạng', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src/mcp/tools.js'), 'utf8');
   const than = thanHam(src, 'function _boQua(');
   for (const cam of ['guiTin', 'api', 'sendToGroup', 'sendHostDm', 'xepHangGuiRa', '_guiTheoChinhSach']) {
@@ -585,7 +585,7 @@ test('★★★ P1 NGHIỆM THU: chỉ thị NGƯỜI LẠ, ⛔ KHÔNG khai ngu�
   //
   // ⚠️ PHẠM VI ĐÃ THU HẸP 21/08/2026 (GĐ5) — ĐỌC KỸ TRƯỚC KHI SỬA.
   // Anh **gỡ** lớp chặn quyền nghiệp vụ: khai đủ `nguonNguoi` + `nguonNguyenVan`
-  // thì `dong_nhac`/`ghi_nho`/`dat_lich_nhap` **CHẠY**. Nên bài này nay chỉ canh
+  // thì `followup_close`/`memo_save`/`schedule_draft` **CHẠY**. Nên bài này nay chỉ canh
   // **nửa KHÔNG khai nguồn** (đúng như tiêu đề). Nửa còn lại — *"khai nguồn thì
   // nghiệp vụ chạy, nhưng quyền RA LỆNH vẫn đóng và mọi hành động để lại vết"* —
   // nằm ở `V10`/`V11` cụm 16.

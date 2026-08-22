@@ -346,7 +346,7 @@ test('★★ B3e text rỗng -> NÉM (Zalo cũng từ chối tin trống)', () =
 
 test('★★★ V1 NGHIỆM THU VÀNG: ghi nguồn ở TIẾN TRÌNH A, tiến trình B THẤY', () => {
   // 🔴 Đây là thứ hôm nay KHÔNG làm được: sổ nguồn sống trong RAM một tiến
-  // trình, nên `bo_chay` (daemon) ghi một quyển còn `tra_loi` (client) tra
+  // trình, nên `bo_chay` (daemon) ghi một quyển còn `reply` (client) tra
   // quyển khác ⇒ lá chắn mù đúng ca cần nó.
   // ⚠️ Tiến trình A là node THẬT, ⛔ không giả lập bằng hai đối tượng trong
   // cùng một tiến trình — làm thế thì bài này xanh cả trên sổ RAM.

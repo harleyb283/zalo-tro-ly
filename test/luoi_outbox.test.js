@@ -2,7 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  * LƯỚI CANH OUTBOX KẸT — bước 5 (21/08/2026).
  *
- * Bệnh: ở `cheDo:"tach"`, `tra_loi` chỉ XẾP HÀNG rồi báo model "đã xếp hàng".
+ * Bệnh: ở `cheDo:"tach"`, `reply` chỉ XẾP HÀNG rồi báo model "đã xếp hàng".
  * Daemon chết ⇒ model tưởng xong, người nhắn không nhận gì, KHÔNG AI BÁO.
  *
  * 🔴 Hai thứ phải canh cho bằng được, quan trọng ngang nhau:

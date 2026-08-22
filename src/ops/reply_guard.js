@@ -75,9 +75,9 @@ export function blockMessage(kq) {
 
   return `⛔ CHƯA XONG: còn ${kq.soCau} lượt Zalo bạn ĐÃ NHẬN nhưng CHƯA GỬI GÌ ĐI.\n${dong}\n\n`
     + '🔴 Chữ bạn viết trong cửa sổ này KHÔNG tới người nhắn. Chỉ có tool mới gửi được:\n'
-    + '   · cần trả lời      -> gọi `tra_loi` với đúng request_id ở trên\n'
-    + '   · lượt chỉ nghe    -> gọi `bo_qua` với request_id đó\n'
-    + '   · nội dung nhạy cảm -> gọi `nhan_rieng_host`\n\n'
+    + '   · cần trả lời      -> gọi `reply` với đúng request_id ở trên\n'
+    + '   · lượt chỉ nghe    -> gọi `skip` với request_id đó\n'
+    + '   · nội dung nhạy cảm -> gọi `dm_host`\n\n'
     + '⚠️ Đây là lỗi ĐÃ XẢY RA THẬT (22/08/2026, nhóm Haceco): câu trả lời soạn xong, '
     + 'không ai gọi tool, và trong nhóm không có gì xuất hiện. Gọi tool ngay bây giờ.';
 }

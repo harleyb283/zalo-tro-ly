@@ -806,7 +806,7 @@ async function chayClient(co, log, cauHinh) {
   // ═══ 🔴 ĐƯỜNG BÁO HOST CỦA CLIENT — qua OUTBOX, ⛔ không qua Zalo ═══
   // Client ⛔ không có `api` (cố ý). Trước v11 nghĩa là mọi cảnh báo của nó
   // chết trong log — xem tầng 1b ở `ops/notify_host.js`. Nay nó xếp hàng, và
-  // daemon rút ra gửi: đúng con đường `tra_loi` đang đi.
+  // daemon rút ra gửi: đúng con đường `reply` đang đi.
   const baoHostClient = (s) => notifyHost(cauHinh, s, {
     api: null,
     xepHangDm: (dmChatId, text) => { enqueueOutbound(db, { chatIdDich: dmChatId, text }); },
@@ -938,7 +938,7 @@ async function chayClient(co, log, cauHinh) {
   // ═══ NẠP NÓNG cũng phải chạy Ở CLIENT ═══
   // 🔴 Ở chế độ TÁCH, chính client mới là bên phục vụ tool: `registerTools` giữ
   // `cauHinh` của TIẾN TRÌNH NÀY. Chỉ nạp nóng ở daemon thì daemon nghe được
-  // nhóm mới, còn tool `tra_loi` ở client vẫn coi nhóm đó là "không có trong
+  // nhóm mới, còn tool `reply` ở client vẫn coi nhóm đó là "không có trong
   // config" ⇒ nghe được mà ⛔ không nói được. Hai tiến trình, hai bản config,
   // phải nạp cả hai.
   // ⚠️ Client ⛔ KHÔNG có `api` ⇒ ⛔ không tự nhắn Zalo (xem `baoHetHan` ở trên);

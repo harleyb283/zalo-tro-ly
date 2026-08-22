@@ -8,7 +8,7 @@
  *   ⇒ Anh đứng TRONG NHÓM hỏi "tổng hợp hôm nay" thì chỉ tóm tắt nhóm đó,
  *     **dù người hỏi chính là anh**.
  *
- * 🔴 CỬA RÒ ĐANG MỞ SẴN, và nó mở đúng chiều nguy hiểm: mô tả tool `lich_su`
+ * 🔴 CỬA RÒ ĐANG MỞ SẴN, và nó mở đúng chiều nguy hiểm: mô tả tool `history`
  *    ghi *"chatId bỏ trống = tìm MỌI hội thoại đang nghe"*. Tức chỉ cần model
  *    QUÊN một tham số là nó đọc cả kho. Nhóm bài `P` canh đúng ca đó.
  *
@@ -89,7 +89,7 @@ test('★★★ P1 NGHIỆM THU①: khoá nhóm A, hỏi nhóm B -> 0 DÒNG củ
 });
 
 test('★★★ P2 NGHIỆM THU②: khoá nhóm A, BỎ TRỐNG chatId -> CHỈ nhóm A', () => {
-  // 🔴 Đây là cửa rò nguy hiểm nhất: mặc định cũ của `lich_su` là "bỏ trống =
+  // 🔴 Đây là cửa rò nguy hiểm nhất: mặc định cũ của `history` là "bỏ trống =
   // MỌI hội thoại". Chỉ cần model quên một tham số là nó đọc cả kho.
   const db = dbHaiNhom();
   setReadScope(NHOM_A);
@@ -236,7 +236,7 @@ function phien(db, rid = 'r1', chatIdHoi = NHOM_A) {
   return rid;
 }
 
-test('★★★ T1 qua tool `lich_su`: hỏi nhóm B -> chỉ nhóm A, và NÓI RÕ vì sao', async () => {
+test('★★★ T1 qua tool `history`: hỏi nhóm B -> chỉ nhóm A, và NÓI RÕ vì sao', async () => {
   const db = dbHaiNhom();
   setReadScope(NHOM_A);
   const { goi } = dungTool(db);
@@ -314,7 +314,7 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
   closeDb(db);
 });
 
-test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KHÔNG qua lich_su)', async () => {
+test('★★★ T4 `followup_list` / `schedule_list` cũng bị lọc (đường đọc KHÔNG qua lich_su)', async () => {
   const db = dbHaiNhom();
   for (const [ma, chat] of [['NA', NHOM_A], ['NB', NHOM_B]]) {
     createFollowUp(db, {
@@ -339,7 +339,7 @@ test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KH
 
   const rl = await goi(TEN_TOOL_LICH.XEM_LICH, { request_id: phien(db, 'r2') });
   assert.equal(rl.ok, true, JSON.stringify(rl));
-  // ⚠️ `xem_lich` liệt kê CẢ lịch một lần lẫn lịch nền của nhắc theo đuổi —
+  // ⚠️ `schedule_list` liệt kê CẢ lịch một lần lẫn lịch nền của nhắc theo đuổi —
   // nên đúng ở đây là "không dòng nào của nhóm B", ⛔ không phải "đúng 1 dòng".
   const dsL = rl.duLieu.lich;
   assert.ok(dsL.length >= 1, 'lọc sạch trơn thì bài này thành vô nghĩa');

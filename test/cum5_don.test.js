@@ -165,7 +165,7 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// A14 — hai chốt mà `dat_lich_nhap` có, `dat_nhac_theo_duoi` thì không
+// A14 — hai chốt mà `schedule_draft` có, `followup_start` thì không
 // ═══════════════════════════════════════════════════════════════════════
 
 function dungTool(db) {

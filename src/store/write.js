@@ -491,7 +491,7 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   // ⛔ ĐÂY LÀ LỖ HỔNG THẬT, không phải tính năng thêm cho vui. Trước dòng này,
   // hàm trả về MỌI dòng đang chờ ⇒ một client đã khoá `ZTL_CHAT_ID` vào nhóm A
   // **vẫn nhặt được câu hỏi của nhóm B**, đẩy vào model của pane A, rồi
-  // `tra_loi` gửi theo `chat_id_hoi` của phiên ⇒ **pane A trả lời vào nhóm B**.
+  // `reply` gửi theo `chat_id_hoi` của phiên ⇒ **pane A trả lời vào nhóm B**.
   // Khoá phạm vi ĐỌC (bước 6) nằm ở `query.js` và ⛔ KHÔNG canh đường này —
   // hai tầng khác nhau. Thiếu bộ lọc ở đây thì "panel-mỗi-nhóm" vô nghĩa.
   //
@@ -885,7 +885,7 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
   } else {
     // Bỏ trống ⇒ lời nhắc VỪA ĐÓNG GẦN ĐÂY NHẤT của chính hội thoại này.
     // ⚠️ Lọc theo `chat_id_dich`: thiếu nó thì đứng ở nhóm A mở được lời nhắc
-    // của nhóm B — một đường rò chéo nhóm KHÔNG đi qua `lich_su`.
+    // của nhóm B — một đường rò chéo nhóm KHÔNG đi qua `history`.
     const c = toId(chatId ?? null, 'reopenReminder.chatId');
     if (!c) return { ok: false, ly: 'KHONG_TIM_THAY' };
     dong = db.prepare(

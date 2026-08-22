@@ -127,7 +127,7 @@ export function isSplitMode(p = {}, env = process.env, argv = process.argv) {
  *     const xepHang = typeof kho?.xepHangGuiRa === 'function' ? ... : null;
  * mà `kho.xepHangGuiRa` CHỈ được truyền ở MỘT trong hai chỗ gọi `registerTools` —
  * nhánh client (chế độ tách). Nhánh một-tiến-trình không truyền ⇒ `xepHang` là
- * `null` ⇒ `tra_loi` gửi thẳng như cũ, không dòng nào rơi vào `hang_doi_gui`.
+ * `null` ⇒ `reply` gửi thẳng như cũ, không dòng nào rơi vào `hang_doi_gui`.
  * ⚠️ Đây là điều em ĐỌC MÃ NGUỒN xác nhận, ⛔ chưa chạy thật ở chế độ tách.
  * Bài O5 canh phần thuộc về lưới: outbox rỗng ⇒ im tuyệt đối.
  * Tắt bằng ZTL_LUOI_OUTBOX=0.
@@ -272,7 +272,7 @@ async function _baoHetLuot(p, d, cho) {
   //
   // ✅ Nay nói ĐÚNG thứ đếm được: "dùng hết N LƯỢT" (lượt thì đếm chắc chắn).
   // ⚠️ Và khai thẳng chỗ KHÔNG biết: pack không có cột đếm số tin gửi thành công.
-  // `msg_id_da_gui` chỉ được đặt ở đường DỰ PHÒNG — đường model gửi qua `tra_loi`
+  // `msg_id_da_gui` chỉ được đặt ở đường DỰ PHÒNG — đường model gửi qua `reply`
   // KHÔNG đặt nó. Nên `NULL` chỉ chứng minh "không có BẰNG CHỨNG nào đã gửi",
   // ⛔ KHÔNG chứng minh "chưa gửi lần nào". Viết câu đúng mức đó, không hơn:
   // nói quá lên một lần là lần sau anh thôi tin cả những cảnh báo đúng.
@@ -284,7 +284,7 @@ async function _baoHetLuot(p, d, cho) {
       p.dmHostChatId,
       `⏹️ Đã dùng hết ${tran} lượt nhắc và DỪNG: "${d.noi_dung}"\n`
       + 'Dừng vì HẾT LƯỢT, KHÔNG phải vì việc đã xong. '
-      + 'Muốn nhắc tiếp thì anh đặt lại, hoặc nới trần bằng chinh_nhip_nhac.'
+      + 'Muốn nhắc tiếp thì anh đặt lại, hoặc nới trần bằng followup_adjust.'
       + (chuaCoBangChung
         ? '\n⚠️ Em KHÔNG có bằng chứng tin nhắc nào đã gửi thành công vào nhóm '
           + '(không có msg_id nào được ghi lại). Anh xem trong nhóm giúp em — '
@@ -394,7 +394,7 @@ export async function runOneTick(p) {
       // Đã ở trạng thái `da_gui` (dành chỗ ở trên) ⇒ ghi lại thành `loi` kèm lý do.
       // CỐ Ý KHÔNG trả về `da_len_lich` để thử lại: gửi lại tự động thì ca "Zalo
       // đã nhận nhưng trả lỗi mạng" thành gửi hai lần vào nhóm người thật.
-      // Host đọc `xem_lich` thấy trạng thái `loi` và tự quyết.
+      // Host đọc `schedule_list` thấy trạng thái `loi` và tự quyết.
       writeSendOutcome(p.db, l.id, { loi: String(e?.message ?? e) });
       ra.loi += 1;
       _log(`gửi lịch ${l.id} thất bại: ${safeLogText(e)}`);
@@ -412,7 +412,7 @@ export async function runOneTick(p) {
  *
  * 🔴 HAI ĐƯỜNG GỬI, và đường thứ hai là thứ giữ cho tính năng không hỏng câm:
  *   (a) CÓ phiên Claude  -> đẩy DỮ KIỆN sang model, model viết câu rồi gửi bằng
- *       tool `tra_loi`. Đây là đường chính: câu hôm nay phải KHÁC hôm qua, mà
+ *       tool `reply`. Đây là đường chính: câu hôm nay phải KHÁC hôm qua, mà
  *       chỉ model mới viết được câu bám bối cảnh.
  *   (b) KHÔNG có Claude, HOẶC model im quá `TRAN_CHO_MODEL_MS` -> code tự gửi
  *       câu dự phòng. Thiếu đường này thì Claude rớt là lời nhắc BIẾN MẤT ÂM
@@ -521,7 +521,7 @@ export async function runFollowUpTick(p) {
     // cho uid, KHÔNG cho cú pháp — model không có cách nào biết phải gõ chuỗi gì,
     // nên nó viết tên thân mật ("Trọng ơi") và không tag được ai.
     // ⚠️ Đây chỉ để model VIẾT CÂU CHO TỰ NHIÊN. Việc bảo đảm mention có mặt là
-    // của `tra_loi` (cưỡng chế bằng uid) — KHÔNG giao model làm.
+    // của `reply` (cưỡng chế bằng uid) — KHÔNG giao model làm.
     const phuTrach = _tenPhuTrach(p, d);
 
     // 🔴 FAIL-CLOSED. Bối cảnh có chạm nhóm KHÁC mà KHÔNG có đường khai nguồn
@@ -575,7 +575,7 @@ export async function runFollowUpTick(p) {
           .run({ t: Math.floor(bayGio), id: d.id });
         p.enqueueQuestion(p.db, {
           requestId,
-          // chat_id_hoi = nhóm ĐÍCH: `tra_loi` gửi vào đúng đây, và luật chống
+          // chat_id_hoi = nhóm ĐÍCH: `reply` gửi vào đúng đây, và luật chống
           // rò chéo vẫn tính nguồn trên chính nhóm đó.
           chatIdHoi: String(d.chat_id_dich),
           msgId: `nhac:${d.id}:${d.so_lan_da_nhac ?? 0}`,
@@ -660,7 +660,7 @@ function _tomTatDuKien(d, bc, phuTrach = null) {
   // đoán sai thật (viết "Trọng ơi" thay vì tên hiển thị "Trọng Nguyễn").
   if (phuTrach?.ten) {
     p.push(`Người phụ trách: ${phuTrach.ten} (uid ${phuTrach.uid})`);
-    p.push('Viết câu tự nhiên, nhắc thẳng người đó. Gọi tool tra_loi để gửi —');
+    p.push('Viết câu tự nhiên, nhắc thẳng người đó. Gọi tool reply để gửi —');
     p.push('server TỰ bảo đảm tag đúng người, bạn KHÔNG cần tự gõ chuỗi @.');
   } else if (phuTrach?.uid) {
     p.push(`Người phụ trách: uid ${phuTrach.uid} — CHƯA tra ra tên trong nhóm này`);
@@ -669,7 +669,7 @@ function _tomTatDuKien(d, bc, phuTrach = null) {
   } else {
     p.push('Lời nhắc này KHÔNG khai người phụ trách ⇒ sẽ không tag ai.');
   }
-  p.push('Gọi tool tra_loi để gửi.');
+  p.push('Gọi tool reply để gửi.');
   return p.join('\n');
 }
 
@@ -690,7 +690,7 @@ function _tomTatDuKien(d, bc, phuTrach = null) {
 async function _guiNhac(p, d, bayGioMs) {
   try {
     // 🔴 LỚP CANH THỨ HAI (A6) — đọc lại NGAY TRƯỚC khi chạm mạng. Giữa lúc
-    // `SELECT` và lúc này, host có thể vừa gọi `dong_nhac`/`chinh_nhip_nhac`
+    // `SELECT` và lúc này, host có thể vừa gọi `followup_close`/`followup_adjust`
     // (tool chạy trong CÙNG tiến trình). Một dòng DB rẻ hơn một tin không rút lại được.
     //
     // ⚠️ NÓI THẲNG — LỜI GỌI NÀY HIỆN KHÔNG CÓ BÀI TEST NÀO CHẠM TỚI.

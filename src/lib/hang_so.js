@@ -48,10 +48,10 @@ export const DANH_SACH_TRANG_THAI_SUC_KHOE = Object.freeze(Object.values(TRANG_T
 
 // ─── Tên 4 tool MCP (hợp đồng G0 mục 4) ────────────────────────────────
 export const TEN_TOOL = Object.freeze({
-  LICH_SU: 'lich_su',
-  TRA_LOI: 'tra_loi',
-  NHAN_RIENG_HOST: 'nhan_rieng_host',
-  TRANG_THAI: 'trang_thai',
+  LICH_SU: 'history',
+  TRA_LOI: 'reply',
+  NHAN_RIENG_HOST: 'dm_host',
+  TRANG_THAI: 'status',
 });
 
 // ─── Sự kiện nội bộ do src/zalo/listener.js phát ra ────────────────────
@@ -393,10 +393,10 @@ export const TIEN_TO_NHAC_MUON = '(nhắc muộn) ';
 /**
  * Trạng thái riêng của lời nhắc THEO ĐUỔI.
  *
- * ⚠️ VÌ SAO PHẢI LÀ CỘT RIÊNG, không thêm giá trị vào `trang_thai`:
+ * ⚠️ VÌ SAO PHẢI LÀ CỘT RIÊNG, không thêm giá trị vào `status`:
  * `lich_hen.trang_thai` có ràng buộc CHECK liệt kê cứng 6 giá trị. Thêm giá trị
  * thứ 7 đòi DỰNG LẠI BẢNG — mà luật migrate của pack cấm DROP/RENAME/copy-bảng
- * (đây là kho hội thoại THẬT, mất là mất hẳn). Nên `trang_thai` giữ nguyên vòng
+ * (đây là kho hội thoại THẬT, mất là mất hẳn). Nên `status` giữ nguyên vòng
  * đời cũ, `trang_thai_td` chỉ có nghĩa khi `la_theo_duoi = 1`.
  */
 export const TRANG_THAI_TD = Object.freeze({
@@ -477,10 +477,10 @@ export const LY_DO_DONG = Object.freeze({
 
 // ─── Tên tool MCP thêm ở v3 ────────────────────────────────────────────
 export const TEN_TOOL_LICH = Object.freeze({
-  DAT_LICH_NHAP: 'dat_lich_nhap',
-  DAT_LICH_CHOT: 'dat_lich_chot',
-  XEM_LICH: 'xem_lich',
-  HUY_LICH: 'huy_lich',
+  DAT_LICH_NHAP: 'schedule_draft',
+  DAT_LICH_CHOT: 'schedule_confirm',
+  XEM_LICH: 'schedule_list',
+  HUY_LICH: 'schedule_cancel',
 });
 
 /**
@@ -497,27 +497,27 @@ export const TEN_TOOL_LICH = Object.freeze({
  * tả trước khi gọi, dặn ở chỗ khác thì lúc nó chuẩn bị gọi lại không thấy.
  */
 export const TEN_TOOL_NHAC = Object.freeze({
-  DAT_NHAC_THEO_DUOI: 'dat_nhac_theo_duoi',
-  CHINH_NHIP_NHAC: 'chinh_nhip_nhac',
-  DONG_NHAC: 'dong_nhac',
-  XEM_NHAC: 'xem_nhac',
+  DAT_NHAC_THEO_DUOI: 'followup_start',
+  CHINH_NHIP_NHAC: 'followup_adjust',
+  DONG_NHAC: 'followup_close',
+  XEM_NHAC: 'followup_list',
 });
 
 // ─── Tool GHI NHỚ + mở lại lời nhắc (v6, 21/08/2026) ───────────────────
 export const TEN_TOOL_GHI = Object.freeze({
-  GHI_NHO: 'ghi_nho',
-  MO_LAI_NHAC: 'mo_lai_nhac',
+  GHI_NHO: 'memo_save',
+  MO_LAI_NHAC: 'followup_reopen',
   /**
    * v9 — ★ ĐÓNG MỘT LƯỢT MÀ KHÔNG GỬI GÌ. Đường ra sạch của lượt CHỈ NGHE.
    *
-   * 🔴 Không có tool này thì lượt nghe không có cách nào kết thúc: `tra_loi`
+   * 🔴 Không có tool này thì lượt nghe không có cách nào kết thúc: `reply`
    * bị chặn, nên dòng nằm lại `dang_xu_ly`/`da_day` cho tới khi quá hạn — và
    * lượt quá hạn thì bị đẩy bù lại ở lần khởi động sau, tức trợ lý xử lý lại
    * một tin cũ của người lạ. Nhân với 449 tin/ngày.
    *
    * ⛔ Tool này TUYỆT ĐỐI không chạm mạng. Nó chỉ đổi một dòng trong DB.
    */
-  BO_QUA: 'bo_qua',
+  BO_QUA: 'skip',
 });
 
 export const LOAI_GHI_NHO = Object.freeze({
@@ -707,9 +707,9 @@ export const NGHI_SAU_GIO_MAC_DINH = 12;
 
 /** Tool của đường xin duyệt. Agent nhóm chỉ có `XIN_DUYET`; hai cái kia của router. */
 export const TEN_TOOL_DUYET = Object.freeze({
-  XIN_DUYET: 'xin_duyet',
-  XEM_YEU_CAU: 'xem_yeu_cau',
-  DUYET_YEU_CAU: 'duyet_yeu_cau',
+  XIN_DUYET: 'approval_request',
+  XEM_YEU_CAU: 'approval_list',
+  DUYET_YEU_CAU: 'approval_decide',
 });
 
 /**
@@ -727,3 +727,37 @@ export const TRANG_THAI_DUYET = Object.freeze({
 
 
 export const PHIEN_BAN_SCHEMA = '11';  // v11 (21/08/2026): yeu_cau_duyet + ghi_nho.nguon_*
+
+/**
+ * ★ BẢNG TÊN TOOL CŨ -> MỚI (đổi sang tiếng Anh 22/08/2026, anh chốt).
+ *
+ * 🔴 VÌ SAO PHẢI GIỮ TÊN CŨ CHẠY ĐƯỢC, ⛔ KHÔNG cắt phăng:
+ *    9 phiên trợ lý đang chạy mang tên tool CŨ trong ngữ cảnh của chúng. Cắt
+ *    thẳng là mọi phiên gọi `reply` đều lỗi TOOL LẠ — và lỗi đó rơi đúng vào
+ *    lúc có người thật đang chờ trả lời trong nhóm.
+ *
+ * ⇒ Máy chủ NHẬN cả hai tên, nhưng chỉ CÔNG BỐ tên mới. Phiên cũ vẫn chạy
+ *   tới khi khởi động lại; phiên mới học tên mới ngay.
+ * ⚠️ Bảng này là đường TẠM. Xoá được khi mọi phiên đã restart — nhưng ⛔ đừng
+ *   xoá sớm, cái giá của việc xoá sớm là một câu hỏi của người thật bị rơi.
+ */
+export const TEN_TOOL_CU = Object.freeze({
+  lich_su: 'history',
+  tra_loi: 'reply',
+  nhan_rieng_host: 'dm_host',
+  trang_thai: 'status',
+  dat_lich_nhap: 'schedule_draft',
+  dat_lich_chot: 'schedule_confirm',
+  xem_lich: 'schedule_list',
+  huy_lich: 'schedule_cancel',
+  dat_nhac_theo_duoi: 'followup_start',
+  chinh_nhip_nhac: 'followup_adjust',
+  dong_nhac: 'followup_close',
+  xem_nhac: 'followup_list',
+  ghi_nho: 'memo_save',
+  mo_lai_nhac: 'followup_reopen',
+  bo_qua: 'skip',
+  xin_duyet: 'approval_request',
+  xem_yeu_cau: 'approval_list',
+  duyet_yeu_cau: 'approval_decide',
+});

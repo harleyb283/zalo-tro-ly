@@ -423,9 +423,9 @@ test('★★★ V10 NGHIỆM THU⑧a: chỉ thị NGƯỜI LẠ CÓ khai nguồn
   closeDb(db);
 });
 
-test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách nghiệp vụ (im trong nhóm ⛔ KHÔNG ĐỔI)', async () => {
+test('★★★ V11 NGHIỆM THU⑧b: `reply` KHÔNG lọt vào danh sách nghiệp vụ (im trong nhóm ⛔ KHÔNG ĐỔI)', async () => {
   // 🔴 EM ĐÃ TỰ TAY LÀM SAI ĐÚNG CHỖ NÀY rồi rút ra, ghi lại để ⛔ đừng ai lặp:
-  // cho `tra_loi` vào `BUSINESS_TOOLS_LISTEN_ONLY` là **xoá ngầm** luật "im
+  // cho `reply` vào `BUSINESS_TOOLS_LISTEN_ONLY` là **xoá ngầm** luật "im
   // trong nhóm trừ khi host tag" — luật anh ⛔ KHÔNG hề đụng tới ở GĐ5.
   const { db } = dbCoNhac();
   const { goi, daGui } = dungTool(db);
@@ -436,7 +436,7 @@ test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách ngh
   assert.equal(r.lop, LOP.DANH_SACH_TRANG);
   assert.deepEqual(daGui, [], '🔴 có tin đi ra ở lượt lẽ ra phải im');
   assert.ok(!STATE_CHANGING_TOOLS.includes(TEN_TOOL.TRA_LOI),
-    "🔴 'tra_loi' lọt vào danh sách nghiệp vụ — xem lại chú thích ⛔ ĐỪNG THÊM trong tools.js");
+    "🔴 'reply' lọt vào danh sách nghiệp vụ — xem lại chú thích ⛔ ĐỪNG THÊM trong tools.js");
   closeDb(db);
 });
 

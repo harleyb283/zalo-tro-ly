@@ -9,7 +9,7 @@
  *
  * 🔴 LUẬT VIẾT BÀI CHO CỤM NÀY — đọc trước khi sửa bất cứ dòng nào:
  *    Hai bộ chạy KHÔNG tranh nhau bằng một cơ chế CAS chung. `claimSending` khoá
- *    trên cột `trang_thai`; `claimReminderTurn` khoá trên `gui_luc_ms`. Hai `UPDATE`
+ *    trên cột `status`; `claimReminderTurn` khoá trên `gui_luc_ms`. Hai `UPDATE`
  *    ấy KHÔNG loại trừ nhau — loại trừ chỉ xảy ra ở tầng `SELECT`.
  *    ⛔ VÌ VẬY CẤM viết bài kiểu *"gọi bộ theo-đuổi TRƯỚC rồi khẳng định nó thắng"*.
  *    Bài đó XANH cả trên code hỏng (vì `claimReminderTurn` đẩy `gui_luc_ms` sang
@@ -204,7 +204,7 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
       sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
       sendHostDm: async () => ({ msgId: 'y' }),
       groupMembers: () => [],
-      // Model NHẬN việc nhưng KHÔNG BAO GIỜ gọi `tra_loi` — ca Claude rớt/bận.
+      // Model NHẬN việc nhưng KHÔNG BAO GIỜ gọi `reply` — ca Claude rớt/bận.
       guiThongBao: async () => { soLanGiaoModel += 1; return true; },
     });
   }

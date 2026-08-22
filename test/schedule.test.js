@@ -430,7 +430,7 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
   });
   const kq = JSON.parse((await hs[1]({
     params: {
-      name: 'dat_lich_nhap',
+      name: 'schedule_draft',
       arguments: {
         request_id: 'R1',
         guiLuc: new Date(Date.now() + 3_600_000).toISOString(),
