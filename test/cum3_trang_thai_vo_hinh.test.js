@@ -26,11 +26,11 @@ import {
 } from '../src/store/write.js';
 import { groupMembers, queryHistory } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
-import { chotLich, nhanDangGui, taoLich } from '../src/lich/lich_hen.js';
+import { confirmSchedule, claimSending, createSchedule } from '../src/lich/schedule.js';
 import {
-  danhChoLuotNhac, layLichDanhChoChuaRoGui, layNhacBatBienVo, sinhSoNhac, taoNhacTheoDuoi,
-} from '../src/lich/theo_duoi.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+  claimReminderTurn, claimedButUnsent, brokenInvariantReminders, writeReminderBook, createFollowUp,
+} from '../src/lich/follow_up.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { taoBoDemLoiGui } from '../src/index.js';
@@ -62,12 +62,12 @@ const tinGia = (v = {}) => ({
 
 function nhacDaChot(db, v = {}) {
   const ma = v.ma ?? 'NHAC';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma, ...v,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
 }
 
@@ -165,7 +165,7 @@ test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', as
   // mà tin Zalo thì KHÔNG thu hồi được.
   const { db } = dbTam();
   const nhac = nhacDaChot(db, { chuKyPhut: 3 });
-  // Token quyền gửi — production đặt trước khi tạo hàng đợi (xem `bo_chay.js`).
+  // Token quyền gửi — production đặt trước khi tạo hàng đợi (xem `runner.js`).
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
     .run({ t: Date.now(), id: String(nhac.id) });
   enqueueQuestion(db, {
@@ -229,19 +229,19 @@ test('T3b-2 ★★ thứ tự THẮNG vẫn phải đúng (đối chứng — n�
 // T3c — B1: "đã dành chỗ mà chưa rõ đã gửi"
 // ═══════════════════════════════════════════════════════════════════════
 
-test('T3c ★★★ nhanDangGui rồi CHẾT trước ghiKetQuaGui -> trang_thai VÀ so_nhac.md phải NÓI RA', () => {
+test('T3c ★★★ claimSending rồi CHẾT trước writeSendOutcome -> trang_thai VÀ so_nhac.md phải NÓI RA', () => {
   const { db, thuMuc } = dbTam();
-  taoLich(db, {
+  createSchedule(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'gửi báo giá',
     guiLucMs: Date.now() - 1000, dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: NHOM, ma: 'MOT1',
   });
-  chotLich(db, { id: 'MOT1', ma: 'MOT1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'MOT1', ma: 'MOT1', nguoiDat: HOST });
 
   // Mô phỏng ĐÚNG cửa sổ chết: dành chỗ xong, tiến trình bị kill -> KHÔNG có catch nào.
-  assert.equal(nhanDangGui(db, db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='MOT1'").get().id), true);
+  assert.equal(claimSending(db, db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='MOT1'").get().id), true);
 
-  const treo = layLichDanhChoChuaRoGui(db);
+  const treo = claimedButUnsent(db);
   assert.equal(treo.length, 1, 'trạng thái này VÔ HÌNH: msg_id_da_gui ghi 2 lần, đọc 0 lần');
   assert.equal(treo[0].ma, 'MOT1');
 
@@ -258,7 +258,7 @@ test('T3c ★★★ nhanDangGui rồi CHẾT trước ghiKetQuaGui -> trang_thai
       'phải dặn KHÔNG gửi lại — Zalo có thể đã nhận rồi');
 
     const f = path.join(thuMuc, 'so_nhac.md');
-    sinhSoNhac(db, f);
+    writeReminderBook(db, f);
     assert.match(fs.readFileSync(f, 'utf8'), /KHÔNG RÕ đã gửi hay chưa/, 'sổ nhắc cũng phải hiện');
     closeDb(db);
   });
@@ -275,7 +275,7 @@ test('T3d ★★★ bộ chạy trả về `loi` -> phải có đường ra tớ
 
   // Bộ đếm `loi` phải THẬT SỰ nhích khi gửi hỏng — không có nó thì index.js
   // không có gì để tiêu thụ.
-  const ra = await chayNhipTheoDuoi({
+  const ra = await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     sendHostDm: async () => ({ msgId: 'y' }),
@@ -294,7 +294,7 @@ test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lầ
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(nhac.id);
 
   const dm = [];
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     sendHostDm: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
@@ -321,7 +321,7 @@ test('T3e ★★★ so_nhac.md in ĐÚNG nhịp phút + trần, và cảnh báo 
   nhacDaChot(db, { chuKyPhut: 3, tranSoLan: 10 });
   const f = path.join(thuMuc, 'so_nhac.md');
 
-  sinhSoNhac(db, f);
+  writeReminderBook(db, f);
   let txt = fs.readFileSync(f, 'utf8');
   assert.match(txt, /nhịp \*\*3 phút\*\*/, 'file thật ghi "nhịp 1 ngày lúc 08:00" cho một lời nhắc 3 PHÚT');
   assert.match(txt, /trần \*\*10\*\* lần/, 'không in trần -> anh không biết nó sẽ tự tắt lúc nào');
@@ -329,8 +329,8 @@ test('T3e ★★★ so_nhac.md in ĐÚNG nhịp phút + trần, và cảnh báo 
 
   // Bất biến vỡ = đúng ca CGKJ trên DB thật: đã chốt sổ mà sổ vẫn báo đang theo đuổi.
   db.prepare("UPDATE lich_hen SET trang_thai = 'da_gui' WHERE ma_xac_nhan = 'NHAC'").run();
-  assert.equal(layNhacBatBienVo(db).length, 1);
-  sinhSoNhac(db, f);
+  assert.equal(brokenInvariantReminders(db).length, 1);
+  writeReminderBook(db, f);
   txt = fs.readFileSync(f, 'utf8');
   assert.match(txt, /BẤT THƯỜNG/, 'sổ vẫn liệt kê nó như đang chạy -> anh tưởng việc vẫn được đuổi');
   assert.match(txt, /SẼ KHÔNG BAO GIỜ NHẮC NỮA/);
@@ -341,7 +341,7 @@ test('T3e-2 ★★ nhịp NGÀY vẫn in đúng kiểu ngày (đối chứng, ch
   const { db, thuMuc } = dbTam();
   nhacDaChot(db, { gioNhac: '08:00' });   // mặc định: nhịp ngày
   const f = path.join(thuMuc, 'so_nhac.md');
-  sinhSoNhac(db, f);
+  writeReminderBook(db, f);
   const txt = fs.readFileSync(f, 'utf8');
   assert.match(txt, /nhịp \*\*1 ngày\*\* lúc \*\*08:00\*\*/);
   assert.match(txt, /không trần/, 'nhịp ngày KHÔNG có trần — phải nói rõ, đừng để trống');

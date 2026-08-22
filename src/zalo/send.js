@@ -371,7 +371,7 @@ export function buildMentions(msg, dsNguoi) {
  *
  * ═══ 🔴 VÌ SAO PHẢI LÀ MỘT HÀM, KHÔNG ĐƯỢC CHÉP RA BA CHỖ ═══
  * Trước bản này luật đó nằm rải ở BA nơi, và cả ba đều sai theo một kiểu khác nhau:
- *   · `bo_chay.js: dungNoiDung`  — dán tiền tố `@Tên` VÔ ĐIỀU KIỆN, không thèm
+ *   · `runner.js: buildReminderText`  — dán tiền tố `@Tên` VÔ ĐIỀU KIỆN, không thèm
  *     đọc `noiDung` ⇒ nội dung đã có sẵn `@Trọng Nguyễn` thì tin đi ra thành
  *     "@Trọng Nguyễn @Trọng Nguyễn ơi…". Anh đã gặp thật và đã phàn nàn.
  *   · `mcp/tools.js: tra_loi`    — KHÔNG có luật nào cả. Model viết gì gửi nấy,

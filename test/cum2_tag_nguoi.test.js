@@ -24,9 +24,9 @@ import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { queryHistory } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
-import { chotLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { resetThrottle, setThrottle, sendToGroup, sendHostDm } from '../src/zalo/send.js';
 
@@ -67,12 +67,12 @@ function doiTen(db, userId, tenMoi) {
 
 function taoNhac(db, v = {}) {
   const ma = v.ma ?? 'NHAC';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, ma, ...v,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
 }
 
@@ -119,7 +119,7 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
 
 function phienNhac(db, idNhac, requestId = 'req-nhac') {
   // ⚠️ PHẢI đặt `cho_model_tu_ms` — production luôn đặt nó TRƯỚC khi tạo hàng đợi
-  // (`bo_chay.js`). Đó là TOKEN quyền gửi: thiếu nó thì `tra_loi` từ chối, và từ
+  // (`runner.js`). Đó là TOKEN quyền gửi: thiếu nó thì `tra_loi` từ chối, và từ
   // chối là ĐÚNG (nghĩa là lưới an toàn đã gửi câu dự phòng rồi). Helper dựng
   // thiếu token là dựng một trạng thái production KHÔNG tạo ra được.
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
@@ -190,7 +190,7 @@ test('T2b ★★★ đường (a): gói gửi model chứa TÊN HIỂN THỊ và
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(nhac.id);
 
   const goi = [];
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     sendToGroup: async () => ({ msgId: 'x' }),
     sendHostDm: async () => ({ msgId: 'y' }),
@@ -313,7 +313,7 @@ test('T2e ★★★ uid CHƯA TỪNG nhắn -> tool TRẢ VỀ "không tag đư�
 test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội dung + cùng uid -> cùng kết quả', async () => {
   // 🔴 CANH HÀNH VI, KHÔNG CANH VĂN BẢN.
   // Bản đầu của bài này quét `@${...}` trong src/ để đòi "chỉ một chỗ dựng chuỗi @".
-  // Nó ĐỎ OAN ở `lich_hen.js` và `tools.js` — hai chỗ đó chỉ in `@Tên` vào CÂU XÁC
+  // Nó ĐỎ OAN ở `schedule.js` và `tools.js` — hai chỗ đó chỉ in `@Tên` vào CÂU XÁC
   // NHẬN cho anh đọc, không phải dựng mention. Canh văn bản kiểu đó là đúng cái bẫy
   // `ref_validator_false_alarm_traps`: kêu oan vài lần là người ta tắt bài test đi.
   // ⇒ Thay bằng: chứng minh HAI đường gửi (dự phòng do code dựng, và đường model
@@ -323,11 +323,11 @@ test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội du
   const { groupMembers } = dsNguoiCache;
   const dsNguoi = groupMembers(db, NHOM);
 
-  const { dungNoiDung } = await import('../src/lich/bo_chay.js');
+  const { buildReminderText } = await import('../src/lich/runner.js');
   const CAU = '@Trọng Nguyễn ơi, chốt giúp em nhé!';
 
   // Đường (b) — code dựng câu dự phòng.
-  const duongB = dungNoiDung({ noiDung: CAU, dsNguoi, tagUserIds: [TRONG] });
+  const duongB = buildReminderText({ noiDung: CAU, dsNguoi, tagUserIds: [TRONG] });
   assert.equal((duongB.text.match(/@Trọng Nguyễn/g) ?? []).length, 1,
     'đường dự phòng vẫn nhân đôi -> nó chưa dùng chung luật');
   assert.deepEqual(duongB.daCoSan, [TRONG]);

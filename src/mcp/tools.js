@@ -54,21 +54,21 @@ import {
   NHAC_THEO_DUOI, TRANG_THAI_LICH, GIOI_HAN_LICH,
 } from '../lib/hang_so.js';
 import {
-  chotLich, conBaoLau, demDangCho, dinhDangVn, dungCauXacNhan, huyLich, taoLich, taoMaXacNhan, xemLich,
-} from '../lich/lich_hen.js';
+  confirmSchedule, timeUntil, countPending, formatVn, buildConfirmText, cancelSchedule, createSchedule, makeConfirmCode, listSchedules,
+} from '../lich/schedule.js';
 import {
-  taoNhacTheoDuoi, chinhNhip, dongNhac, xemNhacTheoDuoi,
-  giuQuyenGuiNhac, traVeQuyenGuiNhac, ghiBangChungGuiNhac,
-  docGioNhac, chuanGioNhac, mocNhacKeTiep, mocTuGioDiaPhuong,
-  docNhip, tranMacDinh, kiemChuKyPhut, kiemTranSoLan,
-} from '../lich/theo_duoi.js';
+  createFollowUp, adjustCadence, closeFollowUp, listFollowUps,
+  claimReminderSend, releaseReminderSend, writeReminderProof,
+  parseReminderHour, normalizeReminderHour, nextReminderAt, localTimeToEpoch,
+  parseCadence, defaultAttemptCap, validateMinuteCadence, validateAttemptCap,
+} from '../lich/follow_up.js';
 import { redact, cleanError } from '../lib/redact.js';
 import { toId } from '../lib/ids.js';
 
 import {
   queryHistory, storeStats, groupMembers, reminderTagUids, setAssistantUid,
 } from '../store/query.js';
-import { layLichDanhChoChuaRoGui, layNhacBatBienVo } from '../lich/theo_duoi.js';
+import { claimedButUnsent, brokenInvariantReminders } from '../lich/follow_up.js';
 import { writeMemo, writeWriteGateLog, reopenReminder, writeActionTrail, readActionTrail } from '../store/write.js';
 import {
   readMemos, countTurnMemos, conversationKind, getClientId, getReadScope, taskOwnerHost,
@@ -994,16 +994,16 @@ export function registerTools(server, phuThuoc) {
   };
   const chinhSach = { getSources, recordSources, decideReplyRoute, clearSession, hostDmChatId, ...(phuThuoc.chinhSach ?? {}) };
   const guiTin = { sendToGroup, sendHostDm, ...(phuThuoc.guiTin ?? {}) };
-  const lich = { taoLich, chotLich, huyLich, xemLich, demDangCho, ...(phuThuoc.lich ?? {}) };
+  const lich = { createSchedule, confirmSchedule, cancelSchedule, listSchedules, countPending, ...(phuThuoc.lich ?? {}) };
   const nhac = {
-    taoNhacTheoDuoi, chinhNhip, dongNhac, xemNhacTheoDuoi,
-    giuQuyenGuiNhac, traVeQuyenGuiNhac, ghiBangChungGuiNhac,
+    createFollowUp, adjustCadence, closeFollowUp, listFollowUps,
+    claimReminderSend, releaseReminderSend, writeReminderProof,
     ...(phuThuoc.nhac ?? {}),
   };
   const { db, cauHinh, boTichLuy, api } = phuThuoc;
 
   // 🔴 Ghi nhớ uid bot cho TẦNG TRUY VẤN ngay lúc dựng.
-  // `groupMembers` còn bị gọi từ `src/lich/bo_chay.js` và `src/index.js` —
+  // `groupMembers` còn bị gọi từ `src/lich/runner.js` và `src/index.js` —
   // những đường KHÔNG cầm `api`, nên không thể truyền tham số xuống. Nhớ một
   // lần ở đây là mọi đường đều lọc được bot, kể cả đường lời nhắc tự chạy.
   // Không đọc được uid ⇒ `setAssistantUid` giữ null ⇒ KHÔNG lọc ai (fail-open có
@@ -1206,7 +1206,7 @@ function _bangTenHoiThoai(db, chatIds) {
 /**
  * Phiên này có phải do một LỜI NHẮC THEO ĐUỔI sinh ra không?
  *
- * Dấu nhận: `hang_doi_hoi.msg_id` được `bo_chay.js` đặt là `nhac:<idLichHen>:<lần>`.
+ * Dấu nhận: `hang_doi_hoi.msg_id` được `runner.js` đặt là `nhac:<idLichHen>:<lần>`.
  * Không dựa vào bất cứ thứ gì model khai — model không tự nhận mình đang trả lời
  * lượt nhắc nào, và nếu để nó khai thì nó khai sai là cưỡng chế trượt.
  *
@@ -1239,7 +1239,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   const laDmHoi = _laDmDich(kho, db, cauHinh, chatIdHoi);
 
   // Phiên này có phải MỘT LƯỢT NHẮC không? `msg_id` dạng `nhac:<id>:<lần>` do
-  // `bo_chay.js` đặt lúc giao việc — đây là đường nhận diện DUY NHẤT, dùng lại
+  // `runner.js` đặt lúc giao việc — đây là đường nhận diện DUY NHẤT, dùng lại
   // nguyên si của cụm 2. ⛔ Đừng nghĩ lối mới.
   const idNhac = _idNhacCuaPhien(phien.dong);
 
@@ -1357,7 +1357,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 
   // ═══ 🔴 GIÀNH QUYỀN GỬI — chốt chống MỘT LƯỢT ĐI HAI TIN ═══
   // Lượt nhắc có HAI bên cùng có thể gửi: model (đường này) và lưới an toàn
-  // (`bo_chay.js` gửi câu dự phòng khi model im quá trần). `cho_model_tu_ms` là
+  // (`runner.js` gửi câu dự phòng khi model im quá trần). `cho_model_tu_ms` là
   // TOKEN: ai CAS được về NULL thì bên đó gửi, bên kia im.
   //
   // ⚠️ Giành TRƯỚC khi chạm mạng, KHÔNG phải sau. Gỡ-sau chỉ vá được ca model
@@ -1370,7 +1370,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   if (idNhac && qd.huong !== HUONG_TRA_LOI.TU_CHOI) {
     let giu;
     try {
-      giu = nhac.giuQuyenGuiNhac(db, idNhac);
+      giu = nhac.claimReminderSend(db, idNhac);
     } catch (e) {
       return _loi(MA_LOI.DB_LOI, cleanError('không giành được quyền gửi lời nhắc', e).message);
     }
@@ -1491,7 +1491,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
     // để chống. Trả về mốc CŨ để thời gian đã chờ không bị tính lại từ đầu.
     if (idNhac && mocChoCu !== null) {
       try {
-        nhac.traVeQuyenGuiNhac(db, idNhac, mocChoCu);
+        nhac.releaseReminderSend(db, idNhac, mocChoCu);
       } catch (e2) {
         _log(cleanError(`KHÔNG trả được quyền gửi lời nhắc ${idNhac} -> lưới an toàn mất lượt này`, e2).message);
       }
@@ -1506,7 +1506,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   // đã gửi". Báo động giả lặp lại là host thôi tin cả cảnh báo đúng.
   if (idNhac && qd.huong !== HUONG_TRA_LOI.TU_CHOI) {
     try {
-      nhac.ghiBangChungGuiNhac(db, idNhac, msgId);
+      nhac.writeReminderProof(db, idNhac, msgId);
     } catch (e) {
       _log(cleanError('không ghi được bằng chứng gửi lời nhắc', e).message);
     }
@@ -1983,8 +1983,8 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
   // ═══ 🔴 B1 + A10 — ĐƯA HAI TRẠNG THÁI VÔ HÌNH RA ÁNH SÁNG ═══
   // Cả hai đều đã tồn tại trong DB từ trước nhưng KHÔNG CÓ ĐƯỜNG NÀO ĐỌC RA:
   // dữ liệu có mà không ai truy vấn thì cũng như không có.
-  const treo = layLichDanhChoChuaRoGui(db);
-  const batBienVo = layNhacBatBienVo(db);
+  const treo = claimedButUnsent(db);
+  const batBienVo = brokenInvariantReminders(db);
 
   const canhBao = [];
   if (treo.length) {
@@ -2145,7 +2145,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
 
   let dangCho;
   try {
-    dangCho = lich.demDangCho(db);
+    dangCho = lich.countPending(db);
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không đếm được lịch đang chờ', e).message);
   }
@@ -2184,8 +2184,8 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
     // với mẫu là CHUỖI chỉ thay LẦN ĐẦU, nên tiêu đề có mã thật mà dòng cuối
     // vẫn là 'Anh nhắn "ok ____" để chốt' — anh đọc xong KHÔNG BIẾT gõ mã gì.
     // Bắt được lúc chạy thử đầu-cuối 20/08/2026, có bài test canh (I1).
-    const ma = taoMaXacNhan();
-    const cau = dungCauXacNhan({
+    const ma = makeConfirmCode();
+    const cau = buildConfirmText({
       ma,
       // Đã có lịch chờ nào khác của chính anh chưa? Có thì "ok" trống hoá mơ
       // hồ ⇒ câu xác nhận phải dặn gõ kèm mã.
@@ -2198,7 +2198,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
       bayGioMs: bayGio,
     });
     // Câu anh ĐỌC và câu nằm trong DB là MỘT — ghi cùng lúc, không dựng lại.
-    ghi = lich.taoLich(db, {
+    ghi = lich.createSchedule(db, {
       ma,
       chatIdDich,
       loaiDich: nhom.loai,
@@ -2267,7 +2267,7 @@ function layNhomChoLich(cauHinh, chatId) {
 function _lichChoCuaToi(lich, db, nguoiDat) {
   if (!nguoiDat) return [];
   try {
-    return lich.xemLich(db, { trangThai: TRANG_THAI_LICH.CHO_XAC_NHAN, nguoiDat }) ?? [];
+    return lich.listSchedules(db, { trangThai: TRANG_THAI_LICH.CHO_XAC_NHAN, nguoiDat }) ?? [];
   } catch (e) {
     _log(cleanError('không đọc được danh sách lịch chờ', e).message);
     return [];
@@ -2276,7 +2276,7 @@ function _lichChoCuaToi(lich, db, nguoiDat) {
 
 /** Mô tả ngắn một lịch chờ, để anh chọn khi có nhiều cái. */
 function _dongChon(d) {
-  const luc = d.gui_luc_ms ? dinhDangVn(Number(d.gui_luc_ms), d.mui_gio) : '(chưa rõ giờ)';
+  const luc = d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : '(chưa rõ giờ)';
   const loai = Number(d.la_theo_duoi) === 1 ? ' [nhắc lặp]' : '';
   return `· ${d.ma_xac_nhan}${loai} — ${luc} — "${d.noi_dung}"`;
 }
@@ -2320,7 +2320,7 @@ function _datLichChot({ kho, lich, db }, thamSo) {
 
   let kq;
   try {
-    kq = lich.chotLich(db, { id: ma, ma, nguoiDat });
+    kq = lich.confirmSchedule(db, { id: ma, ma, nguoiDat });
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không chốt được lịch', e).message);
   }
@@ -2337,8 +2337,8 @@ function _datLichChot({ kho, lich, db }, thamSo) {
   return _ok({
     id: d.id,
     trangThai: TRANG_THAI_LICH.DA_LEN_LICH,
-    guiLuc: dinhDangVn(Number(d.gui_luc_ms), d.mui_gio),
-    conBaoLau: conBaoLau(Date.now(), Number(d.gui_luc_ms)),
+    guiLuc: formatVn(Number(d.gui_luc_ms), d.mui_gio),
+    timeUntil: timeUntil(Date.now(), Number(d.gui_luc_ms)),
   });
 }
 
@@ -2355,14 +2355,14 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
 
   let ds;
   try {
-    ds = lich.xemLich(db, {
+    ds = lich.listSchedules(db, {
       trangThai: thamSo.trangThai ?? TRANG_THAI_LICH.DA_LEN_LICH,
     });
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không đọc được lịch', e).message);
   }
 
-  // 🔴 LỌC THEO PHẠM VI. `xemNhacTheoDuoi`/`xemLich` đọc bảng CHUNG cho MỌI
+  // 🔴 LỌC THEO PHẠM VI. `listFollowUps`/`listSchedules` đọc bảng CHUNG cho MỌI
   // nhóm ⇒ trong một pane bị khoá, chúng là một đường đọc nhóm khác KHÔNG đi
   // qua `lich_su`, tức lách đúng chỗ vừa khoá.
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
@@ -2377,8 +2377,8 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
       ma: d.ma_xac_nhan,
       trangThai: d.trang_thai,
       chatIdDich: String(d.chat_id_dich),
-      guiLuc: dinhDangVn(Number(d.gui_luc_ms), d.mui_gio),
-      conBaoLau: conBaoLau(bayGio, Number(d.gui_luc_ms)),
+      guiLuc: formatVn(Number(d.gui_luc_ms), d.mui_gio),
+      timeUntil: timeUntil(bayGio, Number(d.gui_luc_ms)),
       noiDung: d.noi_dung,
       // Giữ nguyên văn câu anh nói: đây là thứ duy nhất kiểm chứng được model
       // đã quy đổi đúng hay chưa, sau khi mọi thứ đã thành con số.
@@ -2401,7 +2401,7 @@ function _huyLich({ kho, lich, db }, thamSo) {
 
   let kq;
   try {
-    kq = lich.huyLich(db, { id, nguoiDat });
+    kq = lich.cancelSchedule(db, { id, nguoiDat });
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không huỷ được lịch', e).message);
   }
@@ -2421,7 +2421,7 @@ export const _noiBoChoTest = { _kiemPhien, _cat, _goi, _datLichNhap, _datLichCho
 // ═══════════════════════════════════════════════════════════════════════
 // 8. NHẮC THEO ĐUỔI — 4 tool
 //
-// Tầng dữ liệu + logic nằm ở `src/lich/theo_duoi.js`. Bốn hàm dưới chỉ làm
+// Tầng dữ liệu + logic nằm ở `src/lich/follow_up.js`. Bốn hàm dưới chỉ làm
 // đúng 3 việc: kiểm phiên, xác định `isHost`, gọi hàm tương ứng.
 //
 // 🔴 `isHost` TÍNH Ở ĐÂY chứ không để tầng dưới tự đoán: tầng dưới chỉ thấy
@@ -2468,7 +2468,7 @@ function _laHost(cauHinh, phien) {
 /**
  * Câu xác nhận cho lời nhắc THEO ĐUỔI.
  *
- * Cố ý KHÔNG dùng `dungCauXacNhan()` của lịch một lần: câu đó nói "Lúc: <mốc>
+ * Cố ý KHÔNG dùng `buildConfirmText()` của lịch một lần: câu đó nói "Lúc: <mốc>
  * (còn N giờ)", đọc lên y như một lần nhắc rồi thôi. Anh duyệt nhầm là nhận
  * một thứ khác hẳn với thứ mình vừa dặn. Câu này phải nêu rõ NHỊP LẶP và nói
  * thẳng là nó chạy tới khi anh bảo dừng.
@@ -2481,7 +2481,7 @@ function _cauXacNhanNhac(p) {
       ? `Nhịp: cứ ${p.chuKyPhut} phút một lần (tính từ lần nhắc trước)`
       : `Nhịp: ${p.chuKyNgay === 1 ? 'mỗi ngày' : `${p.chuKyNgay} ngày một lần`} lúc ${p.gioNhac}`
         + `${p.boChuNhat ? ' (bỏ Chủ Nhật)' : ''}`,
-    `Lần đầu: ${dinhDangVn(p.mocDauMs, p.muiGio)} (${conBaoLau(p.bayGioMs, p.mocDauMs)})`,
+    `Lần đầu: ${formatVn(p.mocDauMs, p.muiGio)} (${timeUntil(p.bayGioMs, p.mocDauMs)})`,
   ];
   if (p.tenPhuTrach) dong.push(`Người phụ trách: ${p.tenPhuTrach}`);
 
@@ -2515,7 +2515,7 @@ function _cauXacNhanNhac(p) {
         + ' — hoặc dừng sớm hơn khi anh bảo xong.'
       : 'Nó sẽ nhắc LẶP LẠI tới khi anh bảo xong — không tự tắt.',
   );
-  // Cùng lý do với `dungCauXacNhan()` — xem chú thích ở `lich/lich_hen.js`.
+  // Cùng lý do với `buildConfirmText()` — xem chú thích ở `lich/schedule.js`.
   dong.push(
     p.nhieuLichCho
       ? `⚠️ Đang có nhiều lịch chờ — anh nhắn "ok ${p.ma}" để chốt ĐÚNG cái này, hoặc "huỷ ${p.ma}".`
@@ -2553,7 +2553,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
   }
 
   // ═══ 🔴 A14 — TRẦN SỐ LỊCH ĐANG CHỜ. `_datLichNhap` CÓ, chỗ này thì KHÔNG ═══
-  // Dùng lại ĐÚNG `lich.demDangCho` sẵn có, ⛔ không viết bản đếm thứ hai.
+  // Dùng lại ĐÚNG `lich.countPending` sẵn có, ⛔ không viết bản đếm thứ hai.
   // Ở đây trần còn CẦN HƠN lịch một lần: model lỡ vòng lặp thì mỗi dòng đẻ ra là
   // một lời nhắc LẶP LẠI, nhắc mãi cho tới khi có người vào đóng — lịch một lần
   // thì bắn một phát rồi thôi, còn cái này tự nhân lên theo nhịp.
@@ -2563,9 +2563,9 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
   // biến một chốt chống-vòng-lặp thành lỗi giả trong 7 bài của gói khác.
   // ⛔ KHÔNG nuốt lỗi của DB thật: đó mới đúng là chỗ cần biết.
   let dangCho = 0;
-  if (typeof db?.prepare === 'function' && typeof lich?.demDangCho === 'function') {
+  if (typeof db?.prepare === 'function' && typeof lich?.countPending === 'function') {
     try {
-      dangCho = lich.demDangCho(db);
+      dangCho = lich.countPending(db);
     } catch (e) {
       return _loi(MA_LOI.DB_LOI, cleanError('không đếm được lịch đang chờ', e).message);
     }
@@ -2609,27 +2609,27 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
   try {
     // Sinh mã TRƯỚC rồi mới dựng câu — cùng lý do đã ghi ở `_datLichNhap`
     // (bản đầu dùng chỗ giữ chỗ rồi `replace`, chỉ thay được lần đầu).
-    ma = taoMaXacNhan();
+    ma = makeConfirmCode();
     const chuKyNgay = Math.max(
       1,
       Math.min(NHAC_THEO_DUOI.CHU_KY_NGAY_TOI_DA,
         Math.trunc(Number(thamSo.chuKyNgay) || NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH)),
     );
-    // ⚠️ `chuanGioNhac` (CHUỖI) chứ KHÔNG phải `docGioNhac` (OBJECT) — xem
-    // chú thích ở `lich/theo_duoi.js`, dùng nhầm là INSERT ném ở tận DB.
-    const gioNhac = chuanGioNhac(thamSo.gioNhac);
+    // ⚠️ `normalizeReminderHour` (CHUỖI) chứ KHÔNG phải `parseReminderHour` (OBJECT) — xem
+    // chú thích ở `lich/follow_up.js`, dùng nhầm là INSERT ném ở tận DB.
+    const gioNhac = normalizeReminderHour(thamSo.gioNhac);
 
     // Ngoài khoảng thì TỪ CHỐI kèm lý do rõ — ⛔ không âm thầm làm tròn.
     if (thamSo.chuKyPhut !== undefined && thamSo.chuKyPhut !== null) {
-      const kp = kiemChuKyPhut(thamSo.chuKyPhut);
+      const kp = validateMinuteCadence(thamSo.chuKyPhut);
       if (!kp.ok) return _loi(MA_LOI.CAU_HINH_SAI, kp.ly);
       chuKyPhut = kp.phut;
     }
-    const kt = kiemTranSoLan(thamSo.tranSoLan);
+    const kt = validateAttemptCap(thamSo.tranSoLan);
     if (!kt.ok) return _loi(MA_LOI.CAU_HINH_SAI, kt.ly);
-    const nhip = docNhip({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKyNgay });
-    tranSoLan = thamSo.tranSoLan === undefined ? tranMacDinh(nhip) : kt.tran;
-    const mocDauMs = mocNhacKeTiep(bayGio, {
+    const nhip = parseCadence({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKyNgay });
+    tranSoLan = thamSo.tranSoLan === undefined ? defaultAttemptCap(nhip) : kt.tran;
+    const mocDauMs = nextReminderAt(bayGio, {
       chuKyNgay, chuKyPhut, gioNhac, boChuNhat: NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH, laLanDau: true,
     });
     cau = _cauXacNhanNhac({
@@ -2651,12 +2651,12 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
       laDm: nhom.loai === 'DM',
     });
     // Câu anh ĐỌC và câu nằm trong DB là MỘT — ghi cùng lúc, không dựng lại.
-    ghi = nhac.taoNhacTheoDuoi(db, {
+    ghi = nhac.createFollowUp(db, {
       ma,
       chatIdDich,
       loaiDich: nhom.loai,
       noiDung,
-      // 🔴 `taoNhacTheoDuoi` VỐN ĐÃ nhận `tagUserIds` — chỉ là chỗ này chưa bao
+      // 🔴 `createFollowUp` VỐN ĐÃ nhận `tagUserIds` — chỉ là chỗ này chưa bao
       // giờ truyền. Đó là toàn bộ lý do lời nhắc theo đuổi chưa từng tag được ai.
       tagUserIds: (Array.isArray(thamSo.tagUserIds) ? thamSo.tagUserIds.map(String) : [])
         .filter((u) => !tagKhongTraRa.includes(u)),
@@ -2699,7 +2699,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
     maXacNhan: ma,
     trangThai: TRANG_THAI_LICH.CHO_XAC_NHAN,
     cheoNhom: chatIdDat !== chatIdDich,
-    lanDau: dinhDangVn(ghi.mocDauMs, GIOI_HAN_LICH.MUI_GIO_MAC_DINH),
+    lanDau: formatVn(ghi.mocDauMs, GIOI_HAN_LICH.MUI_GIO_MAC_DINH),
     chuKyPhut,
     tranSoLan,
     // ★ Đưa NGUYÊN VĂN câu này cho anh — model viết lại là anh duyệt nhầm bản đã bị "sửa".
@@ -2745,14 +2745,14 @@ function _chinhNhipNhac({ kho, nhac, db, cauHinh }, thamSo) {
     if (!khop) return _loi(MA_LOI.CAU_HINH_SAI, `tamDungToiNgay '${d}' không đúng dạng YYYY-MM-DD.`);
     // Hết ngày đó, theo múi giờ của pack — không dùng Date.parse (nó ra 00:00 UTC,
     // lệch 7 tiếng và tạm dừng hụt mất gần một ngày).
-    tamDungToiMs = mocTuGioDiaPhuong(
+    tamDungToiMs = localTimeToEpoch(
       Number(khop[1]), Number(khop[2]), Number(khop[3]), 23, 59, GIOI_HAN_LICH.MUI_GIO_MAC_DINH,
     );
   }
 
   let kq;
   try {
-    kq = nhac.chinhNhip(db, {
+    kq = nhac.adjustCadence(db, {
       id,
       isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
       chuKyNgay: thamSo.chuKyNgay,
@@ -2772,7 +2772,7 @@ function _chinhNhipNhac({ kho, nhac, db, cauHinh }, thamSo) {
     chuKyNgay: d.chu_ky_ngay ?? null,
     gioNhac: d.gio_nhac ?? null,
     trangThaiTd: d.trang_thai_td ?? null,
-    lanKeTiep: d.gui_luc_ms ? dinhDangVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+    lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
   });
 }
 
@@ -2785,7 +2785,7 @@ function _dongNhac({ kho, nhac, db, cauHinh }, thamSo) {
 
   let kq;
   try {
-    kq = nhac.dongNhac(db, {
+    kq = nhac.closeFollowUp(db, {
       id,
       nguoiDong: String(phien.dong.user_id ?? ''),
       isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
@@ -2814,12 +2814,12 @@ function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
 
   let ds;
   try {
-    ds = nhac.xemNhacTheoDuoi(db, { trangThaiTd: thamSo.trangThaiTd });
+    ds = nhac.listFollowUps(db, { trangThaiTd: thamSo.trangThaiTd });
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không đọc được danh sách nhắc', e).message);
   }
 
-  // 🔴 LỌC THEO PHẠM VI. `xemNhacTheoDuoi`/`xemLich` đọc bảng CHUNG cho MỌI
+  // 🔴 LỌC THEO PHẠM VI. `listFollowUps`/`listSchedules` đọc bảng CHUNG cho MỌI
   // nhóm ⇒ trong một pane bị khoá, chúng là một đường đọc nhóm khác KHÔNG đi
   // qua `lich_su`, tức lách đúng chỗ vừa khoá.
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
@@ -2837,7 +2837,7 @@ function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
       gioNhac: d.gio_nhac,
       trangThaiTd: d.trang_thai_td,
       soLanDaNhac: d.so_lan_da_nhac,
-      lanKeTiep: d.gui_luc_ms ? dinhDangVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+      lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
     })),
   });
 }
@@ -3137,7 +3137,7 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
   _danhDauDaGhi(phien.requestId, TEN_TOOL_GHI.GHI_NHO);
 
   const d = ghi.dong ?? {};
-  const khiNao = d.khi_nao_ms ? dinhDangVn(Number(d.khi_nao_ms), GIOI_HAN_LICH.MUI_GIO_MAC_DINH) : null;
+  const khiNao = d.khi_nao_ms ? formatVn(Number(d.khi_nao_ms), GIOI_HAN_LICH.MUI_GIO_MAC_DINH) : null;
   return _ok({
     id: ghi.id,
     loai: d.loai,
@@ -3197,7 +3197,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
     soLanDaNhac: d.so_lan_da_nhac,
     tranSoLan: kq.tranMoi,
     daNoiTran: kq.daNoiTran,
-    lanKeTiep: d.gui_luc_ms ? dinhDangVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+    lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
   });
 }
 

@@ -858,17 +858,17 @@ export function writeWriteGateLog(db, banGhi) {
  * ⇒ Cách chữa KHÔNG phải dạy model bạo dạn hơn, mà là làm cho HÀNH ĐỘNG RẺ
  * KHI SAI. Đóng sai giờ chỉ tốn một câu "mở lại".
  *
- * ⚠️ CHỈ HOST — giữ nguyên chốt của anh, y như `dongNhac`.
+ * ⚠️ CHỈ HOST — giữ nguyên chốt của anh, y như `closeFollowUp`.
  *
  * 🔴 GIỮ `so_lan_da_nhac`, ⛔ KHÔNG reset về 0. Số lượt đã nhắc là SỰ THẬT LỊCH
  * SỬ — người ta đã bị làm phiền đúng ngần ấy lần, mở lại không xoá được việc đó.
  * Reset là biến trần 10 lượt thành vô hạn chỉ bằng cách đóng-mở-đóng-mở.
  * Cần nhắc thêm thì nới trần MINH BẠCH bằng `noiTran`.
  *
- * ⚠️ Ở ĐÂY (`src/store/write.js`) chứ không phải cạnh `dongNhac` trong
- * `src/lich/theo_duoi.js` — nơi tự nhiên của nó — vì lượt sửa 21/08/2026 chỉ
+ * ⚠️ Ở ĐÂY (`src/store/write.js`) chứ không phải cạnh `closeFollowUp` trong
+ * `src/lich/follow_up.js` — nơi tự nhiên của nó — vì lượt sửa 21/08/2026 chỉ
  * được cấp quyền đụng `src/store/`, `src/mcp/tools.js`, `src/lib/hang_so.js`.
- * ⇒ ĐÃ BÁO ROUTER: nên dời sang `theo_duoi.js` cạnh `dongNhac` khi có lượt
+ * ⇒ ĐÃ BÁO ROUTER: nên dời sang `follow_up.js` cạnh `closeFollowUp` khi có lượt
  * được phép, để cặp đóng/mở nằm cùng một chỗ.
  *
  * @returns {{ok: true, dong: any, canNoiTran?: boolean}|{ok: false, ly: string}}
@@ -898,7 +898,7 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
   if (dong.trang_thai_td !== TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'CHUA_DONG' };
 
-  // Hết lượt mà mở lại nhưng KHÔNG nới trần thì `danhChoLuotNhac` đóng nó ngay
+  // Hết lượt mà mở lại nhưng KHÔNG nới trần thì `claimReminderTurn` đóng nó ngay
   // ở lượt kế tiếp — mở mà như không mở. Nói thẳng ra thay vì làm rồi im.
   const tran = dong.tran_so_lan === null || dong.tran_so_lan === undefined
     ? null : Number(dong.tran_so_lan);
@@ -942,10 +942,10 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
  * Khoảng cách tới lượt nhắc kế tiếp, tính bằng ms.
  *
  * ⚠️ CỐ Ý ĐƠN GIẢN: nhịp phút thì cộng đúng số phút; nhịp ngày thì cộng số
- * ngày. ⛔ KHÔNG gọi `mocNhacKeTiep()` của `theo_duoi.js` — nó nắn về `gioNhac`
+ * ngày. ⛔ KHÔNG gọi `nextReminderAt()` của `follow_up.js` — nó nắn về `gioNhac`
  * và chừa Chủ Nhật, mà `src/store/` thì không được phụ thuộc ngược lên
  * `src/lich/`. Hệ quả chấp nhận được: lượt ĐẦU sau khi mở lại có thể lệch khỏi
- * giờ nhắc quen thuộc; từ lượt thứ hai `danhChoLuotNhac` nắn lại đúng.
+ * giờ nhắc quen thuộc; từ lượt thứ hai `claimReminderTurn` nắn lại đúng.
  */
 function _khoangNhipMs(dong) {
   const phut = Number(dong?.chu_ky_phut);

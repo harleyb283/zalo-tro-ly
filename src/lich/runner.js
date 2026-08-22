@@ -2,7 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  * v3 — BỘ CHẠY LỊCH HẸN. Đánh thức mỗi `NHIP_KIEM_MS`, gửi lịch tới hạn.
  *
- * 🔴 MỘT LỊCH GỬI ĐÚNG MỘT LẦN. Cơ chế: `nhanDangGui()` đổi trạng thái bằng
+ * 🔴 MỘT LỊCH GỬI ĐÚNG MỘT LẦN. Cơ chế: `claimSending()` đổi trạng thái bằng
  *    `UPDATE ... WHERE trang_thai = 'da_len_lich'` và chỉ đi tiếp khi
  *    `changes === 1`. Tức là DÀNH CHỖ TRƯỚC khi gọi mạng. Nếu gửi trước rồi
  *    mới đánh dấu thì daemon chết giữa chừng = gửi lại lần nữa lúc khởi động,
@@ -28,20 +28,20 @@ import { CHE_DO, GIOI_HAN_LICH, TRANG_THAI_HANG_DOI } from '../lib/hang_so.js';
 import { safeLogText } from '../lib/redact.js';
 import { ensureMention } from '../zalo/send.js';
 
-import { taoBoCanhOutbox } from './canh_outbox.js';
+import { createOutboxWatcher } from './outbox_watcher.js';
 
 import {
-  danhDauQuaHan,
-  dinhDangVn,
-  ghiKetQuaGui,
-  layLichDenHan,
-  nhanDangGui,
-  quyetDinhTre,
-} from './lich_hen.js';
+  markOverdue,
+  formatVn,
+  writeSendOutcome,
+  dueSchedules,
+  claimSending,
+  decideLateness,
+} from './schedule.js';
 import {
-  cauNhacDuPhong, conDangTheoDuoi, danhChoLuotNhac, docNhip, layBoiCanhNhac,
-  layNhacDenHan, layNhacTreoChoModel, tranChoModelMs,
-} from './theo_duoi.js';
+  fallbackReminderText, isStillFollowingUp, claimReminderTurn, parseCadence, reminderContext,
+  dueFollowUps, stalledModelReminders, modelWaitCapMs,
+} from './follow_up.js';
 
 function _log(msg) {
   process.stderr.write(`[lich/bo_chay] ${msg}\n`);
@@ -84,7 +84,7 @@ function _docCoArgv(argv, ten) {
  * ⇒ lời nhắc rơi về câu dự phòng như hôm nay. **Hỏng về phía an toàn** (mất
  * giọng model, KHÔNG mất tin), nhưng phải nối `p.cheDo` mới kín hẳn.
  */
-export function laCheDoTach(p = {}, env = process.env, argv = process.argv) {
+export function isSplitMode(p = {}, env = process.env, argv = process.argv) {
   if (p?.cheDo !== undefined && p?.cheDo !== null && p.cheDo !== '') {
     return String(p.cheDo) === CHE_DO.TACH;
   }
@@ -112,11 +112,11 @@ export function laCheDoTach(p = {}, env = process.env, argv = process.argv) {
  * 🔴 VÌ SAO NỐI Ở ĐÂY CHỨ KHÔNG NỐI Ở `index.js`: nối ở đó là thêm một DÂY TREO
  * nữa — pack đã dính hai lần (`recordSources`, `dmHostChatId`): code viết đủ,
  * test xanh, mà chỗ gọi quên truyền nên tính năng chết câm. Ở đây không có gì
- * để quên: `chayNhipTheoDuoi` đã được `index.js` gọi mỗi 30 giây từ trước, và
+ * để quên: `runFollowUpTick` đã được `index.js` gọi mỗi 30 giây từ trước, và
  * mọi thứ lưới cần đã nằm sẵn trong `p`.
  * ⚠️ CÁI GIÁ: lưới ăn theo cờ `ZTL_LICH_HEN` — tắt bộ chạy lịch là tắt luôn nó.
  *
- * ⚠️ CỐ Ý KHÔNG cộng số liệu của lưới vào `ra.loi` của `chayNhipTheoDuoi`:
+ * ⚠️ CỐ Ý KHÔNG cộng số liệu của lưới vào `ra.loi` của `runFollowUpTick`:
  * `taoBoDemLoiGui` đọc đúng trường đó để kết luận "bộ chạy GỬI hỏng 2 nhịp liên
  * tiếp" rồi báo động cho host. Trộn vào là báo động sai chuyện.
  *
@@ -140,7 +140,7 @@ function _layBoCanhOutbox(db) {
   const khoa = noi ?? ':khong-ro:';
   let bo = _boCanhOutboxTheoDb.get(khoa);
   if (!bo) {
-    bo = taoBoCanhOutbox({
+    bo = createOutboxWatcher({
       duongDanSo: noi ? path.join(path.dirname(noi), 'luoi_outbox.log') : null,
     });
     _boCanhOutboxTheoDb.set(khoa, bo);
@@ -152,7 +152,7 @@ async function _chayLuoiOutbox(p, bayGio) {
   if (process.env.ZTL_LUOI_OUTBOX === '0') return null;
   const bo = p.canhOutbox ?? _layBoCanhOutbox(p.db);
   try {
-    return await bo.chayMotNhip({
+    return await bo.runOneTick({
       db: p.db,
       bayGioMs: bayGio,
       // ⛔ CHỈ có đường DM host. Cố ý KHÔNG truyền `sendToGroup` xuống đây —
@@ -208,7 +208,7 @@ function _dongPhienModelBiGianh(db, idNhac) {
  * @param {string[]} uids
  * @returns {{ten: string[], khongTraRa: string[]}}
  */
-export function uidSangTen(dsNguoi, uids) {
+export function uidToName(dsNguoi, uids) {
   const bang = new Map((dsNguoi ?? []).map((n) => [String(n.uid), String(n.ten)]));
   const ten = [];
   const khongTraRa = [];
@@ -234,9 +234,9 @@ export function uidSangTen(dsNguoi, uids) {
  * @returns {{text: string, tenTag: string[], khongTraRa: string[],
  *            daCoSan: string[], trungTen: string[], khongKhop: string[]}}
  */
-export function dungNoiDung({ noiDung, tienTo = '', dsNguoi = [], tagUserIds = [] }) {
+export function buildReminderText({ noiDung, tienTo = '', dsNguoi = [], tagUserIds = [] }) {
   const kq = ensureMention(String(noiDung ?? ''), dsNguoi, tagUserIds);
-  const { ten } = uidSangTen(dsNguoi, kq.daThem);
+  const { ten } = uidToName(dsNguoi, kq.daThem);
   return {
     text: `${tienTo}${kq.text}`,
     tenTag: ten,
@@ -310,13 +310,13 @@ async function _baoHetLuot(p, d, cho) {
  * }} p
  * @returns {Promise<{daGui: number, quaHan: number, loi: number}>}
  */
-export async function chayMotNhip(p) {
+export async function runOneTick(p) {
   const bayGio = p.bayGioMs ?? Date.now();
   const ra = { daGui: 0, quaHan: 0, loi: 0 };
 
   let ds;
   try {
-    ds = layLichDenHan(p.db, bayGio);
+    ds = dueSchedules(p.db, bayGio);
   } catch (e) {
     _log(`không đọc được lịch tới hạn: ${safeLogText(e)}`);
     return ra;
@@ -325,19 +325,19 @@ export async function chayMotNhip(p) {
 
   for (const l of ds) {
     const tre = bayGio - Number(l.gui_luc_ms);
-    const qd = quyetDinhTre(tre);
+    const qd = decideLateness(tre);
 
     // ── Quá trần trễ: KHÔNG GỬI VÀO NHÓM, báo riêng host ────────────────
     if (qd.hanhDong === 'BO_QUA_HAN') {
       try {
-        danhDauQuaHan(
+        markOverdue(
           p.db, l.id,
           `trễ ${Math.round(tre / 60000)} phút, vượt trần ${Math.round(GIOI_HAN_LICH.TRAN_TRE_MS / 60000)} phút`,
         );
         ra.quaHan += 1;
         const loiNhan =
-          `⏰ Lịch [${l.ma_xac_nhan ?? l.id}] lẽ ra gửi lúc ${dinhDangVn(Number(l.gui_luc_ms), l.mui_gio)} `
-          + `nhưng em vừa dậy lúc ${dinhDangVn(bayGio, l.mui_gio)}.\n`
+          `⏰ Lịch [${l.ma_xac_nhan ?? l.id}] lẽ ra gửi lúc ${formatVn(Number(l.gui_luc_ms), l.mui_gio)} `
+          + `nhưng em vừa dậy lúc ${formatVn(bayGio, l.mui_gio)}.\n`
           + 'Em KHÔNG gửi vào nhóm (nhắc muộn còn tệ hơn không nhắc). '
           + 'Anh muốn gửi bây giờ thì bảo em.';
         if (p.dmHostChatId && p.sendHostDm) {
@@ -354,7 +354,7 @@ export async function chayMotNhip(p) {
     }
 
     // ── 🔴 DÀNH CHỖ TRƯỚC KHI GỌI MẠNG ─────────────────────────────────
-    if (!nhanDangGui(p.db, l.id)) {
+    if (!claimSending(p.db, l.id)) {
       _log(`lịch ${l.id} đã được xử lý bởi nhịp khác -> bỏ qua (chống gửi hai lần)`);
       continue;
     }
@@ -370,7 +370,7 @@ export async function chayMotNhip(p) {
         tagUserIds = [];
       }
 
-      const nd = dungNoiDung({
+      const nd = buildReminderText({
         noiDung: String(l.noi_dung),
         tienTo: qd.tienTo,
         dsNguoi,
@@ -388,14 +388,14 @@ export async function chayMotNhip(p) {
             dsNguoi, ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           });
 
-      ghiKetQuaGui(p.db, l.id, { msgId: kq?.msgId ?? null });
+      writeSendOutcome(p.db, l.id, { msgId: kq?.msgId ?? null });
       ra.daGui += 1;
     } catch (e) {
       // Đã ở trạng thái `da_gui` (dành chỗ ở trên) ⇒ ghi lại thành `loi` kèm lý do.
       // CỐ Ý KHÔNG trả về `da_len_lich` để thử lại: gửi lại tự động thì ca "Zalo
       // đã nhận nhưng trả lỗi mạng" thành gửi hai lần vào nhóm người thật.
       // Host đọc `xem_lich` thấy trạng thái `loi` và tự quyết.
-      ghiKetQuaGui(p.db, l.id, { loi: String(e?.message ?? e) });
+      writeSendOutcome(p.db, l.id, { loi: String(e?.message ?? e) });
       ra.loi += 1;
       _log(`gửi lịch ${l.id} thất bại: ${safeLogText(e)}`);
     }
@@ -418,7 +418,7 @@ export async function chayMotNhip(p) {
  *       câu dự phòng. Thiếu đường này thì Claude rớt là lời nhắc BIẾN MẤT ÂM
  *       THẦM — đúng thứ cả tính năng sinh ra để chống.
  *
- * 🔴 Mốc kế tiếp được DỜI NGAY lúc dành chỗ (`danhChoLuotNhac`), TRƯỚC khi gọi
+ * 🔴 Mốc kế tiếp được DỜI NGAY lúc dành chỗ (`claimReminderTurn`), TRƯỚC khi gọi
  * mạng. Hai nhịp timer chồng nhau không thể gửi hai tin vào nhóm người thật.
  *
  * @param {{db: any, api: any, bayGioMs?: number,
@@ -427,7 +427,7 @@ export async function chayMotNhip(p) {
  *          guiThongBao?: ((p: any) => Promise<boolean>)|null,
  *          enqueueQuestion?: Function, ghiLai?: Function, uidTroLy?: string|null}} p
  */
-export async function chayNhipTheoDuoi(p) {
+export async function runFollowUpTick(p) {
   const bayGio = p.bayGioMs ?? Date.now();
   const ra = { daNhac: 0, giaoModel: 0, duPhong: 0, loi: 0 };
 
@@ -438,23 +438,23 @@ export async function chayNhipTheoDuoi(p) {
 
   let ds;
   try {
-    ds = layNhacDenHan(p.db, bayGio);
+    ds = dueFollowUps(p.db, bayGio);
   } catch (e) {
     _log(`không đọc được lời nhắc tới hạn: ${safeLogText(e)}`);
     return ra;
   }
 
   // ── (b2) Lượt đã giao model mà model im quá lâu -> code gửi bù ────────
-  // 🔴 Trần chờ là HÀM CỦA NHỊP, không phải hằng số — xem `tranChoModelMs()`.
+  // 🔴 Trần chờ là HÀM CỦA NHỊP, không phải hằng số — xem `modelWaitCapMs()`.
   // Truy vấn chỉ lọc THÔ bằng trần nhỏ nhất có thể; trần thật của từng dòng phải
-  // tính lại ở đây bằng `docNhip()`, vì `docNhip()` là nguồn sự thật DUY NHẤT về
+  // tính lại ở đây bằng `parseCadence()`, vì `parseCadence()` là nguồn sự thật DUY NHẤT về
   // luật "nhịp phút thắng nhịp ngày" và không được viết lại bằng SQL.
   try {
-    const treo = layNhacTreoChoModel(p.db, bayGio);
+    const treo = stalledModelReminders(p.db, bayGio);
     for (const d of treo) {
-      const tran = tranChoModelMs(docNhip(d));
+      const tran = modelWaitCapMs(parseCadence(d));
       if (bayGio - Number(d.cho_model_tu_ms) < tran) continue;   // chưa tới trần của CHÍNH dòng này
-      // Dành chỗ trước khi gọi mạng, cùng nguyên tắc với `danhChoLuotNhac`:
+      // Dành chỗ trước khi gọi mạng, cùng nguyên tắc với `claimReminderTurn`:
       // `WHERE cho_model_tu_ms = $cu` để hai nhịp chồng nhau không cùng gửi bù.
       const daNhan = p.db.prepare(
         'UPDATE lich_hen SET cho_model_tu_ms = NULL WHERE id = $id AND cho_model_tu_ms = $cu',
@@ -473,7 +473,7 @@ export async function chayNhipTheoDuoi(p) {
   }
 
   for (const d of ds) {
-    const cho = danhChoLuotNhac(p.db, d, bayGio);
+    const cho = claimReminderTurn(p.db, d, bayGio);
     if (!cho.ok) {
       _log(`lời nhắc ${d.id} đã được nhịp khác xử lý -> bỏ qua (chống nhắc hai lần)`);
       continue;
@@ -489,20 +489,20 @@ export async function chayNhipTheoDuoi(p) {
     }
 
     // ═══ 🔴 B5 — BẮT VẾT NGUỒN CỦA BỐI CẢNH, KHÔNG TIN VÀO TRÍ NHỚ NGƯỜI VIẾT ═══
-    // `layBoiCanhNhac` bơm dữ liệu THẲNG vào context model (qua `_tomTatDuKien`),
+    // `reminderContext` bơm dữ liệu THẲNG vào context model (qua `_tomTatDuKien`),
     // KHÔNG đi qua tool nào ⇒ nó ĐI VÒNG QUA chỗ `_lichSu` khai nguồn cho
     // `leak_guard`. Đo trước khi vá: `recordSources(` chỉ xuất hiện ĐÚNG MỘT chỗ
     // trong cả `src/` (tools.js, trong `_lichSu`), và `boTichLuy` KHÔNG xuất hiện
     // dòng nào trong `src/lich/`.
     //
-    // Hôm nay chưa rò vì `layBoiCanhNhac` tự giới hạn đúng một nhóm. NHƯNG lúc đó
+    // Hôm nay chưa rò vì `reminderContext` tự giới hạn đúng một nhóm. NHƯNG lúc đó
     // `boTichLuy[requestId]` RỖNG ⇒ ai nới bối cảnh sau này (vd "xem người này có
     // nhắc việc đó ở nhóm khác không" — cải tiến rất tự nhiên) thì `leak_guard`
     // thấy nguồn = ∅ ⊆ {chat_id_hoi} và CHO GỬI THẲNG vào nhóm. Lá chắn thất bại
     // IM LẶNG, đúng ca nó sinh ra để chặn.
     //
     // ✅ Cách làm: BỌC `queryHistory` để hứng `nguonChatIds` do CHÍNH TẦNG TRUY VẤN
-    // khai ra. Nhờ vậy nó đúng bất kể `layBoiCanhNhac` sau này đọc thêm những gì —
+    // khai ra. Nhờ vậy nó đúng bất kể `reminderContext` sau này đọc thêm những gì —
     // không phụ thuộc người sửa có nhớ cập nhật chỗ này hay không.
     // (Đúng nguyên tắc đã chốt ở `leak_guard.js`: *cờ do TẦNG TRUY VẤN đặt*.)
     const nguonDaCham = new Set();
@@ -513,7 +513,7 @@ export async function chayNhipTheoDuoi(p) {
         return kq;
       }
       : undefined;
-    const boiCanh = layBoiCanhNhac(p.db, d, { bayGioMs: bayGio, truyVan: truyVanCoVet });
+    const boiCanh = reminderContext(p.db, d, { bayGioMs: bayGio, truyVan: truyVanCoVet });
     const nguonLa = [...nguonDaCham].filter((c) => c !== String(d.chat_id_dich));
 
     // 🔴 A3 — TRA TÊN NGƯỜI PHỤ TRÁCH **LÚC GỬI**, không dùng chuỗi đóng băng.
@@ -541,9 +541,9 @@ export async function chayNhipTheoDuoi(p) {
     //
     // 🔴 LƯỚI AN TOÀN KHÔNG SUY SUYỂN — đây là điều kiện để làm việc này:
     // `cho_model_tu_ms` vẫn được đặt y như cũ, nên nhánh (b2) ở đầu hàm vẫn gửi
-    // câu dự phòng khi quá `tranChoModelMs()`. Không client nào nhặt ⇒ vẫn có
+    // câu dự phòng khi quá `modelWaitCapMs()`. Không client nào nhặt ⇒ vẫn có
     // tin đi ra. ⛔ Không đổi giọng văn lấy sự im lặng.
-    const coClient = laCheDoTach(p);
+    const coClient = isSplitMode(p);
     const giaoDuocChoModel = p.enqueueQuestion
       && (typeof p.guiThongBao === 'function' || coClient)
       && (nguonLa.length === 0 || typeof p.recordSources === 'function');
@@ -564,7 +564,7 @@ export async function chayNhipTheoDuoi(p) {
           p.recordSources(requestId, [...nguonDaCham, String(d.chat_id_dich)]);
         }
         // 🔴 THỨ TỰ CÓ CHỦ ĐÍCH: đặt TOKEN trước, tạo hàng đợi sau.
-        // `cho_model_tu_ms` là quyền gửi của lượt này (xem `giuQuyenGuiNhac`).
+        // `cho_model_tu_ms` là quyền gửi của lượt này (xem `claimReminderSend`).
         // Đặt SAU thì có một khe: chết giữa hai lệnh ⇒ tồn tại một phiên nhắc
         // KHÔNG có token ⇒ model trả lời bị từ chối, mà lưới an toàn cũng không
         // bắn (nó chỉ nhặt dòng có token) ⇒ lượt nhắc mất ÂM THẦM.
@@ -600,7 +600,7 @@ export async function chayNhipTheoDuoi(p) {
           // thất bại: `cho_model_tu_ms` đã đặt nên nhánh (b2) vẫn bù đúng hạn.
           _log(
             `lời nhắc ${d.id}: chế độ TÁCH -> để hàng đợi ${requestId} ở 'cho' cho client nhặt`
-            + `; không ai nhặt trong ${Math.round(tranChoModelMs(docNhip(d)) / 1000)}s thì code gửi câu dự phòng`,
+            + `; không ai nhặt trong ${Math.round(modelWaitCapMs(parseCadence(d)) / 1000)}s thì code gửi câu dự phòng`,
           );
         }
         ra.giaoModel += 1;
@@ -697,15 +697,15 @@ async function _guiNhac(p, d, bayGioMs) {
     // Phép thử đột biến 21/08/2026: vô hiệu hoá đúng dòng `if` này thì CẢ 11 bài
     // của cụm 1 vẫn XANH. Lý do: mọi đường vào `_guiNhac` đều đã bị chặn trước đó
     // bởi một phép dành chỗ nguyên tử —
-    //   · đường (b1): `danhChoLuotNhac` khoá `trang_thai_td` + `trang_thai`
-    //   · đường (b2): CAS `WHERE cho_model_tu_ms = $cu`, mà `dongNhac`/`chinhNhip`
+    //   · đường (b1): `claimReminderTurn` khoá `trang_thai_td` + `trang_thai`
+    //   · đường (b2): CAS `WHERE cho_model_tu_ms = $cu`, mà `closeFollowUp`/`adjustCadence`
     //     đều xoá cột đó ⇒ CAS hỏng trước khi tới đây
     // ⇒ Đây là PHÒNG THỦ NHIỀU LỚP thật sự: dư thừa CHỪNG NÀO các lớp trên còn
     //   nguyên. Giữ lại vì nó rẻ (một `SELECT` ba cột) và vì lớp trên có thể bị
-    //   ai đó nới ra sau này. Logic của `conDangTheoDuoi` thì CÓ bài canh riêng
+    //   ai đó nới ra sau này. Logic của `isStillFollowingUp` thì CÓ bài canh riêng
     //   (T1d-4) — chỉ riêng LỜI GỌI ở đây là không.
     // ⛔ Ai xoá dòng này vì "test vẫn xanh" thì phải đọc hết đoạn trên trước đã.
-    if (!conDangTheoDuoi(p.db, d.id, bayGioMs)) {
+    if (!isStillFollowingUp(p.db, d.id, bayGioMs)) {
       _log(`lời nhắc ${d.id}: vừa bị đóng/tạm dừng trước khi gửi -> BỎ lượt này`);
       return false;
     }
@@ -719,9 +719,9 @@ async function _guiNhac(p, d, bayGioMs) {
       tagUserIds.push(String(d.nguoi_phu_trach));
     }
 
-    const bc = layBoiCanhNhac(p.db, d, { bayGioMs, truyVan: p.queryHistory });
-    const nd = dungNoiDung({
-      noiDung: cauNhacDuPhong(d, bc),
+    const bc = reminderContext(p.db, d, { bayGioMs, truyVan: p.queryHistory });
+    const nd = buildReminderText({
+      noiDung: fallbackReminderText(d, bc),
       dsNguoi,
       tagUserIds,
     });
@@ -744,8 +744,8 @@ async function _guiNhac(p, d, bayGioMs) {
 }
 
 /** Cờ bật/tắt bộ chạy lịch — mặc định BẬT (khác phần quét, vốn phải chờ A0). */
-export function batLich(env = process.env) {
+export function isSchedulerEnabled(env = process.env) {
   return String(env?.ZTL_LICH_HEN ?? '1') !== '0';
 }
 
-export const NHIP_MS = GIOI_HAN_LICH.NHIP_KIEM_MS;
+export const TICK_MS = GIOI_HAN_LICH.NHIP_KIEM_MS;

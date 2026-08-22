@@ -211,7 +211,7 @@ export const KET_LUAN_A0 = Object.freeze({
  * Chờ phiên Zalo sẵn sàng trước khi chạy A0.
  *
  * ⚠️ Chờ KHÔNG phải bản vá cho lỗi đọc nhầm thuộc tính (xem
- * `api_lichsu.layBaseCloudMessage`) — cả hai nguồn đều được gán XONG trước khi
+ * `api_lichsu.cloudMessageBase`) — cả hai nguồn đều được gán XONG trước khi
  * `login()` trả về, nên đường bình thường không có cuộc đua nào.
  * Vòng chờ này chỉ là lưới cho ca NỐI LẠI PHIÊN: watchdog thay `api` bằng đối
  * tượng mới, có một khoảnh khắc chưa có service map.
@@ -220,7 +220,7 @@ export const KET_LUAN_A0 = Object.freeze({
  */
 export const A0_CHO = Object.freeze({
   TRAN_MS: 60_000,
-  NHIP_MS: 500,
+  TICK_MS: 500,
 });
 
 /**
@@ -438,7 +438,7 @@ export const NHAC_THEO_DUOI = Object.freeze({
 
   // ─── NHỊP THEO PHÚT (anh chốt 20/08/2026: "cứ 2p nhắc lại 1 lần") ────
   // Nhịp phút là "cứ N phút KỂ TỪ LẦN NHẮC TRƯỚC" — KHÁC bản chất với nhịp
-  // ngày ("mỗi N ngày lúc HH:MM"). Xem `_docNhip()` ở lich/theo_duoi.js.
+  // ngày ("mỗi N ngày lúc HH:MM"). Xem `_docNhip()` ở lich/follow_up.js.
   CHU_KY_PHUT_TOI_THIEU: 1,      // chặn 0 và số âm; 1 phút đủ để anh test
   CHU_KY_PHUT_TOI_DA: 1440,      // > 1 ngày thì khai bằng chuKyNgay cho đúng nghĩa
   /**

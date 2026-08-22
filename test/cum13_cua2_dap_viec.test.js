@@ -23,8 +23,8 @@ import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { taskOwnerHost, timViecMoCua2, _xoaPhamViChoTest } from '../src/store/query.js';
 import { quyetDinh, LY_DO } from '../src/policy/gate.js';
-import { chotLich, huyLich } from '../src/lich/lich_hen.js';
-import { dongNhac, taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
+import { confirmSchedule, cancelSchedule } from '../src/lich/schedule.js';
+import { closeFollowUp, createFollowUp } from '../src/lich/follow_up.js';
 import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC,
 } from '../src/lib/hang_so.js';
@@ -87,7 +87,7 @@ function dbCoNhac(tuyChon = {}) {
   // ca hỏng thật ngoài đời: host chưa từng nhắn ⇒ tag bốc hơi trong im lặng.
   writeMessage(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh nhé' }));
   const id = tuyChon.id ?? 'NHAC1';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     id,
     ma: id,
     chatIdDich: tuyChon.chatIdDich ?? NHOM,
@@ -97,7 +97,7 @@ function dbCoNhac(tuyChon = {}) {
     nguoiDat: HOST, chatIdDat: NHOM,
     nguoiPhuTrach: tuyChon.nguoiPhuTrach ?? PHU_TRACH,
   });
-  chotLich(db, { id, ma: id, nguoiDat: HOST });
+  confirmSchedule(db, { id, ma: id, nguoiDat: HOST });
   return { db, id };
 }
 
@@ -130,16 +130,16 @@ test('★★★ Q3 SAI NHÓM -> đóng', () => {
 test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
   const { db, id } = dbCoNhac();
   assert.ok(timViecMoCua2(db, NHOM, PHU_TRACH), 'chưa đóng thì phải mở — nếu không bài này rỗng');
-  dongNhac(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: Date.now() });
+  closeFollowUp(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: Date.now() });
   assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null);
   closeDb(db);
 });
 
 test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (bẫy em tự tìm ra)', () => {
-  // `huyLich()` chỉ đổi `trang_thai` sang 'da_huy' và KHÔNG đụng
+  // `cancelSchedule()` chỉ đổi `trang_thai` sang 'da_huy' và KHÔNG đụng
   // `trang_thai_td` ⇒ chỉ kiểm ba điều kiện là cửa 2 MỞ CHO MỘT VIỆC ĐÃ HUỶ.
   const { db, id } = dbCoNhac();
-  huyLich(db, { id });
+  cancelSchedule(db, { id });
   assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null,
     '🔴 việc đã huỷ mà cửa vẫn mở — người đó nói chuyện với trợ lý về một việc không còn');
   closeDb(db);
@@ -352,12 +352,12 @@ test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, ph�
   const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
   writeMessage(db, tin({ msgId: 'c1', noiDung: 'tin cũ' }));      // chỉ NGƯỜI PHỤ TRÁCH nhắn
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'gửi báo giá', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: PHU_TRACH,
   });
-  chotLich(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
 
   const { goi, daGui, daGoiApi } = dungTool(db);
   const r = await goi(TEN_TOOL.TRA_LOI, {
@@ -386,12 +386,12 @@ test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag b�
   writeMessage(db, tin({ msgId: 'd2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
   // ★ Người thứ ba TRÙNG TÊN với host.
   writeMessage(db, tin({ msgId: 'd3', userId: NGUOI_KHAC, tenLucGui: 'Chủ máy', noiDung: 'x' }));
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'gửi báo giá', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: PHU_TRACH,
   });
-  chotLich(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
 
   const { goi, daGui, daGoiApi } = dungTool(db);
   const r = await goi(TEN_TOOL.TRA_LOI, {
@@ -430,12 +430,12 @@ test('★★★ T2d4 ⛔ KHÔNG bao giờ tag CHÍNH BOT, kể cả khi host = t
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
   writeMessage(db, tin({ msgId: 'b1', noiDung: 'x' }));
   writeMessage(db, tin({ msgId: 'b2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'x', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: PHU_TRACH,
   });
-  chotLich(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'NHAC1', ma: 'NHAC1', nguoiDat: HOST });
 
   const daGoiApi = [];
   let xuLy;

@@ -35,9 +35,9 @@ import { groupMembers, conversationKind, reminderTagUids } from '../src/store/qu
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC } from '../src/lib/hang_so.js';
 import { decideReplyRoute } from '../src/policy/leak_guard.js';
 import { quyetDinh } from '../src/policy/gate.js';
-import { chotLich, taoLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { chayMotNhip, chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+import { confirmSchedule, createSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
+import { runOneTick, runFollowUpTick } from '../src/lich/runner.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { ensureMention, resetThrottle, setThrottle, sendHostDm, sendToGroup } from '../src/zalo/send.js';
 
@@ -275,11 +275,11 @@ test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm men
   const db = dbTam();
   tin(db, DM, 'd1');
   // Lượt NHẮC trong DM: đây là ca duy nhất `can.uids` không rỗng.
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: DM, loaiDich: 'DM', noiDung: 'theo dõi vụ X', dienGiaiGoc: 'x',
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: DM, ma: 'N1', nguoiPhuTrach: HOST,
   });
-  chotLich(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
   const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N1'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
   // thì `tra_loi` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
@@ -304,11 +304,11 @@ test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm men
 test('★★ C4 trả lời trong NHÓM vẫn cưỡng chế tag như cũ (chống hồi quy)', async () => {
   const db = dbTam();
   tin(db, NHOM, 'g1');
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'theo dõi vụ Y', dienGiaiGoc: 'x',
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: NHOM, ma: 'N2', nguoiPhuTrach: HOST,
   });
-  chotLich(db, { id: 'N2', ma: 'N2', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'N2', ma: 'N2', nguoiDat: HOST });
   const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N2'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
   // thì `tra_loi` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
@@ -336,7 +336,7 @@ test('★★★ C5 LỚP 1/3 — `reminderTagUids` đã tự trả rỗng cho DM
   //   · lớp 2 (C6)   — `_traLoi` không chạy cưỡng chế tag khi đích là DM
   //   · lớp 3 (C7)   — `send.js` không dựng mentions khi thread là User
   const db = dbTam();
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: DM, loaiDich: 'DM', noiDung: 'v', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: DM, ma: 'N9', nguoiPhuTrach: HOST, tagUserIds: [HOST2],
   });
@@ -437,13 +437,13 @@ test('★★★ C8 khi đích là DM, `_traLoi` KHÔNG truyền dsNguoi xuống 
 
 test('★★★ D1 lịch MỘT LẦN vào DM -> bộ chạy gửi bằng ThreadType.User', async () => {
   const db = dbTam();
-  taoLich(db, {
+  createSchedule(db, {
     chatIdDich: DM, loaiDich: 'DM', noiDung: 'uống thuốc', guiLucMs: Date.now() - 1000,
     dienGiaiGoc: 'x', dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: DM, ma: 'L1',
   });
-  chotLich(db, { id: 'L1', ma: 'L1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'L1', ma: 'L1', nguoiDat: HOST });
   const { tin: ra, api } = banGui();
-  await chayMotNhip({
+  await runOneTick({
     db, api, sendToGroup, sendHostDm, groupMembers: () => [], bayGioMs: Date.now(),
   });
   assert.equal(ra.length, 1, 'lịch tới hạn mà không gửi gì = hỏng CÂM');
@@ -453,15 +453,15 @@ test('★★★ D1 lịch MỘT LẦN vào DM -> bộ chạy gửi bằng Thread
 
 test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User', async () => {
   const db = dbTam();
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: DM, loaiDich: 'DM', noiDung: 'theo dõi vụ X', dienGiaiGoc: 'x',
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: DM, ma: 'N1', nguoiPhuTrach: HOST,
   });
-  chotLich(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
   db.prepare("UPDATE lich_hen SET gui_luc_ms = 1 WHERE ma_xac_nhan = 'N1'").run();
 
   const { tin: ra, api } = banGui();
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api, sendToGroup, sendHostDm, groupMembers: () => [], bayGioMs: Date.now(), enqueueQuestion,
   });
   assert.equal(ra.length, 1);

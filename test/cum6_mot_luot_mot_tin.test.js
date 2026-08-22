@@ -29,9 +29,9 @@ import test from 'node:test';
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, takePendingQueue, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
-import { chotLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { resetThrottle, setThrottle } from '../src/zalo/send.js';
 
@@ -66,13 +66,13 @@ function dbTam() {
 }
 
 function nhacDaChot(db, ma = 'NHAC') {
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: `chốt giúp địa điểm ${ma}`,
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma,
     chuKyPhut: NHIP_PHUT,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
   return d;
@@ -123,7 +123,7 @@ function dungTool(db, api, { guiHong = false } = {}) {
 
 /** Chạy một nhịp bộ chạy. `enqueueQuestion` thật ⇒ phiên model dựng đúng như production. */
 async function motNhip(db, api, bayGioMs, { coModel = true } = {}) {
-  return chayNhipTheoDuoi({
+  return runFollowUpTick({
     db, api, bayGioMs, enqueueQuestion,
     sendToGroup: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
     sendHostDm: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
@@ -289,13 +289,13 @@ test('T6d-2 ★★ token trả về MỐC CŨ, không phải mốc hiện tại'
   const moc = Date.now() - 60_000;
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(moc, d.id);
 
-  const { giuQuyenGuiNhac, traVeQuyenGuiNhac } = tvd;
-  const giu = giuQuyenGuiNhac(db, d.id);
+  const { claimReminderSend, releaseReminderSend } = tvd;
+  const giu = claimReminderSend(db, d.id);
   assert.equal(giu.ok, true);
   assert.equal(giu.mocCu, moc);
   assert.equal(dong(db, d.id).cho_model_tu_ms, null);
 
-  traVeQuyenGuiNhac(db, d.id, giu.mocCu);
+  releaseReminderSend(db, d.id, giu.mocCu);
   assert.equal(dong(db, d.id).cho_model_tu_ms, moc, 'phải là mốc CŨ');
   closeDb(db);
 });
@@ -304,8 +304,8 @@ test('T6d-3 ★★★ hai bên cùng giành token -> ĐÚNG MỘT bên thắng',
   const db = dbTam();
   const d = nhacDaChot(db);
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), d.id);
-  const a = tvd.giuQuyenGuiNhac(db, d.id);
-  const b = tvd.giuQuyenGuiNhac(db, d.id);
+  const a = tvd.claimReminderSend(db, d.id);
+  const b = tvd.claimReminderSend(db, d.id);
   assert.deepEqual([a.ok, b.ok], [true, false], 'cả hai cùng thắng = cả hai cùng gửi');
   closeDb(db);
 });
@@ -336,7 +336,7 @@ test('T6d-4 ★★★ ẢNH CHỤP LỖI THỜI: SELECT thấy token cũ mà UPD
       };
     },
   };
-  const giu = tvd.giuQuyenGuiNhac(dbLoiThoi, d.id);
+  const giu = tvd.claimReminderSend(dbLoiThoi, d.id);
   assert.equal(giu.ok, false,
     'hai bên cùng tin mình cầm token -> cùng gửi -> một lượt đi hai tin');
   closeDb(db);
@@ -350,13 +350,13 @@ test('T6d-5 ★★★ trả token KHÔNG được đè lên token của LƯỢT 
   const d = nhacDaChot(db);
   const cu = Date.now() - 200_000;
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(cu, d.id);
-  const giu = tvd.giuQuyenGuiNhac(db, d.id);
+  const giu = tvd.claimReminderSend(db, d.id);
   assert.equal(giu.ok, true);
 
   const moi = Date.now();
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(moi, d.id);
 
-  assert.equal(tvd.traVeQuyenGuiNhac(db, d.id, giu.mocCu), false, 'phải từ chối trả');
+  assert.equal(tvd.releaseReminderSend(db, d.id, giu.mocCu), false, 'phải từ chối trả');
   assert.equal(Number(dong(db, d.id).cho_model_tu_ms), moi,
     'token của lượt MỚI bị đè bằng mốc cũ -> lưới bắn sớm -> nhắc đôi lần nữa');
   closeDb(db);
@@ -405,7 +405,7 @@ test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứ
     getOwnId: () => 'uid-bot',
     async sendMessage() { throw new Error('bot bị kick khỏi nhóm'); },
   };
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api, bayGioMs: Date.now(), enqueueQuestion,
     sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     sendHostDm: async () => ({ msgId: 'x' }),
@@ -427,7 +427,7 @@ test('T6f ★★★ token có mặt NGAY khi hàng đợi vừa sinh ra', async 
   const db = dbTam();
   const d = nhacDaChot(db);
   let mocLucTaoHangDoi;
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(),
     enqueueQuestion: (dbIn, x) => {
       mocLucTaoHangDoi = dong(dbIn, d.id).cho_model_tu_ms;
@@ -515,9 +515,9 @@ test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội 
     groupMembers: () => [],
     guiThongBao: async () => true,
   };
-  await chayNhipTheoDuoi({ ...p, bayGioMs: t0 });
+  await runFollowUpTick({ ...p, bayGioMs: t0 });
   const r0 = rid(db);
-  await chayNhipTheoDuoi({ ...p, bayGioMs: t0 + TRAN_MS + 1000 });
+  await runFollowUpTick({ ...p, bayGioMs: t0 + TRAN_MS + 1000 });
   const q = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(r0);
   assert.equal(q.trang_thai, TRANG_THAI_HANG_DOI.CHO,
     'đóng phiên khi gửi hỏng = vứt nốt cơ hội cuối, lượt nhắc mất hẳn');
@@ -544,4 +544,4 @@ test('T6g ★★★ câu hỏi thường (không phải lượt nhắc) vẫn tr
   closeDb(db);
 });
 
-const tvd = await import('../src/lich/theo_duoi.js');
+const tvd = await import('../src/lich/follow_up.js');

@@ -29,9 +29,9 @@ import {
   getReadScope, latestMessages, reminderTagUids, storeStats, queryHistory,
 } from '../src/store/query.js';
 import { CHE_DO, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, VAI } from '../src/lib/hang_so.js';
-import { chotLich, taoLich } from '../src/lich/lich_hen.js';
+import { confirmSchedule, createSchedule } from '../src/lich/schedule.js';
 import { createSourceLedger } from '../src/policy/leak_guard.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -161,12 +161,12 @@ test('★★★ P7b `reminderTagUids` bị ép — UID là dữ liệu riêng NH
   // thật**, món riêng tư nhất trong kho.
   const db = dbHaiNhom();
   const idB = 'NB2';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM_B, loaiDich: 'GROUP', noiDung: 'việc nhóm B', dienGiaiGoc: 'x',
     dienGiaiXacNhan: 'y', nguoiDat: NGUOI_B, chatIdDat: NHOM_B, id: idB, ma: idB,
     tagUserIds: [NGUOI_B],
   });
-  chotLich(db, { id: idB, ma: idB, nguoiDat: NGUOI_B });
+  confirmSchedule(db, { id: idB, ma: idB, nguoiDat: NGUOI_B });
 
   assert.ok(reminderTagUids(db, idB), 'không khoá thì phải đọc được — nếu không bài này rỗng');
   setReadScope(NHOM_A);
@@ -317,17 +317,17 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
 test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KHÔNG qua lich_su)', async () => {
   const db = dbHaiNhom();
   for (const [ma, chat] of [['NA', NHOM_A], ['NB', NHOM_B]]) {
-    taoNhacTheoDuoi(db, {
+    createFollowUp(db, {
       chatIdDich: chat, loaiDich: 'GROUP', noiDung: `việc ${ma}`, dienGiaiGoc: 'x',
       dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: chat, ma,
     });
-    chotLich(db, { id: ma, ma, nguoiDat: HOST });
-    taoLich(db, {
+    confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
+    createSchedule(db, {
       chatIdDich: chat, loaiDich: 'GROUP', noiDung: `lịch ${ma}`,
       guiLucMs: Date.now() + 3_600_000, dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
       nguoiDat: HOST, chatIdDat: chat, ma: `L${ma}`,
     });
-    chotLich(db, { id: `L${ma}`, ma: `L${ma}`, nguoiDat: HOST });
+    confirmSchedule(db, { id: `L${ma}`, ma: `L${ma}`, nguoiDat: HOST });
   }
   setReadScope(NHOM_A);
   const { goi } = dungTool(db);

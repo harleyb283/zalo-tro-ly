@@ -16,7 +16,7 @@
  *
  *  ① **KHÔNG ĐOÁN GÌ CẢ.** Lưới canh một SỰ THẬT KHÁCH QUAN: có một dòng
  *     `hang_doi_gui` ở `'cho'`/`'dang_gui'` quá lâu. Không có chỗ nào để đoán,
- *     nên công tắc `ZTL_LUOI_OUTBOX` (đặt ở `bo_chay.js`) **mặc định BẬT**.
+ *     nên công tắc `ZTL_LUOI_OUTBOX` (đặt ở `runner.js`) **mặc định BẬT**.
  *     ⚠️ Pack từng có một lưới nữa canh `hang_doi_hoi` còn `'da_day'`. Nó phải
  *     ĐOÁN *"câu này có cần trả lời không"* và đoán sai thật — đi giục trả lời
  *     cả tiếng "ok" của host — nên **anh chốt bỏ hẳn 21/08/2026**. Ghi lại để
@@ -65,7 +65,7 @@ import { takeStuckOutbound } from '../store/write.js';
  * ⚠️ Vì vậy: ai sửa `NHIP_KIEM_MS` to hơn 30 giây thì PHẢI hạ ngưỡng này xuống,
  * không thì mốc ≤150 giây vỡ trong im lặng.
  */
-export const NGUONG_KET_MS = 120_000;
+export const STUCK_THRESHOLD_MS = 120_000;
 
 /**
  * ═══ 🔴 GIAN ÂN LÚC KHỞI ĐỘNG — CHỐNG BÁO ĐỘNG GIẢ ═══
@@ -84,10 +84,10 @@ export const NGUONG_KET_MS = 120_000;
  * daemon đẩy hết ⇒ vẫn có thể báo một lần. Vì thế tin DM luôn kèm SỐ LƯỢNG —
  * host đọc là phân biệt được "kẹt 1 tin" với "đang tồn 100 tin".
  */
-export const GIAN_AN_KHOI_DONG_MS = 30_000;
+export const STARTUP_GRACE_MS = 30_000;
 
 /** Trần dòng liệt kê trong một tin DM — dài quá thì host không đọc. */
-export const TRAN_LIET_KE = 8;
+export const MAX_LISTED = 8;
 
 function _log(msg) {
   process.stderr.write(`[lich/canh_outbox] ${msg}\n`);
@@ -147,11 +147,11 @@ function _demTheoTrangThai(db) {
  * @param {{nguongKetMs?: number, duongDanSo?: string|null, mocKhoiDongMs?: number,
  *          gianAnMs?: number, layKet?: Function}} [tuyChon]
  */
-export function taoBoCanhOutbox(tuyChon = {}) {
+export function createOutboxWatcher(tuyChon = {}) {
   const nguongKet = Number.isFinite(Number(tuyChon.nguongKetMs))
-    ? Number(tuyChon.nguongKetMs) : NGUONG_KET_MS;
+    ? Number(tuyChon.nguongKetMs) : STUCK_THRESHOLD_MS;
   const gianAn = Number.isFinite(Number(tuyChon.gianAnMs))
-    ? Number(tuyChon.gianAnMs) : GIAN_AN_KHOI_DONG_MS;
+    ? Number(tuyChon.gianAnMs) : STARTUP_GRACE_MS;
   const duongDanSo = tuyChon.duongDanSo ?? null;
   // 🔴 TÁI DÙNG `takeStuckOutbound` của bước 2 chứ ⛔ KHÔNG chép lại SQL. Hàm đó
   // được viết SẴN CHO lưới này ("Dành cho lưới canh outbox") và nó lọc theo
@@ -177,7 +177,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
    * @returns {Promise<{ket: number, notifyHost: number, thoatKet: number,
    *                    boQuaGianAn: number, loi: number}>}
    */
-  async function chayMotNhip(p) {
+  async function runOneTick(p) {
     const bayGio = p?.bayGioMs ?? Date.now();
     const ra = { ket: 0, notifyHost: 0, thoatKet: 0, boQuaGianAn: 0, loi: 0 };
     if (daDungMoc === null) daDungMoc = bayGio;   // nhịp đầu tiên = mốc khởi động
@@ -278,7 +278,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
   }
 
   return {
-    chayMotNhip,
+    runOneTick,
     storeStats: () => ({ ...tong, dangTheoDoi: so.size }),
     /** Chỉ dùng cho test. */
     _so: so,
@@ -297,7 +297,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
  */
 function _dungTin(db, ds, nguongMs) {
   const giay = Math.round(Number(nguongMs) / 1000);
-  const dong = ds.slice(0, TRAN_LIET_KE).map((d) => {
+  const dong = ds.slice(0, MAX_LISTED).map((d) => {
     const ten = _tenHoiThoai(db, String(d.chat_id_dich));
     const noi = ten ? String(redact(ten)) : `chat ${String(d.chat_id_dich)}`;
     const lan = Number(d.so_lan_thu ?? 0);

@@ -36,8 +36,8 @@ import {
 import { toId } from '../lib/ids.js';
 
 import {
-  dangKyApiLichSu, layLichSuNhom, moTaLoi, phanNhomLoi, taoSoChanDoan,
-} from './api_lichsu.js';
+  registerHistoryApi, fetchGroupHistory, describeError, classifyErrorGroup, createDiagnosticLog,
+} from './history_api.js';
 
 function _log(msg) {
   process.stderr.write(`[scan/doi_chieu] ${msg}\n`);
@@ -56,7 +56,7 @@ function _bi(x) {
  * Trong khoảng [lo, hi] (bao gồm 2 đầu), so bằng BigInt.
  * Không ép được BigInt ⇒ trả false (fail-closed: không kết luận).
  */
-export function trongBien(id, lo, hi) {
+export function withinBand(id, lo, hi) {
   const a = _bi(id);
   const l = _bi(lo);
   const h = _bi(hi);
@@ -77,7 +77,7 @@ export function trongBien(id, lo, hi) {
  * }} p
  * @returns {{vangMat: string[], backfill: string[], soNgoaiBien: number, soTrongBien: number}}
  */
-export function phanLoai(p) {
+export function classifyDrift(p) {
   const ra = { vangMat: [], backfill: [], soNgoaiBien: 0, soTrongBien: 0 };
   const boQua = p.boQuaMoiHonMs ?? GIOI_HAN_QUET.BO_QUA_TIN_MOI_HON_MS;
   const Z = new Set((p.zIds ?? []).map((x) => String(x)));
@@ -93,7 +93,7 @@ export function phanLoai(p) {
 
   for (const d of p.dsDb ?? []) {
     const id = String(d.msgId);
-    if (!trongBien(id, p.bienMin, p.bienMax)) {
+    if (!withinBand(id, p.bienMin, p.bienMax)) {
       ra.soNgoaiBien += 1;      // ③ ngoài phạm vi quét
       continue;
     }
@@ -127,7 +127,7 @@ export function phanLoai(p) {
  *          minMsgIdTrangCuoiTron: string|null}} kq
  * @returns {{bienMin: string|null, bienMax: string|null, daThuHep: boolean}}
  */
-export function chotBien(kq) {
+export function lockBand(kq) {
   if (!kq.cutTrang) {
     return { bienMin: kq.minMsgId, bienMax: kq.maxMsgId, daThuHep: false };
   }
@@ -140,7 +140,7 @@ export function chotBien(kq) {
 }
 
 /** Có nằm trong giờ yên (không quét) không? */
-export function trongGioYen(bayGioMs, gioYen = GIOI_HAN_QUET.QUET_GIO_YEN) {
+export function inQuietHours(bayGioMs, gioYen = GIOI_HAN_QUET.QUET_GIO_YEN) {
   const h = new Date(bayGioMs).getHours();
   const [tu, den] = gioYen;
   return tu <= den ? h >= tu && h < den : h >= tu || h < den;
@@ -157,7 +157,7 @@ export function trongGioYen(bayGioMs, gioYen = GIOI_HAN_QUET.QUET_GIO_YEN) {
  * @param {number} tuMs
  * @returns {string[]}
  */
-export function nhomCanQuet(db, tuMs) {
+export function groupsToScan(db, tuMs) {
   return db
     .prepare(
       `SELECT DISTINCT t.chat_id
@@ -175,7 +175,7 @@ export function nhomCanQuet(db, tuMs) {
  * @param {string} chatId
  * @param {number} tuMs
  */
-export function tinTrongCuaSo(db, chatId, tuMs) {
+export function messagesInWindow(db, chatId, tuMs) {
   return db
     .prepare(
       `SELECT msg_id, ts_zalo, thu_hoi_nguon, vang_mat_so_lan
@@ -206,7 +206,7 @@ export function tinTrongCuaSo(db, chatId, tuMs) {
  *          quetTruocMs: number|null, bayGioMs: number, soLanCanThiet?: number}} p
  * @returns {{soNghiNgo: number, soXacNhan: number, soXoaNghi: number}}
  */
-export function apKetQua(db, p) {
+export function applyScanResult(db, p) {
   const can = p.soLanCanThiet ?? GIOI_HAN_QUET.SO_LAN_VANG_DE_KET_LUAN;
   const ra = { soNghiNgo: 0, soXacNhan: 0, soXoaNghi: 0 };
 
@@ -282,7 +282,7 @@ export function apKetQua(db, p) {
 }
 
 /** Ghi một dòng nhật ký quét. */
-export function ghiNhatKyQuet(db, r) {
+export function writeScanLog(db, r) {
   db.prepare(
     `INSERT INTO doi_chieu_lich_su
        (chat_id, ts_bat_dau, ts_ket_thuc, cua_so_tu_ms, cua_so_den_ms,
@@ -311,7 +311,7 @@ export function ghiNhatKyQuet(db, r) {
 }
 
 /** Đếm số request đã tiêu trong NGÀY HÔM NAY (theo giờ máy). */
-export function soGoiTrongNgay(db, bayGioMs) {
+export function callsToday(db, bayGioMs) {
   const d = new Date(bayGioMs);
   const dau = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
   const r = db
@@ -327,14 +327,14 @@ export function soGoiTrongNgay(db, bayGioMs) {
  *          notifyHost?: (s: string) => void, nghi?: (ms: number) => Promise<void>}} p
  * @returns {Promise<{daQuet: number, boQua: string|null, tong: object}>}
  */
-export async function quetMotLuot(p) {
+export async function runScanPass(p) {
   const bayGio = p.bayGioMs ?? Date.now();
   const tong = { soNghiNgo: 0, soXacNhan: 0, soBackfill: 0, soGoiMang: 0, soNhom: 0 };
 
-  if (trongGioYen(bayGio)) return { daQuet: 0, boQua: 'GIO_YEN', tong };
+  if (inQuietHours(bayGio)) return { daQuet: 0, boQua: 'GIO_YEN', tong };
 
   const tranNgay = p.tranNgay ?? GIOI_HAN_QUET.TRAN_MOI_NGAY;
-  const daTieu = soGoiTrongNgay(p.db, bayGio);
+  const daTieu = callsToday(p.db, bayGio);
   if (daTieu >= tranNgay) {
     // Chạm trần ⇒ NGỪNG tới nửa đêm và BÁO HOST. Im lặng dừng là tệ nhất: tính
     // năng chết mà không ai biết, rồi tưởng "không có tin nào bị thu hồi".
@@ -345,11 +345,11 @@ export async function quetMotLuot(p) {
   }
 
   const tuMs = bayGio - GIOI_HAN_QUET.CUA_SO_QUET_MS;
-  const ds = nhomCanQuet(p.db, tuMs);
+  const ds = groupsToScan(p.db, tuMs);
   tong.soNhom = ds.length;
   if (ds.length === 0) return { daQuet: 0, boQua: 'KHONG_CO_NHOM_HOAT_DONG', tong };
 
-  dangKyApiLichSu(p.api);
+  registerHistoryApi(p.api);
 
   for (const chatId of ds) {
     if (daTieu + tong.soGoiMang >= tranNgay) {
@@ -360,17 +360,17 @@ export async function quetMotLuot(p) {
     let kq = null;
     // Sổ chẩn đoán RIÊNG cho từng nhóm: gộp chung thì lỗi của nhóm này bị đọc
     // thành lỗi của nhóm kia.
-    const so = taoSoChanDoan();
+    const so = createDiagnosticLog();
     try {
-      kq = await layLichSuNhom(p.api, chatId, { tuMs, nghi: p.nghi, so });
+      kq = await fetchGroupHistory(p.api, chatId, { tuMs, nghi: p.nghi, so });
     } catch (e) {
       // 🔴 CÙNG CĂN BỆNH VỚI A0 (sửa 20/08/2026): bản cũ ghi đúng một chuỗi
       // `e.message` vào nhật ký. Với ZaloApiError thì chuỗi đó là error_message
       // của máy chủ — hay gặp nhất là "Lỗi không xác định", tức nhật ký quét
       // ghi lại một câu KHÔNG NÓI GÌ CẢ. Thứ phân biệt được nguyên nhân là
       // `e.code` + mã HTTP, nên phải ghi kèm.
-      const mo = moTaLoi(e);
-      const nhom = phanNhomLoi({
+      const mo = describeError(e);
+      const nhom = classifyErrorGroup({
         soGoiMang: so.soGoiMang, loiKetNoi: so.loiKetNoi,
         httpMa: so.httpMa, loiMa: mo.loi_ma, thanPhanHoi: so.thanPhanHoi,
       });
@@ -378,7 +378,7 @@ export async function quetMotLuot(p) {
       // request mà tính 0 thì vòng quét chạy tự do, đúng thứ làm tài khoản bị
       // gắn cờ. Nhật ký bên dưới vẫn ghi con số THẬT.
       tong.soGoiMang += Math.max(1, so.soGoiMang);
-      ghiNhatKyQuet(p.db, {
+      writeScanLog(p.db, {
         chatId, tsBatDau, tsKetThuc: new Date().toISOString(),
         cuaSoTuMs: tuMs, cuaSoDenMs: bayGio,
         bienMin: null, bienMax: null, soTinZalo: 0, soTinDb: 0,
@@ -394,19 +394,19 @@ export async function quetMotLuot(p) {
     }
 
     tong.soGoiMang += kq.soGoi;
-    const bien = chotBien(kq);
-    const dsDb = tinTrongCuaSo(p.db, chatId, tuMs);
+    const bien = lockBand(kq);
+    const dsDb = messagesInWindow(p.db, chatId, tuMs);
     const zIds = kq.tin
       .map((m) => toId(m?.msgId ?? m?.globalMsgId ?? m?.data?.msgId, 'quet.z'))
       .filter(Boolean);
 
-    const pl = phanLoai({ zIds, dsDb, bienMin: bien.bienMin, bienMax: bien.bienMax, bayGioMs: bayGio });
+    const pl = classifyDrift({ zIds, dsDb, bienMin: bien.bienMin, bienMax: bien.bienMax, bayGioMs: bayGio });
     const hienDien = dsDb
       .map((d) => d.msgId)
       .filter((m) => zIds.includes(m));
 
     const quetTruoc = _lanQuetTruoc(p.db, chatId);
-    const ap = apKetQua(p.db, {
+    const ap = applyScanResult(p.db, {
       chatId,
       vangMat: pl.vangMat,
       hienDien,
@@ -419,7 +419,7 @@ export async function quetMotLuot(p) {
     tong.soXacNhan += ap.soXacNhan;
     tong.soBackfill += pl.backfill.length;
 
-    ghiNhatKyQuet(p.db, {
+    writeScanLog(p.db, {
       chatId, tsBatDau, tsKetThuc: new Date().toISOString(),
       cuaSoTuMs: tuMs, cuaSoDenMs: bayGio,
       bienMin: bien.bienMin, bienMax: bien.bienMax,
@@ -450,6 +450,6 @@ function _lanQuetTruoc(db, chatId) {
 }
 
 /** Cờ bật/tắt — MẶC ĐỊNH TẮT. A0 chưa xanh thì không được tự chạy. */
-export function batQuet(env = process.env) {
+export function isScanEnabled(env = process.env) {
   return String(env?.ZTL_QUET_DOI_CHIEU ?? '') === '1';
 }

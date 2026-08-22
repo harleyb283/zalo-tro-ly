@@ -3,7 +3,7 @@
  * CỤM 5 — DỌN. B5 · A14.
  *
  * 🔴 B5 là loại bug KHÓ CANH NHẤT trong cả 5 cụm: hôm nay nó KHÔNG gây hại gì.
- *    `layBoiCanhNhac` tự giới hạn đúng một nhóm nên chưa rò. Cái sai là **lá chắn
+ *    `reminderContext` tự giới hạn đúng một nhóm nên chưa rò. Cái sai là **lá chắn
  *    không được nạp đạn**: dữ liệu đi vào context model mà `boTichLuy` rỗng.
  *    ⇒ Bài test KHÔNG được viết theo kiểu "hôm nay có rò không" (hôm nay không rò,
  *      bài sẽ xanh trên cả code hỏng). Phải viết theo kiểu **"giả sử ngày mai ai đó
@@ -19,9 +19,9 @@ import test from 'node:test';
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { HUONG_TRA_LOI, TEN_TOOL_NHAC, TRANG_THAI_LICH } from '../src/lib/hang_so.js';
-import { chotLich, taoLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+import { confirmSchedule, createSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
 import { decideReplyRoute, createSourceLedger, getSources, recordSources } from '../src/policy/leak_guard.js';
 import { registerTools } from '../src/mcp/tools.js';
 
@@ -51,12 +51,12 @@ function dbTam() {
 
 function nhacDaChot(db, v = {}) {
   const ma = v.ma ?? 'NHAC';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma, ...v,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
   return d;
@@ -77,7 +77,7 @@ test('B5-a ★★★ bối cảnh chạm nhóm KHÁC -> nguồn PHẢI được 
   nhacDaChot(db);
 
   const daKhai = [];
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
     sendToGroup: async () => ({ msgId: 'x' }),
@@ -101,7 +101,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   nhacDaChot(db);
   const bo = createSourceLedger();
 
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
     sendToGroup: async () => ({ msgId: 'x' }),
@@ -130,7 +130,7 @@ test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSourc
 
   let giaoModel = 0;
   const daGui = [];
-  const ra = await chayNhipTheoDuoi({
+  const ra = await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
     sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
@@ -151,7 +151,7 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
   const db = dbTam();
   nhacDaChot(db);
   let giaoModel = 0;
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: () => ({ rows: [], nguonChatIds: [NHOM] }),
     sendToGroup: async () => ({ msgId: 'x' }),
@@ -199,7 +199,7 @@ test('A14-a ★★★ trần số lịch đang chờ áp cho CẢ lời nhắc t
   // LẶP LẠI, nhắc mãi tới khi có người vào đóng.
   const db = dbTam();
   for (let i = 0; i < 50; i += 1) {
-    taoLich(db, {
+    createSchedule(db, {
       chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: `rác ${i}`,
       guiLucMs: Date.now() + 3600_000, dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
       nguoiDat: HOST, chatIdDat: NHOM, ma: `R${i}`,

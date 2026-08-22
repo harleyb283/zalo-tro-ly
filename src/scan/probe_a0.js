@@ -41,9 +41,9 @@ import {
 import { toId } from '../lib/ids.js';
 
 import {
-  dangKyApiLichSu, layLichSuNhom, moTaLoi, phanNhomLoi, phienSanSang,
-  taoSoChanDoan, yNghiaNhomLoi,
-} from './api_lichsu.js';
+  registerHistoryApi, fetchGroupHistory, describeError, classifyErrorGroup, sessionReady,
+  createDiagnosticLog, errorGroupMeaning,
+} from './history_api.js';
 
 /**
  * Chờ tới khi phiên có service map, HOẶC hết trần.
@@ -56,9 +56,9 @@ import {
  * @param {{tranMs?: number, nhipMs?: number, nghi?: (ms:number)=>Promise<void>}} [t]
  * @returns {Promise<{sanSang: boolean, doiMs: number}>}
  */
-export async function choPhienSanSang(nguon, t = {}) {
+export async function waitForSession(nguon, t = {}) {
   const tran = t.tranMs ?? A0_CHO.TRAN_MS;
-  const nhip = t.nhipMs ?? A0_CHO.NHIP_MS;
+  const nhip = t.nhipMs ?? A0_CHO.TICK_MS;
   const nghi = t.nghi ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   // 🔴 KHÔNG CÓ `api` thì chờ bao lâu cũng vô ích — không có gì để trở nên sẵn
   // sàng cả. Vòng chờ này chỉ có nghĩa cho ca NỐI LẠI PHIÊN (api có thật, service
@@ -67,7 +67,7 @@ export async function choPhienSanSang(nguon, t = {}) {
   if (!nguon?.api) return { sanSang: false, doiMs: 0 };
   let doi = 0;
   for (;;) {
-    if (phienSanSang(nguon.api, nguon.ctx ?? nguon.api?.ctx ?? null)) {
+    if (sessionReady(nguon.api, nguon.ctx ?? nguon.api?.ctx ?? null)) {
       return { sanSang: true, doiMs: doi };
     }
     if (doi >= tran) return { sanSang: false, doiMs: doi };
@@ -89,7 +89,7 @@ export function batA0(env = process.env) {
  * Che nội dung tin của người thật: chỉ giữ độ dài + 12 ký tự đầu.
  * @param {any} m
  */
-export function cheTinMau(m) {
+export function maskSampleMessage(m) {
   const noiDung =
     typeof m?.data?.content === 'string'
       ? m.data.content
@@ -131,9 +131,9 @@ export async function chayA0(p) {
       goi_duoc: false, so_tin: 0, so_goi_mang: 0,
       ket_luan: KET_LUAN_A0.CHUA_SAN_SANG,
       nhom_loi: NHOM_LOI_A0.CHUA_CHAM_MANG,
-      y_nghia_nhom: yNghiaNhomLoi(NHOM_LOI_A0.CHUA_CHAM_MANG),
+      y_nghia_nhom: errorGroupMeaning(NHOM_LOI_A0.CHUA_CHAM_MANG),
       co_bang_chung_ve_endpoint: false,
-      loi: `PHÉP THỬ A0 TỰ NỔ: ${moTaLoi(e).loi}`,
+      loi: `PHÉP THỬ A0 TỰ NỔ: ${describeError(e).loi}`,
       doc_the_nao: 'Chính phép đo hỏng, KHÔNG nói gì về endpoint. Trợ lý vẫn chạy bình thường.',
       tong_ket: 'Phép đo A0 tự nổ — sửa phép đo, đừng kết luận gì về phương án A.',
     };
@@ -148,7 +148,7 @@ async function _chayA0(p) {
   // 🔴 TRẦN GỌI MẠNG CỦA CẢ PHÉP THỬ, gồm cả lượt chẩn đoán. Vẫn là 2 — lượt
   // biến thể ăn vào phần CÒN LẠI, không nới thêm.
   const tranTong = p.tranGoi ?? 2;
-  const so = taoSoChanDoan();
+  const so = createDiagnosticLog();
   /** @type {any} */
   const ra = {
     chay_luc: new Date(bayGio).toISOString(),
@@ -184,10 +184,10 @@ async function _chayA0(p) {
   };
 
   try {
-    dangKyApiLichSu(p.api);
+    registerHistoryApi(p.api);
 
     // ── Chờ phiên sẵn sàng TRƯỚC KHI gọi ────────────────────────────────
-    const cho = await choPhienSanSang(
+    const cho = await waitForSession(
       { api: p.api, ctx: p.ctx ?? null },
       { tranMs: p.tranChoMs, nhipMs: p.nhipChoMs, nghi: p.nghi },
     );
@@ -210,7 +210,7 @@ async function _chayA0(p) {
       return ra;
     }
 
-    const kq = await layLichSuNhom(p.api, p.chatId, {
+    const kq = await fetchGroupHistory(p.api, p.chatId, {
       tuMs: bayGio - GIOI_HAN_QUET.CUA_SO_QUET_MS,
       tranGoi: tranTong, // A0 cố ý DÈ DẶT: chỉ 2 request, đủ để trả lời
       so,
@@ -226,7 +226,7 @@ async function _chayA0(p) {
     ra.http_ok = so.httpOk;
     ra.bien_the = so.bienThe ?? BIEN_THE_THAM_SO.CHUAN;
     ra.cut_trang = kq.cutTrang;
-    ra.tin_mau = kq.tin.length ? cheTinMau(kq.tin[0]) : null;
+    ra.tin_mau = kq.tin.length ? maskSampleMessage(kq.tin[0]) : null;
 
     // ── ② Zalo có trả "bia mộ" cho tin đã thu hồi không? ────────────────
     // Ta đã biết trong DB có tin nào bị thu hồi (nguồn SU_KIEN, chắc chắn).
@@ -268,13 +268,13 @@ async function _chayA0(p) {
 
     // ★ BÓC LỖI RA HẾT. `loi: "Lỗi không xác định"` là nguyên văn error_message
     // của Zalo; thứ thật sự phân biệt được nhóm nguyên nhân là `loi_ma`.
-    Object.assign(ra, moTaLoi(e));
+    Object.assign(ra, describeError(e));
     ra.http_ma = so.httpMa;
     ra.http_ok = so.httpOk;
     ra.than_phan_hoi = so.thanPhanHoi;
     ra.bien_the = so.bienThe ?? BIEN_THE_THAM_SO.CHUAN;
 
-    ra.nhom_loi = phanNhomLoi({
+    ra.nhom_loi = classifyErrorGroup({
       soGoiMang: ra.so_goi_mang,
       loiKetNoi: so.loiKetNoi,
       httpMa: so.httpMa,
@@ -301,11 +301,11 @@ async function _chayA0(p) {
           ra.nhom_loi = NHOM_LOI_A0.THAM_SO_SAI_DA_CHUNG_MINH;
         }
       } catch (e2) {
-        ra.bo_bien_the = [{ bien_the: 'LOI_BO_DO', bo_qua: true, loi: moTaLoi(e2).loi }];
+        ra.bo_bien_the = [{ bien_the: 'LOI_BO_DO', bo_qua: true, loi: describeError(e2).loi }];
         _log(`bộ biến thể ném (đã nuốt): ${e2?.message ?? e2}`);
       }
     }
-    ra.y_nghia_nhom = yNghiaNhomLoi(ra.nhom_loi);
+    ra.y_nghia_nhom = errorGroupMeaning(ra.nhom_loi);
   }
 
   _chotBangChung(ra);
@@ -331,7 +331,7 @@ function _chotBangChung(ra) {
   if (!ra.nhom_loi) {
     ra.nhom_loi = ra.co_bang_chung_ve_endpoint ? null : NHOM_LOI_A0.CHUA_CHAM_MANG;
   }
-  if (ra.nhom_loi && !ra.y_nghia_nhom) ra.y_nghia_nhom = yNghiaNhomLoi(ra.nhom_loi);
+  if (ra.nhom_loi && !ra.y_nghia_nhom) ra.y_nghia_nhom = errorGroupMeaning(ra.nhom_loi);
 
   if (!ra.co_bang_chung_ve_endpoint) {
     ra.doc_the_nao = 'CHƯA gọi mạng lần nào -> ket_luan KHÔNG nói gì về endpoint. '
@@ -455,7 +455,7 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
     // Giãn nhịp TRƯỚC mỗi lần bắn (lượt chuẩn đã bắn rồi nên luôn cần nghỉ).
     await nghi(A0_BO_DO.NGHI_GIUA_BIEN_THE_MS);
 
-    const so2 = taoSoChanDoan();
+    const so2 = createDiagnosticLog();
     /** @type {any} */
     const kq = {
       bien_the: bt, bo_qua: false, ...hoSo,
@@ -464,7 +464,7 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
       loi: null, loi_ma: null, http_ma: null, than_phan_hoi: null, nhom_loi: null,
     };
     try {
-      const r = await layLichSuNhom(p.api, p.chatId, {
+      const r = await fetchGroupHistory(p.api, p.chatId, {
         tuMs: bayGio - GIOI_HAN_QUET.CUA_SO_QUET_MS,
         tranGoi: 1, // ĐÚNG 1 request mỗi biến thể, không phân trang
         so: so2, bienThe: bt, conTroDau,
@@ -472,7 +472,7 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
       kq.goi_duoc = true;
       kq.so_tin = r.tin.length;
     } catch (e) {
-      const mo = moTaLoi(e);
+      const mo = describeError(e);
       kq.loi = mo.loi;
       kq.loi_ma = mo.loi_ma;
     }
@@ -481,12 +481,12 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
     kq.than_phan_hoi = so2.thanPhanHoi;
     kq.nhom_loi = kq.goi_duoc
       ? null
-      : phanNhomLoi({
+      : classifyErrorGroup({
         soGoiMang: so2.soGoiMang, loiKetNoi: so2.loiKetNoi,
         httpMa: so2.httpMa, loiMa: kq.loi_ma, thanPhanHoi: so2.thanPhanHoi,
       });
     kq.ket_luan_luot = kq.goi_duoc
-      ? `🟢 CHẠY ĐƯỢC (${kq.so_tin} tin) -> ĐÂY LÀ CHỖ SAI. Sửa dungThamSo() theo bien_the này.`
+      ? `🟢 CHẠY ĐƯỢC (${kq.so_tin} tin) -> ĐÂY LÀ CHỖ SAI. Sửa buildApiParams() theo bien_the này.`
       : `hỏng (ma=${kq.loi_ma}) -> LOẠI: ${hoSo.hong_thi_loai_duoc ?? 'giả thuyết này'}`;
 
     tieu += so2.soGoiMang;
@@ -516,7 +516,7 @@ function _tongKet(ra) {
   if (ra.goi_duoc) return '🟢 XANH ngay ở bộ tham số CHUẨN — không cần biến thể nào.';
   if (thang) {
     return `🟢 TÌM RA CHỖ SAI: biến thể ${thang.bien_the} (${thang.doi_gi}) chạy được `
-      + `${thang.so_tin} tin. Sửa dungThamSo() theo đúng biến thể đó là A0 xanh.`;
+      + `${thang.so_tin} tin. Sửa buildApiParams() theo đúng biến thể đó là A0 xanh.`;
   }
   const daChay = ds.filter((x) => !x.bo_qua);
   const boQua = ds.filter((x) => x.bo_qua);
@@ -555,7 +555,7 @@ function _ghiRa(duongDanRa, ra) {
  * @param {any} db
  * @returns {string|null}
  */
-export function chonNhomThu(db) {
+export function pickTestGroup(db) {
   try {
     const r = db
       .prepare(
@@ -573,6 +573,6 @@ export function chonNhomThu(db) {
 }
 
 /** Đường dẫn file kết quả, đặt cạnh DB. */
-export function duongDanKetQua(duongDanDb) {
+export function probeResultPath(duongDanDb) {
   return path.join(path.dirname(expandPath(duongDanDb)), 'probe_a0.json');
 }

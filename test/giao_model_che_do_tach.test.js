@@ -24,11 +24,11 @@ import {
 } from '../src/store/write.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
 import { CHE_DO, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
-import { chotLich } from '../src/lich/lich_hen.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
 import {
-  docNhip, giuQuyenGuiNhac, taoNhacTheoDuoi, tranChoModelMs,
-} from '../src/lich/theo_duoi.js';
-import { chayNhipTheoDuoi, laCheDoTach } from '../src/lich/bo_chay.js';
+  parseCadence, claimReminderSend, createFollowUp, modelWaitCapMs,
+} from '../src/lich/follow_up.js';
+import { runFollowUpTick, isSplitMode } from '../src/lich/runner.js';
 
 const NHOM = '9990000000001';
 const HOST = '555000111';
@@ -50,12 +50,12 @@ function dbTam() {
 /** Lời nhắc THEO ĐUỔI đã chốt, tới hạn ngay. Nhịp NGÀY ⇒ trần chờ = 10 phút. */
 function nhacDaChot(db, bayGio, v = {}) {
   const ma = v.ma ?? 'NHAC';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: NGUOI, ma, ...v,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   db.prepare('UPDATE lich_hen SET gui_luc_ms = $g WHERE ma_xac_nhan = $m')
     .run({ g: bayGio - 1000, m: ma });
   return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
@@ -89,17 +89,17 @@ const hangDoi = (db) => db.prepare('SELECT * FROM hang_doi_hoi ORDER BY ts_tao A
 // A — NHẬN DIỆN CHẾ ĐỘ. Phải là TÍN HIỆU DƯƠNG, không suy từ chỗ vắng mặt.
 // ═══════════════════════════════════════════════════════════════════════
 
-test('A1 — laCheDoTach: mặc định KHÔNG phải tách (không cờ, không env)', () => {
-  assert.equal(laCheDoTach({}, {}, ['node', 'x']), false);
+test('A1 — isSplitMode: mặc định KHÔNG phải tách (không cờ, không env)', () => {
+  assert.equal(isSplitMode({}, {}, ['node', 'x']), false);
 });
 
-test('A2 — laCheDoTach đọc được cả ba nguồn, đúng thứ tự ưu tiên', () => {
-  assert.equal(laCheDoTach({ cheDo: CHE_DO.TACH }, {}, []), true, 'p.cheDo');
-  assert.equal(laCheDoTach({}, { ZTL_CHE_DO: CHE_DO.TACH }, []), true, 'env');
-  assert.equal(laCheDoTach({}, {}, ['node', 'i.js', '--che-do', 'tach']), true, 'argv');
+test('A2 — isSplitMode đọc được cả ba nguồn, đúng thứ tự ưu tiên', () => {
+  assert.equal(isSplitMode({ cheDo: CHE_DO.TACH }, {}, []), true, 'p.cheDo');
+  assert.equal(isSplitMode({}, { ZTL_CHE_DO: CHE_DO.TACH }, []), true, 'env');
+  assert.equal(isSplitMode({}, {}, ['node', 'i.js', '--che-do', 'tach']), true, 'argv');
   // p.cheDo THẮNG env — chỗ gọi biết rõ hơn biến môi trường của cả máy.
   assert.equal(
-    laCheDoTach({ cheDo: CHE_DO.MOT_TIEN_TRINH }, { ZTL_CHE_DO: CHE_DO.TACH }, []),
+    isSplitMode({ cheDo: CHE_DO.MOT_TIEN_TRINH }, { ZTL_CHE_DO: CHE_DO.TACH }, []),
     false,
   );
 });
@@ -110,14 +110,14 @@ test('A3 — 🔴 chế độ LẠ không được đọc thành tách (fail v�
   // đổi phép so của nhánh env/argv sang `.includes()` SỐNG SÓT: nhánh đó không
   // có bài nào nuôi chuỗi lạ vào. Một tính chất, ba đường vào — thiếu đường nào
   // là đường đó không được canh.
-  assert.equal(laCheDoTach({ cheDo: 'tach-ra' }, {}, []), false, 'p.cheDo: chuỗi CHỨA "tach"');
-  assert.equal(laCheDoTach({}, { ZTL_CHE_DO: 'tach-ra' }, []), false, 'env: chuỗi CHỨA "tach"');
+  assert.equal(isSplitMode({ cheDo: 'tach-ra' }, {}, []), false, 'p.cheDo: chuỗi CHỨA "tach"');
+  assert.equal(isSplitMode({}, { ZTL_CHE_DO: 'tach-ra' }, []), false, 'env: chuỗi CHỨA "tach"');
   assert.equal(
-    laCheDoTach({}, {}, ['node', 'i.js', '--che-do', 'mot-tien-trinh-tach']),
+    isSplitMode({}, {}, ['node', 'i.js', '--che-do', 'mot-tien-trinh-tach']),
     false, 'argv: chuỗi CHỨA "tach"',
   );
-  assert.equal(laCheDoTach({}, { ZTL_CHE_DO: 'TACH' }, []), false, 'phân biệt hoa thường');
-  assert.equal(laCheDoTach({}, {}, ['node', 'i.js', '--che-do']), false, 'cờ thiếu giá trị');
+  assert.equal(isSplitMode({}, { ZTL_CHE_DO: 'TACH' }, []), false, 'phân biệt hoa thường');
+  assert.equal(isSplitMode({}, {}, ['node', 'i.js', '--che-do']), false, 'cờ thiếu giá trị');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -130,7 +130,7 @@ test('B1 — tách: lời nhắc tới giờ ⇒ tạo hàng đợi cho client, 
   nhacDaChot(db, bayGio);
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH });
 
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   assert.equal(ra.giaoModel, 1, 'tách mà không giao được model = mất giọng model');
   assert.equal(ra.duPhong, 0);
@@ -153,7 +153,7 @@ test('B2 — tách: client nhặt được đúng việc daemon vừa giao', asy
   const bayGio = Date.now();
   nhacDaChot(db, bayGio);
   const { p } = nhip(db, { cheDo: CHE_DO.TACH });
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   // Phía client: đúng lời gọi `chayClient` dùng trong `khiSanSang`.
   const daBom = [];
@@ -183,18 +183,18 @@ test('C1 ★★★ tách, không client nào nhặt: quá trần ⇒ code gửi 
   const db = dbTam();
   const bayGio = Date.now();
   const d0 = nhacDaChot(db, bayGio);
-  const tran = tranChoModelMs(docNhip(d0));
+  const tran = modelWaitCapMs(parseCadence(d0));
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH });
 
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio });
   assert.equal(vaoNhom.length, 0);
 
   // Chưa tới trần: vẫn nhường model.
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran - 1000 });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio + tran - 1000 });
   assert.equal(vaoNhom.length, 0, 'bắn sớm là cướp lượt của model');
 
   // Quá trần mà client vẫn im -> code phải bù.
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio + tran });
   assert.equal(ra.duPhong, 1, 'quá trần mà không ai gửi = lời nhắc bốc hơi');
   assert.equal(vaoNhom.length, 1);
   assert.equal(vaoNhom[0].c, NHOM);
@@ -206,14 +206,14 @@ test('C2 — trần chờ là HÀM CỦA NHỊP, không phải hằng số (nh�
   const db = dbTam();
   const bayGio = Date.now();
   const d0 = nhacDaChot(db, bayGio, { chuKyPhut: 4 });
-  const tran = tranChoModelMs(docNhip(d0));
+  const tran = modelWaitCapMs(parseCadence(d0));
   assert.equal(tran, 120_000, 'nhịp 4 phút ⇒ trần = nửa nhịp = 120 giây');
 
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH });
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran - 1 });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio + tran - 1 });
   assert.equal(vaoNhom.length, 0);
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio + tran });
   assert.equal(vaoNhom.length, 1);
 
   closeDb(db);
@@ -227,19 +227,19 @@ test('D1 ★★★ tách: model trả lời rồi thì lưới KHÔNG bù thêm 
   const db = dbTam();
   const bayGio = Date.now();
   const d0 = nhacDaChot(db, bayGio);
-  const tran = tranChoModelMs(docNhip(d0));
+  const tran = modelWaitCapMs(parseCadence(d0));
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH });
 
-  await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   // Client nhặt, model gọi `tra_loi` -> tool GIỮ QUYỀN GỬI (xoá token).
-  const giu = giuQuyenGuiNhac(db, d0.id);
+  const giu = claimReminderSend(db, d0.id);
   assert.equal(giu.ok, true, 'tiền đề: model phải giành được quyền gửi');
 
   // Nhiều nhịp sau, quá trần từ lâu: lưới KHÔNG được bù.
   for (let i = 1; i <= 5; i += 1) {
     // eslint-disable-next-line no-await-in-loop
-    await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran * i });
+    await runFollowUpTick({ ...p, bayGioMs: bayGio + tran * i });
   }
   assert.equal(vaoNhom.length, 0, 'model đã gửi mà code bù thêm = HAI tin vào nhóm người thật');
 
@@ -252,8 +252,8 @@ test('D2 — tách: hai nhịp chồng nhau chỉ giao model MỘT lần', async
   nhacDaChot(db, bayGio);
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH });
 
-  const a = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
-  const b = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const a = await runFollowUpTick({ ...p, bayGioMs: bayGio });
+  const b = await runFollowUpTick({ ...p, bayGioMs: bayGio });
   assert.equal(a.giaoModel + b.giaoModel, 1, 'nhắc chồng nhắc = hai phiên cho một lượt');
   assert.equal(hangDoi(db).length, 1);
   assert.equal(vaoNhom.length, 0);
@@ -273,7 +273,7 @@ test('E1 ★★★ một-tiến-trình + `--khong-mcp`: gửi câu dự phòng N
   // KHÔNG khai cheDo ⇒ mặc định một-tiến-trình. `guiThongBao` null = --khong-mcp.
   const { p, vaoNhom } = nhip(db);
 
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   assert.equal(ra.duPhong, 1, 'chờ trần ở chế độ này = đổi hành vi của đường đang chạy thật');
   assert.equal(ra.giaoModel, 0);
@@ -293,7 +293,7 @@ test('E2 — một-tiến-trình + CÓ phiên Claude: đi đúng đường notif
     guiThongBao: async (x) => { daBom.push(x); return true; },
   });
 
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   assert.equal(ra.giaoModel, 1);
   assert.equal(daBom.length, 1, 'đường notify trực tiếp phải còn nguyên');
@@ -312,7 +312,7 @@ test('E3 — 🔴 biến môi trường của MÁY không được lật hành v
     nhacDaChot(db, bayGio);
     const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.MOT_TIEN_TRINH });
 
-    const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+    const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
     assert.equal(ra.duPhong, 1);
     assert.equal(vaoNhom.length, 1);
 
@@ -338,7 +338,7 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
     // ...mà KHÔNG có đường khai nguồn.
   });
 
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
   assert.equal(ra.giaoModel, 0, 'nới fail-closed để lấy giọng model = mở đúng cửa leak_guard cấm');
   assert.equal(ra.duPhong, 1);
   assert.equal(vaoNhom.length, 1, 'fail-closed vẫn phải CÓ tin đi ra');
@@ -406,7 +406,7 @@ test('H1 — tách nhưng chỗ gọi QUÊN enqueueQuestion: vẫn có tin đi r
   nhacDaChot(db, bayGio);
   const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH, enqueueQuestion: undefined });
 
-  const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
+  const ra = await runFollowUpTick({ ...p, bayGioMs: bayGio });
 
   assert.equal(vaoNhom.length, 1, 'thiếu một phụ thuộc mà im lặng = lời nhắc bốc hơi');
   assert.equal(ra.duPhong, 1);

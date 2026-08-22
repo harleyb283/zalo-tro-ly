@@ -454,8 +454,8 @@ test('H3 ★ tin thường không reply', async () => {
   await imLang(() => kenh.dong());
 });
 
-test('H4 🔴 payload của `lich/bo_chay.js` — quả mìn ĐÃ CÀI SẴN từ trước', async () => {
-  // `bo_chay.js` truyền THẲNG `tenHoiThoai: null, nguoiHoi: null` khi giao model
+test('H4 🔴 payload của `lich/runner.js` — quả mìn ĐÃ CÀI SẴN từ trước', async () => {
+  // `runner.js` truyền THẲNG `tenHoiThoai: null, nguoiHoi: null` khi giao model
   // viết câu nhắc. Tức mọi lời nhắc theo lịch cũng sẽ làm đứt kết nối y hệt —
   // bug này có trước `tra_loi`, chỉ chưa ai chạy tới.
   const { kenh, nhanThongBao } = await dungCap();
@@ -472,7 +472,7 @@ test('H4 🔴 payload của `lich/bo_chay.js` — quả mìn ĐÃ CÀI SẴN t�
 
 test('H5 ★ payload ÁC: số / boolean / object / undefined ở mọi khoá', async () => {
   // Chốt chặn phải giữ được hợp đồng BẤT KỂ caller truyền gì — hiện có 3 caller
-  // (index.js, pushPendingQueue, bo_chay.js) và sẽ còn thêm. Vá lẻ từng chỗ gọi
+  // (index.js, pushPendingQueue, runner.js) và sẽ còn thêm. Vá lẻ từng chỗ gọi
   // thì caller thứ tư lại làm đứt kết nối.
   const { kenh, nhanThongBao } = await dungCap({
     replyContext: () => ({ coTrongKho: true, noiDungGoc: 'x'.repeat(5000) }),

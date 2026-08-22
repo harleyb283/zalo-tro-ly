@@ -424,11 +424,11 @@ export function storeStats(db) {
  *   riêng — trạng thái cửa suy ra từ chính lời nhắc mỗi lượt).
  *
  * 🔴 ĐIỀU KIỆN THỨ TƯ, EM TỰ TÌM RA — ⛔ ĐỪNG BỎ:
- * `huyLich()` chỉ đổi `trang_thai` sang `'da_huy'` và **KHÔNG đụng
- * `trang_thai_td`** (đọc `src/lich/lich_hen.js`). Nên một lời nhắc ĐÃ HUỶ vẫn
+ * `cancelSchedule()` chỉ đổi `trang_thai` sang `'da_huy'` và **KHÔNG đụng
+ * `trang_thai_td`** (đọc `src/lich/schedule.js`). Nên một lời nhắc ĐÃ HUỶ vẫn
  * còn `trang_thai_td = 'dang_theo_duoi'` ⇒ chỉ kiểm ba điều kiện trên là
  * **cửa 2 mở cho một việc đã huỷ**. Phải loại thẳng `da_huy` / `loi`.
- * (`dongNhac()` thì đặt cả hai, nên nó không dính lỗi này.)
+ * (`closeFollowUp()` thì đặt cả hai, nên nó không dính lỗi này.)
  *
  * 🔴 ⛔ KHÔNG XÉT DM. Anh chốt: cửa 2 **chỉ trong đúng nhóm có lời nhắc**. Mở
  * DM là ai từng bị nhắc một việc cũng nhắn riêng được cho trợ lý của anh.
@@ -541,7 +541,7 @@ export function reminderTagUids(db, idNhac) {
 // 🔴 UID CỦA CHÍNH TRỢ LÝ — để KHÔNG BAO GIỜ tự coi mình là thành viên nhóm
 //
 // VÌ SAO PHẢI NHỚ Ở TẦNG NÀY, không truyền tham số cho xong:
-//   `groupMembers` bị gọi từ `src/lich/bo_chay.js` (3 chỗ) và `src/index.js`
+//   `groupMembers` bị gọi từ `src/lich/runner.js` (3 chỗ) và `src/index.js`
 //   — những đường KHÔNG cầm `api` trong tay. Chỉ thêm tham số thì mấy đường đó
 //   vẫn trả về bot, và lỗ hổng còn nguyên ở đúng chỗ nguy hiểm nhất (lời nhắc
 //   theo đuổi tự chạy, không có người ngồi xem).

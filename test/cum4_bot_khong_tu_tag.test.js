@@ -183,7 +183,7 @@ test('N8 ensureMention: bot đã được model tự tag sẵn thì cũng không
 // ═══════════════════════════════════════════════════════════════════════
 
 test('N9 🔴 registerTools ghi nhớ uid bot -> đường lời nhắc tự chạy cũng lọc được', () => {
-  // `src/lich/bo_chay.js` gọi `groupMembers(db, chatId)` với ĐÚNG 2 tham số
+  // `src/lich/runner.js` gọi `groupMembers(db, chatId)` với ĐÚNG 2 tham số
   // và không cầm `api`. Chỉ thêm tham số thì đường đó vẫn trả về bot — mà đó là
   // đường nguy hiểm nhất: lời nhắc tự chạy, không có người ngồi xem.
   const db = dbTam();

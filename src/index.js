@@ -456,10 +456,10 @@ export function taoBoDemLoiGui(baoRa) {
 }
 
 /**
- * Đường khai nguồn cho `chayNhipTheoDuoi` — B5.
+ * Đường khai nguồn cho `runFollowUpTick` — B5.
  *
  * 🔴 VÌ SAO LÀ HÀM EXPORT CHỨ KHÔNG PHẢI ARROW VIẾT THẲNG TRONG `main()`:
- * `bo_chay.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số — còn
+ * `runner.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số — còn
  * `leak_guard.recordSources()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
  * là `recordSources(rid, nguon)` chạy vào `boTichLuy.ghiNhan` của một chuỗi ⇒
  * ném lỗi, `bo_chay` nuốt vào nhánh catch, lời nhắc lặng lẽ rơi xuống câu dự
@@ -1365,16 +1365,16 @@ export async function main(argv = process.argv) {
     // Đặt SAU listener để phiên chắc chắn đã sẵn sàng, và bọc catch để A0 hỏng
     // KHÔNG BAO GIỜ làm chết trợ lý — nó là phép đo, không phải điều kiện sống.
     {
-      const { batA0, chayA0, chonNhomThu, duongDanKetQua } = await import('./scan/probe_a0.js');
+      const { batA0, chayA0, pickTestGroup, probeResultPath } = await import('./scan/probe_a0.js');
       if (batA0()) {
-        const nhomThu = chonNhomThu(db);
+        const nhomThu = pickTestGroup(db);
         if (!nhomThu) {
           log('A0: không có nhóm nào đang nghe có tin -> BỎ QUA, không gọi mạng');
         } else {
           log(`A0: chạy phép thử trên nhóm ${nhomThu} (đúng MỘT lần)`);
           chayA0({
             api, db, chatId: nhomThu,
-            duongDanRa: duongDanKetQua(cauHinh.duongDan.db),
+            duongDanRa: probeResultPath(cauHinh.duongDan.db),
           }).catch((e) => log(`A0 ném lỗi (đã nuốt): ${safeLogText(e)}`));
         }
       }
@@ -1383,13 +1383,13 @@ export async function main(argv = process.argv) {
     // ⑪ v3 — QUÉT ĐỐI CHIẾU THU HỒI. Mặc định TẮT: A0 chưa xanh thì tuyệt đối
     // không được tự chạy. Bật bằng ZTL_QUET_DOI_CHIEU=1.
     {
-      const { batQuet, quetMotLuot } = await import('./scan/doi_chieu.js');
+      const { isScanEnabled, runScanPass } = await import('./scan/drift_check.js');
       const { GIOI_HAN_QUET } = await import('./lib/hang_so.js');
-      if (batQuet()) {
+      if (isScanEnabled()) {
         log(`quét đối chiếu: BẬT, chu kỳ ${Math.round(GIOI_HAN_QUET.CHU_KY_QUET_MS / 60000)} phút`);
         hen.push(
           setInterval(() => {
-            quetMotLuot({
+            runScanPass({
               db, api,
               notifyHost: (s) => { baoHostDaemon(s).catch(() => {}); },
             }).catch((e) => log(`quét đối chiếu lỗi (đã nuốt): ${safeLogText(e)}`));
@@ -1403,12 +1403,12 @@ export async function main(argv = process.argv) {
     // ⑫ v3 — BỘ CHẠY LỊCH HẸN. KHÔNG phụ thuộc phần quét: A0 hỏng hẳn thì
     // tính năng này vẫn phải chạy bình thường.
     {
-      const { batLich, chayMotNhip, chayNhipTheoDuoi, NHIP_MS } = await import('./lich/bo_chay.js');
+      const { isSchedulerEnabled, runOneTick, runFollowUpTick, TICK_MS } = await import('./lich/runner.js');
       const { groupMembers, queryHistory } = await import('./store/query.js');
       const { sendToGroup, sendHostDm } = await import('./zalo/send.js');
       const { primaryHostDm } = await import('./ops/notify_host.js');
-      const { sinhSoNhac } = await import('./lich/theo_duoi.js');
-      if (batLich()) {
+      const { writeReminderBook } = await import('./lich/follow_up.js');
+      if (isSchedulerEnabled()) {
         const uidTroLy = toId(api?.getOwnId?.(), 'index.uidTroLy');
         const ghiLaiTin = (t) => {
           try { writeMessage(db, t, { doTroLyTao: true }); } catch (e) {
@@ -1431,7 +1431,7 @@ export async function main(argv = process.argv) {
 
         hen.push(
           setInterval(() => {
-            chayMotNhip({
+            runOneTick({
               db, api, sendToGroup, sendHostDm, groupMembers,
               uidTroLy,
               dmHostChatId: primaryHostDm(cauHinh),
@@ -1442,7 +1442,7 @@ export async function main(argv = process.argv) {
 
             // v4 — lời nhắc THEO ĐUỔI. Cùng nhịp, nhưng đường riêng: lịch một
             // lần hỏng thì lời nhắc theo đuổi vẫn chạy và ngược lại.
-            chayNhipTheoDuoi({
+            runFollowUpTick({
               db, api, sendToGroup, sendHostDm, groupMembers, queryHistory,
               uidTroLy,
               ghiLai: ghiLaiTin,
@@ -1451,7 +1451,7 @@ export async function main(argv = process.argv) {
               guiThongBao: channel ? channel.guiThongBao : null,
               enqueueQuestion,
               // 🔴 B5 — NẠP ĐẠN CHO LÁ CHẮN CHỐNG RÒ CHÉO.
-              // `layBoiCanhNhac` bơm dữ liệu THẲNG vào context model, không đi
+              // `reminderContext` bơm dữ liệu THẲNG vào context model, không đi
               // qua tool nào ⇒ đi vòng qua chỗ `mcp/tools.js` khai nguồn. Thiếu
               // dòng này thì `bo_chay` fail-closed: bối cảnh chạm nhóm khác là
               // KHÔNG giao model — không rò, nhưng lời nhắc mất giọng model.
@@ -1461,27 +1461,27 @@ export async function main(argv = process.argv) {
               recordSources: noiGhiNhanNguon(boTichLuy),
               // 🔴 DÂY TREO THỨ HAI (tìm thấy 21/08/2026 khi rà `p.*`).
               // `_baoHetLuot()` — câu DM báo "lời nhắc dừng vì HẾT LƯỢT, KHÔNG
-              // phải vì việc đã xong" — chỉ được gọi từ CHÍNH `chayNhipTheoDuoi`,
+              // phải vì việc đã xong" — chỉ được gọi từ CHÍNH `runFollowUpTick`,
               // và nó cần `p.dmHostChatId`. Nhưng chỗ gọi này chưa truyền, nên
               // nó rơi thẳng vào nhánh `_log('... host sẽ không biết')`.
               // ⇒ Lời nhắc tiêu đủ 10 lượt rồi TỰ ĐÓNG trong im lặng, host tưởng
-              //   việc đã xong. Đúng thứ chú thích ở `bo_chay.js` gọi là "nguy
+              //   việc đã xong. Đúng thứ chú thích ở `runner.js` gọi là "nguy
               //   hiểm nhất của tính năng này".
-              // (`chayMotNhip` ngay phía trên đã truyền tham số này từ đầu —
+              // (`runOneTick` ngay phía trên đã truyền tham số này từ đầu —
               //  lệch giữa hai chỗ gọi là dấu hiệu bỏ sót, không phải cố ý.)
               dmHostChatId: primaryHostDm(cauHinh),
             })
               .then((ra) => demLoiGui('nhắc theo đuổi', ra))
               .catch((e) => log(`bộ chạy lời nhắc theo đuổi lỗi (đã nuốt): ${safeLogText(e)}`));
-          }, NHIP_MS),
+          }, TICK_MS),
         );
-        log(`bộ chạy lịch hẹn: BẬT, nhịp ${Math.round(NHIP_MS / 1000)} giây`);
+        log(`bộ chạy lịch hẹn: BẬT, nhịp ${Math.round(TICK_MS / 1000)} giây`);
 
         // Sổ nhắc dễ đọc — SQL vẫn là GỐC, file chỉ để anh liếc. Sinh lại mỗi
         // 5 phút và ngay lúc khởi động, KHÔNG có đường đọc ngược từ file vào DB.
         const soNhac = path.join(path.dirname(expandPath(cauHinh.duongDan.db)), 'so_nhac.md');
         const veSo = () => {
-          try { sinhSoNhac(db, soNhac); } catch (e) {
+          try { writeReminderBook(db, soNhac); } catch (e) {
             log(`sinh sổ nhắc thất bại (bỏ qua): ${safeLogText(e)}`);
           }
         };

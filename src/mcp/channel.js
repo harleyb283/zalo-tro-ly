@@ -235,11 +235,11 @@ const TRAN_TRICH = 300;
 //
 // ⚠️ KHÔNG PHẢI CHỈ `tra_loi`. Rà lại thì `chat_name`, `user`, `ts` đều đang
 //    `?? null` — ba quả mìn nữa, chỉ chưa nổ vì tới giờ chúng luôn có giá trị.
-//    Riêng `lich/bo_chay.js` thì truyền THẲNG `tenHoiThoai: null, nguoiHoi: null`
+//    Riêng `lich/runner.js` thì truyền THẲNG `tenHoiThoai: null, nguoiHoi: null`
 //    ⇒ mọi lời nhắc giao model cũng sẽ đứt y hệt, đã cài sẵn từ trước.
 //
 // ⇒ Vá ở CHỐT CHẶN này chứ không vá từng chỗ gọi: có 3 caller
-//    (`index.js`, `pushPendingQueue`, `lich/bo_chay.js`) và sẽ còn thêm. Vá lẻ
+//    (`index.js`, `pushPendingQueue`, `lich/runner.js`) và sẽ còn thêm. Vá lẻ
 //    thì caller thứ tư lại làm đứt kết nối.
 // ═══════════════════════════════════════════════════════════════════════
 

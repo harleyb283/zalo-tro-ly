@@ -46,7 +46,7 @@ const THU_VN = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Nă
  * @param {string} muiGio
  * @returns {string} vd "09:00 Thứ Sáu 22/08/2026"
  */
-export function dinhDangVn(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
+export function formatVn(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
   const d = new Date(ms);
   let phan;
   try {
@@ -76,7 +76,7 @@ export function dinhDangVn(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
  * @param {number} tuMs
  * @param {number} denMs
  */
-export function conBaoLau(tuMs, denMs) {
+export function timeUntil(tuMs, denMs) {
   let s = Math.round((denMs - tuMs) / 1000);
   if (s < 0) return 'ĐÃ QUÁ HẠN';
   const ngay = Math.floor(s / 86400); s -= ngay * 86400;
@@ -90,7 +90,7 @@ export function conBaoLau(tuMs, denMs) {
 }
 
 /** Mã xác nhận 4 ký tự, chỉ chữ/số dễ đọc (bỏ O/0, I/1 gây nhầm khi đọc lại). */
-export function taoMaXacNhan(rnd = Math.random) {
+export function makeConfirmCode(rnd = Math.random) {
   const bang = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
   for (let i = 0; i < 4; i += 1) s += bang[Math.floor(rnd() * bang.length)];
@@ -102,11 +102,11 @@ export function taoMaXacNhan(rnd = Math.random) {
  * @param {{ma: string, tenDich: string, guiLucMs: number, muiGio: string,
  *          tenTag: string[], noiDung: string, bayGioMs: number}} p
  */
-export function dungCauXacNhan(p) {
+export function buildConfirmText(p) {
   const dong = [
     `⏰ Xác nhận lịch [${p.ma}]`,
     `Gửi vào: ${p.tenDich}`,
-    `Lúc: ${dinhDangVn(p.guiLucMs, p.muiGio)} (${conBaoLau(p.bayGioMs, p.guiLucMs)})`,
+    `Lúc: ${formatVn(p.guiLucMs, p.muiGio)} (${timeUntil(p.bayGioMs, p.guiLucMs)})`,
   ];
   if (p.tenTag?.length) dong.push(`Tag: ${p.tenTag.map((t) => `@${t}`).join(', ')}`);
   dong.push(`Nội dung: "${p.noiDung}"`);
@@ -134,9 +134,9 @@ export function dungCauXacNhan(p) {
  *
  * @returns {{id: string, ma: string}}
  */
-export function taoLich(db, p) {
+export function createSchedule(db, p) {
   const id = p.id ?? randomUUID();
-  const ma = p.ma ?? taoMaXacNhan();
+  const ma = p.ma ?? makeConfirmCode();
   db.prepare(
     `INSERT INTO lich_hen
        (id, chat_id_dich, loai_dich, noi_dung, tag_user_ids, gui_luc_ms, mui_gio,
@@ -169,7 +169,7 @@ export function taoLich(db, p) {
  *
  * ⚠️ Kiểm CẢ `nguoi_dat`: chỉ người đặt mới chốt được lịch của mình.
  */
-export function chotLich(db, { id, ma, nguoiDat }) {
+export function confirmSchedule(db, { id, ma, nguoiDat }) {
   const dong = db
     .prepare('SELECT * FROM lich_hen WHERE (id = $k OR ma_xac_nhan = $k)')
     .get({ k: String(id ?? ma ?? '') });
@@ -187,7 +187,7 @@ export function chotLich(db, { id, ma, nguoiDat }) {
   return { ok: true, dong: { ...dong, trang_thai: TRANG_THAI_LICH.DA_LEN_LICH } };
 }
 
-export function huyLich(db, { id, nguoiDat }) {
+export function cancelSchedule(db, { id, nguoiDat }) {
   const dong = db
     .prepare('SELECT * FROM lich_hen WHERE (id = $k OR ma_xac_nhan = $k)')
     .get({ k: String(id ?? '') });
@@ -203,11 +203,11 @@ export function huyLich(db, { id, nguoiDat }) {
   return { ok: true, dong };
 }
 
-export function xemLich(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) {
+export function listSchedules(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) {
   const dk = [];
   const b = { n: Math.max(1, Math.min(200, Number(soLuong) || 50)) };
   if (trangThai) { dk.push('trang_thai = $tt'); b.tt = String(trangThai); }
-  if (chatId) { dk.push('chat_id_dich = $c'); b.c = toIdRequired(chatId, 'xemLich.chatId'); }
+  if (chatId) { dk.push('chat_id_dich = $c'); b.c = toIdRequired(chatId, 'listSchedules.chatId'); }
   if (nguoiDat) { dk.push('nguoi_dat = $u'); b.u = String(nguoiDat); }
   return db
     .prepare(
@@ -217,7 +217,7 @@ export function xemLich(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) 
     .all(b);
 }
 
-export function demDangCho(db) {
+export function countPending(db) {
   return Number(
     db
       .prepare(
@@ -233,27 +233,27 @@ export function demDangCho(db) {
  *
  * 🔴 `la_theo_duoi = 0` KHÔNG phải bộ lọc cho gọn — nó là RANH GIỚI GIỮA HAI BỘ CHẠY.
  * Thiếu nó thì lời nhắc THEO ĐUỔI (cũng ở `da_len_lich` sau khi host chốt, vì dùng
- * chung `chotLich`) lọt vào đây, và `chayMotNhip` sẽ `nhanDangGui()` lật nó sang
- * `da_gui`. Mà `layNhacDenHan()` ĐÒI `da_len_lich` ⇒ dòng rơi khỏi CẢ HAI truy vấn
+ * chung `confirmSchedule`) lọt vào đây, và `runOneTick` sẽ `claimSending()` lật nó sang
+ * `da_gui`. Mà `dueFollowUps()` ĐÒI `da_len_lich` ⇒ dòng rơi khỏi CẢ HAI truy vấn
  * VĨNH VIỄN: tính năng "theo đuổi tới khi xong" chết sau đúng MỘT phát, trong khi
  * `trang_thai_td` vẫn là `dang_theo_duoi` nên sổ nhắc vẫn báo "đang theo đuổi".
  * Hỏng CÂM, và sổ sách nói dối.
  *
  * 🔴 Đã xảy ra THẬT 20/08/2026 (dòng `CGKJ`): `so_lan_thu=1` + `trang_thai='da_gui'`
- * + `so_lan_da_nhac=0` — tổ hợp chỉ `nhanDangGui()` tạo ra được, mà nó chỉ được gọi
- * từ `chayMotNhip()`.
+ * + `so_lan_da_nhac=0` — tổ hợp chỉ `claimSending()` tạo ra được, mà nó chỉ được gọi
+ * từ `runOneTick()`.
  *
- * ⚠️ Đây KHÔNG phải "cuộc đua CAS": `nhanDangGui` khoá trên cột `trang_thai`, còn
- * `danhChoLuotNhac` khoá trên `gui_luc_ms` — hai `UPDATE` KHÔNG loại trừ nhau. Loại
+ * ⚠️ Đây KHÔNG phải "cuộc đua CAS": `claimSending` khoá trên cột `trang_thai`, còn
+ * `claimReminderTurn` khoá trên `gui_luc_ms` — hai `UPDATE` KHÔNG loại trừ nhau. Loại
  * trừ chỉ xảy ra ở tầng `SELECT` này. Vì vậy bộ lọc ở đây và mệnh đề `WHERE` của
- * `nhanDangGui` PHẢI khớp nhau — xem chú thích ở `nhanDangGui`.
+ * `claimSending` PHẢI khớp nhau — xem chú thích ở `claimSending`.
  *
  * ⚠️ Chỉ mục `idx_lich_den_han` CỐ Ý không đổi: `WHERE trang_thai='da_len_lich'` của
  * nó vẫn bao hàm truy vấn này nên SQLite vẫn dùng được, chỉ lọc thêm `la_theo_duoi`
  * sau. Đổi định nghĩa một chỉ mục đã tồn tại thì `CREATE INDEX IF NOT EXISTS` không
  * làm được — phải DROP trong một bước migrate, mà luật migrate của pack cấm DROP.
  */
-export function layLichDenHan(db, bayGioMs) {
+export function dueSchedules(db, bayGioMs) {
   return db
     .prepare(
       `SELECT * FROM lich_hen
@@ -276,7 +276,7 @@ export function layLichDenHan(db, bayGioMs) {
  * @param {number} treMs
  * @returns {{hanhDong: 'GUI'|'GUI_KEM_NHAN'|'BO_QUA_HAN', tienTo: string}}
  */
-export function quyetDinhTre(treMs) {
+export function decideLateness(treMs) {
   if (treMs <= GIOI_HAN_LICH.TRE_IM_LANG_MS) return { hanhDong: 'GUI', tienTo: '' };
   if (treMs <= GIOI_HAN_LICH.TRAN_TRE_MS) {
     return { hanhDong: 'GUI_KEM_NHAN', tienTo: TIEN_TO_NHAC_MUON };
@@ -296,19 +296,19 @@ export function quyetDinhTre(treMs) {
  * LUẬT: **mọi cột mà câu `SELECT` lọc thì mệnh đề `WHERE` của lệnh dành chỗ cũng
  * phải lọc.** Không phải cho đẹp — đây là thứ duy nhất chặn được ca dưới đây.
  *
- * `chayMotNhip` chụp `ds = layLichDenHan(...)` MỘT LẦN rồi lặp, mà trong vòng lặp
- * có `await` (gửi tin / DM host). Lúc `await` nhả quyền điều khiển, `chayNhipTheoDuoi`
+ * `runOneTick` chụp `ds = dueSchedules(...)` MỘT LẦN rồi lặp, mà trong vòng lặp
+ * có `await` (gửi tin / DM host). Lúc `await` nhả quyền điều khiển, `runFollowUpTick`
  * — được gọi ngay sau đó trong CÙNG một tick ở `index.js` — chạy, dành chỗ một dòng
- * theo đuổi bằng `danhChoLuotNhac` (chỉ đổi `gui_luc_ms`, KHÔNG đụng `trang_thai`)
- * rồi gửi. `chayMotNhip` tỉnh lại, xử tiếp dòng đó **trong ảnh tĩnh CŨ**; nếu ở đây
+ * theo đuổi bằng `claimReminderTurn` (chỉ đổi `gui_luc_ms`, KHÔNG đụng `trang_thai`)
+ * rồi gửi. `runOneTick` tỉnh lại, xử tiếp dòng đó **trong ảnh tĩnh CŨ**; nếu ở đây
  * chỉ khoá `trang_thai` thì nó vẫn thấy `da_len_lich` ⇒ TRẢ TRUE ⇒ **gửi tin thứ hai
- * vào nhóm có người thật**. Đúng thứ khối chú thích đầu `bo_chay.js` tuyên bố đã chặn
+ * vào nhóm có người thật**. Đúng thứ khối chú thích đầu `runner.js` tuyên bố đã chặn
  * — chốt chặn đó có thật, nhưng chỉ chặn trong phạm vi MỘT bộ chạy.
  *
- * Lọc ở `layLichDenHan` thôi là chưa đủ: ảnh tĩnh được chụp TRƯỚC, mọi thứ xảy ra
+ * Lọc ở `dueSchedules` thôi là chưa đủ: ảnh tĩnh được chụp TRƯỚC, mọi thứ xảy ra
  * SAU đó nó không thấy. Chỉ mệnh đề `WHERE` của chính lệnh `UPDATE` này mới nguyên tử.
  */
-export function nhanDangGui(db, id) {
+export function claimSending(db, id) {
   const kq = db
     .prepare(
       `UPDATE lich_hen SET trang_thai = $moi, so_lan_thu = so_lan_thu + 1, ts_cap_nhat = $ts
@@ -318,7 +318,7 @@ export function nhanDangGui(db, id) {
   return Number(kq.changes) === 1;
 }
 
-export function ghiKetQuaGui(db, id, { msgId = null, loi = null } = {}) {
+export function writeSendOutcome(db, id, { msgId = null, loi = null } = {}) {
   db.prepare(
     `UPDATE lich_hen SET msg_id_da_gui = $m, ly_do_loi = $l, trang_thai = $tt, ts_cap_nhat = $ts
       WHERE id = $id`,
@@ -331,7 +331,7 @@ export function ghiKetQuaGui(db, id, { msgId = null, loi = null } = {}) {
   });
 }
 
-export function danhDauQuaHan(db, id, lyDo) {
+export function markOverdue(db, id, lyDo) {
   db.prepare(
     `UPDATE lich_hen SET trang_thai = $tt, ly_do_loi = $l, ts_cap_nhat = $ts
       WHERE id = $id AND trang_thai = $cu`,

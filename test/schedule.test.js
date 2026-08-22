@@ -17,11 +17,11 @@ import { writeMessage, upsertConversation } from '../src/store/write.js';
 import { GIOI_HAN_LICH, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH } from '../src/lib/hang_so.js';
 
 import {
-  chotLich, conBaoLau, danhDauQuaHan, demDangCho, dinhDangVn, dungCauXacNhan,
-  ghiKetQuaGui, huyLich, layLichDenHan, nhanDangGui, quyetDinhTre, taoLich,
-  taoMaXacNhan, xemLich,
-} from '../src/lich/lich_hen.js';
-import { chayMotNhip, dungNoiDung, uidSangTen, batLich } from '../src/lich/bo_chay.js';
+  confirmSchedule, timeUntil, markOverdue, countPending, formatVn, buildConfirmText,
+  writeSendOutcome, cancelSchedule, dueSchedules, claimSending, decideLateness, createSchedule,
+  makeConfirmCode, listSchedules,
+} from '../src/lich/schedule.js';
+import { runOneTick, buildReminderText, uidToName, isSchedulerEnabled } from '../src/lich/runner.js';
 import { parseAbsoluteTime } from '../src/mcp/tools.js';
 
 const RAC = [];
@@ -38,7 +38,7 @@ const NHOM = '9990000000001';
 const HOST = '555000111';
 
 function lichGia(db, v = {}) {
-  return taoLich(db, {
+  return createSchedule(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'nhắc họp',
     guiLucMs: Date.now() + 3_600_000, muiGio: 'Asia/Ho_Chi_Minh',
     dienGiaiGoc: '1 tiếng nữa nhắc anh A', dienGiaiXacNhan: 'câu đọc lại',
@@ -75,7 +75,7 @@ test('A3 nhận ISO có offset và có Z', () => {
 
 test('B1 ★ câu xác nhận có ĐỦ: mã, nhóm đích, giờ + THỨ, "còn bao lâu", nội dung', () => {
   const luc = Date.parse('2026-08-22T09:00:00+07:00');
-  const cau = dungCauXacNhan({
+  const cau = buildConfirmText({
     ma: 'A3F2', tenDich: 'Nhóm Dự án Sao Mai', guiLucMs: luc,
     muiGio: 'Asia/Ho_Chi_Minh', tenTag: ['Anh A'], noiDung: 'xác nhận cấu hình',
     bayGioMs: Date.parse('2026-08-20T19:00:00+07:00'),
@@ -94,23 +94,23 @@ test('B1 ★ câu xác nhận có ĐỦ: mã, nhóm đích, giờ + THỨ, "còn
 
 test('B2 ★ "còn bao lâu" lộ ngay ca model tính nhầm NĂM', () => {
   const t = Date.parse('2026-08-20T00:00:00Z');
-  assert.match(conBaoLau(t, t + 372 * 86400_000), /372 ngày/);
+  assert.match(timeUntil(t, t + 372 * 86400_000), /372 ngày/);
 });
 
-test('B3 dinhDangVn theo MÚI GIỜ tường minh, không theo giờ máy', () => {
+test('B3 formatVn theo MÚI GIỜ tường minh, không theo giờ máy', () => {
   const luc = Date.parse('2026-08-22T02:00:00Z');   // = 09:00 giờ VN
-  assert.match(dinhDangVn(luc, 'Asia/Ho_Chi_Minh'), /^09:00 Thứ Bảy 22\/08\/2026$/);
-  assert.match(dinhDangVn(luc, 'UTC'), /^02:00 Thứ Bảy 22\/08\/2026$/);
+  assert.match(formatVn(luc, 'Asia/Ho_Chi_Minh'), /^09:00 Thứ Bảy 22\/08\/2026$/);
+  assert.match(formatVn(luc, 'UTC'), /^02:00 Thứ Bảy 22\/08\/2026$/);
 });
 
 test('B4 múi giờ rác -> KHÔNG âm thầm rơi về giờ máy', () => {
-  const s = dinhDangVn(Date.parse('2026-08-22T02:00:00Z'), 'Khong/CoThat');
+  const s = formatVn(Date.parse('2026-08-22T02:00:00Z'), 'Khong/CoThat');
   assert.match(s, /^2026-08-22T02:00:00/, 'trả ISO để lộ ra là có vấn đề');
 });
 
 test('B5 mã xác nhận 4 ký tự, bỏ chữ dễ đọc nhầm (O/0, I/1)', () => {
   for (let i = 0; i < 200; i += 1) {
-    const m = taoMaXacNhan();
+    const m = makeConfirmCode();
     assert.equal(m.length, 4);
     assert.ok(!/[O0I1]/.test(m), `mã ${m} chứa ký tự dễ đọc nhầm`);
   }
@@ -120,7 +120,7 @@ test('B5 mã xác nhận 4 ký tự, bỏ chữ dễ đọc nhầm (O/0, I/1)', 
 // C. VÒNG ĐỜI — KHÔNG CÓ ĐƯỜNG TẮT
 // ═══════════════════════════════════════════════════════════════════════
 
-test('C1 ★ taoLich LUÔN ở cho_xac_nhan — không tham số nào bỏ qua được', () => {
+test('C1 ★ createSchedule LUÔN ở cho_xac_nhan — không tham số nào bỏ qua được', () => {
   const db = dbTam();
   const { id } = lichGia(db);
   const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
@@ -131,57 +131,57 @@ test('C1 ★ taoLich LUÔN ở cho_xac_nhan — không tham số nào bỏ qua �
 test('C2 ★ lịch CHƯA chốt thì KHÔNG BAO GIỜ tới hạn (dù đã quá giờ)', () => {
   const db = dbTam();
   lichGia(db, { guiLucMs: Date.now() - 10_000 });   // đã quá giờ
-  assert.deepEqual(layLichDenHan(db, Date.now()), [], 'chưa xác nhận mà gửi là hỏng nặng nhất');
+  assert.deepEqual(dueSchedules(db, Date.now()), [], 'chưa xác nhận mà gửi là hỏng nặng nhất');
   closeDb(db);
 });
 
 test('C3 chốt SAI MÃ -> từ chối', () => {
   const db = dbTam();
   const { ma } = lichGia(db);
-  assert.equal(chotLich(db, { id: ma, ma: 'XXXX', nguoiDat: HOST }).ly, 'SAI_MA');
+  assert.equal(confirmSchedule(db, { id: ma, ma: 'XXXX', nguoiDat: HOST }).ly, 'SAI_MA');
   closeDb(db);
 });
 
 test('C4 chốt bởi NGƯỜI KHÁC -> từ chối', () => {
   const db = dbTam();
   const { ma } = lichGia(db);
-  assert.equal(chotLich(db, { id: ma, ma, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
+  assert.equal(confirmSchedule(db, { id: ma, ma, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
   closeDb(db);
 });
 
 test('C5 chốt đúng -> da_len_lich, và tới hạn thì mới ra', () => {
   const db = dbTam();
   const { ma } = lichGia(db, { guiLucMs: Date.now() - 1000 });
-  assert.equal(chotLich(db, { id: ma, ma, nguoiDat: HOST }).ok, true);
-  assert.equal(layLichDenHan(db, Date.now()).length, 1);
+  assert.equal(confirmSchedule(db, { id: ma, ma, nguoiDat: HOST }).ok, true);
+  assert.equal(dueSchedules(db, Date.now()).length, 1);
   closeDb(db);
 });
 
 test('C6 chốt HAI LẦN -> lần hai từ chối (SAI_TRANG_THAI)', () => {
   const db = dbTam();
   const { ma } = lichGia(db);
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
-  assert.equal(chotLich(db, { id: ma, ma, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
+  assert.equal(confirmSchedule(db, { id: ma, ma, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
   closeDb(db);
 });
 
 test('C7 huỷ: chỉ người đặt, và không huỷ được cái đã gửi', () => {
   const db = dbTam();
   const a = lichGia(db);
-  assert.equal(huyLich(db, { id: a.id, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
-  assert.equal(huyLich(db, { id: a.id, nguoiDat: HOST }).ok, true);
-  assert.equal(huyLich(db, { id: a.id, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
+  assert.equal(cancelSchedule(db, { id: a.id, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
+  assert.equal(cancelSchedule(db, { id: a.id, nguoiDat: HOST }).ok, true);
+  assert.equal(cancelSchedule(db, { id: a.id, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
   closeDb(db);
 });
 
-test('C8 demDangCho đếm cả cho_xac_nhan lẫn da_len_lich', () => {
+test('C8 countPending đếm cả cho_xac_nhan lẫn da_len_lich', () => {
   const db = dbTam();
   lichGia(db);
   const b = lichGia(db);
-  chotLich(db, { id: b.ma, ma: b.ma, nguoiDat: HOST });
-  assert.equal(demDangCho(db), 2);
-  huyLich(db, { id: b.id, nguoiDat: HOST });
-  assert.equal(demDangCho(db), 1);
+  confirmSchedule(db, { id: b.ma, ma: b.ma, nguoiDat: HOST });
+  assert.equal(countPending(db), 2);
+  cancelSchedule(db, { id: b.id, nguoiDat: HOST });
+  assert.equal(countPending(db), 1);
   closeDb(db);
 });
 
@@ -190,26 +190,26 @@ test('C8 demDangCho đếm cả cho_xac_nhan lẫn da_len_lich', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('D1 trễ ≤ 5 phút -> gửi bình thường, không nói gì', () => {
-  assert.deepEqual(quyetDinhTre(60_000), { hanhDong: 'GUI', tienTo: '' });
+  assert.deepEqual(decideLateness(60_000), { hanhDong: 'GUI', tienTo: '' });
 });
 
 test('D2 trễ 5 phút–2 giờ -> gửi KÈM tiền tố cố định "(nhắc muộn) "', () => {
-  const q = quyetDinhTre(30 * 60_000);
+  const q = decideLateness(30 * 60_000);
   assert.equal(q.hanhDong, 'GUI_KEM_NHAN');
   assert.equal(q.tienTo, TIEN_TO_NHAC_MUON);
 });
 
 test('D3 ★ trễ > 2 giờ -> KHÔNG GỬI VÀO NHÓM', () => {
-  assert.equal(quyetDinhTre(GIOI_HAN_LICH.TRAN_TRE_MS + 1).hanhDong, 'BO_QUA_HAN');
+  assert.equal(decideLateness(GIOI_HAN_LICH.TRAN_TRE_MS + 1).hanhDong, 'BO_QUA_HAN');
 });
 
 test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () => {
   const db = dbTam();
   const { ma, id } = lichGia(db, { guiLucMs: Date.now() - 5 * 3_600_000 });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   const guiNhom = [];
   const guiDm = [];
-  const kq = await chayMotNhip({
+  const kq = await runOneTick({
     db, api: {},
     sendToGroup: async (...a) => { guiNhom.push(a); return { msgId: '1' }; },
     sendHostDm: async (...a) => { guiDm.push(a); return { msgId: '2' }; },
@@ -231,19 +231,19 @@ test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () 
 // E. GỬI ĐÚNG MỘT LẦN
 // ═══════════════════════════════════════════════════════════════════════
 
-test('E1 ★ nhanDangGui chỉ thành công MỘT lần (dành chỗ trước khi gọi mạng)', () => {
+test('E1 ★ claimSending chỉ thành công MỘT lần (dành chỗ trước khi gọi mạng)', () => {
   const db = dbTam();
   const { ma, id } = lichGia(db, { guiLucMs: Date.now() - 1000 });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
-  assert.equal(nhanDangGui(db, id), true);
-  assert.equal(nhanDangGui(db, id), false, 'lần hai phải THẤT BẠI, nếu không là gửi 2 tin');
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
+  assert.equal(claimSending(db, id), true);
+  assert.equal(claimSending(db, id), false, 'lần hai phải THẤT BẠI, nếu không là gửi 2 tin');
   closeDb(db);
 });
 
 test('E2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
   const db = dbTam();
   const { ma } = lichGia(db, { guiLucMs: Date.now() - 1000 });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   const gui = [];
   const p = {
     db, api: {},
@@ -251,7 +251,7 @@ test('E2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
     sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   };
-  await Promise.all([chayMotNhip(p), chayMotNhip(p)]);
+  await Promise.all([runOneTick(p), runOneTick(p)]);
   assert.equal(gui.length, 1, 'daemon restart / timer chồng nhau không được gửi hai lần');
   closeDb(db);
 });
@@ -261,8 +261,8 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
   // nhóm người thật. Host đọc xem_lich thấy 'loi' rồi tự quyết.
   const db = dbTam();
   const { ma, id } = lichGia(db, { guiLucMs: Date.now() - 1000 });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
-  const kq = await chayMotNhip({
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
+  const kq = await runOneTick({
     db, api: {},
     sendToGroup: async () => { throw new Error('mạng hỏng'); },
     sendHostDm: async () => ({ msgId: 'y' }),
@@ -272,7 +272,7 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
   const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
   assert.equal(d.trang_thai, TRANG_THAI_LICH.LOI);
   assert.equal(Number(d.so_lan_thu), 1);
-  assert.deepEqual(layLichDenHan(db, Date.now()), [], 'KHÔNG được quay lại hàng chờ');
+  assert.deepEqual(dueSchedules(db, Date.now()), [], 'KHÔNG được quay lại hàng chờ');
   closeDb(db);
 });
 
@@ -281,13 +281,13 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
 // ═══════════════════════════════════════════════════════════════════════
 
 test('F1 uid -> tên; uid lạ thì báo ra, KHÔNG bịa tên', () => {
-  const kq = uidSangTen([{ uid: '1', ten: 'Anh A' }], ['1', '999']);
+  const kq = uidToName([{ uid: '1', ten: 'Anh A' }], ['1', '999']);
   assert.deepEqual(kq.ten, ['Anh A']);
   assert.deepEqual(kq.khongTraRa, ['999']);
 });
 
 test('F2 ★ dựng nội dung: tiền tố trễ + @Tên + nội dung, đúng thứ tự', () => {
-  const kq = dungNoiDung({
+  const kq = buildReminderText({
     noiDung: 'họp lúc 3h', tienTo: TIEN_TO_NHAC_MUON,
     dsNguoi: [{ uid: '1', ten: 'Anh A' }], tagUserIds: ['1'],
   });
@@ -295,7 +295,7 @@ test('F2 ★ dựng nội dung: tiền tố trễ + @Tên + nội dung, đúng t
 });
 
 test('F3 ★ uid không tra ra tên -> BỎ tag đó, tin vẫn gửi được', () => {
-  const kq = dungNoiDung({ noiDung: 'x', dsNguoi: [], tagUserIds: ['999'] });
+  const kq = buildReminderText({ noiDung: 'x', dsNguoi: [], tagUserIds: ['999'] });
   assert.equal(kq.text, 'x', 'không có @ rác trong tin');
   assert.deepEqual(kq.khongTraRa, ['999']);
 });
@@ -305,7 +305,7 @@ test('F4 ★ chuỗi @Tên do bộ chạy dựng phải TAG ĐƯỢC THẬT qua 
   // có chữ "@Anh A" nhưng KHÔNG tag ai — hỏng câm, nhìn tin vẫn thấy bình thường.
   const { buildMentions } = await import('../src/zalo/send.js');
   const ds = [{ uid: '111', ten: 'Anh A' }];
-  const nd = dungNoiDung({ noiDung: 'họp nhé', dsNguoi: ds, tagUserIds: ['111'] });
+  const nd = buildReminderText({ noiDung: 'họp nhé', dsNguoi: ds, tagUserIds: ['111'] });
   const mt = buildMentions(nd.text, ds);
   assert.equal(mt.mentions.length, 1);
   assert.equal(mt.mentions[0].uid, '111');
@@ -316,9 +316,9 @@ test('F4 ★ chuỗi @Tên do bộ chạy dựng phải TAG ĐƯỢC THẬT qua 
 test('F5 gửi vào nhóm có truyền dsNguoi xuống tầng gửi', async () => {
   const db = dbTam();
   const { ma } = lichGia(db, { guiLucMs: Date.now() - 1000, tagUserIds: ['111'] });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   let tuyChon = null;
-  await chayMotNhip({
+  await runOneTick({
     db, api: {},
     sendToGroup: async (_a, _c, _t, tc) => { tuyChon = tc; return { msgId: 'x' }; },
     sendHostDm: async () => ({ msgId: 'y' }),
@@ -333,8 +333,8 @@ test('F5 gửi vào nhóm có truyền dsNguoi xuống tầng gửi', async () =
 // ═══════════════════════════════════════════════════════════════════════
 
 test('G1 bộ chạy lịch mặc định BẬT (khác phần quét, vốn phải chờ A0)', () => {
-  assert.equal(batLich({}), true);
-  assert.equal(batLich({ ZTL_LICH_HEN: '0' }), false);
+  assert.equal(isSchedulerEnabled({}), true);
+  assert.equal(isSchedulerEnabled({ ZTL_LICH_HEN: '0' }), false);
 });
 
 test('G2 ★ KHÔNG GỌI createReminder ở đâu cả (anh đã cắt phương án B1)', () => {
@@ -342,7 +342,7 @@ test('G2 ★ KHÔNG GỌI createReminder ở đâu cả (anh đã cắt phương
   // "KHÔNG gọi `createReminder`" — cùng lỗi dương tính giả đã gặp nhiều lần:
   // quét theo văn bản thì không phân biệt được LỆNH THẬT với CÂU GIẢI THÍCH.
   // Nay chỉ soi dòng CODE (bỏ comment `//` và dòng trong khối chú thích).
-  for (const f of ['src/lich/lich_hen.js', 'src/lich/bo_chay.js', 'src/mcp/tools.js']) {
+  for (const f of ['src/lich/schedule.js', 'src/lich/runner.js', 'src/mcp/tools.js']) {
     const s = fs.readFileSync(new URL(`../${f}`, import.meta.url), 'utf8');
     const codeThat = s
       .replace(/\/\*[\s\S]*?\*\//g, '')          // khối /* ... */
@@ -372,9 +372,9 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
   // Bài này kéo lỗi đó về thời điểm chạy test.
   const src = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
   const can = [
-    ['./scan/probe_a0.js', ['batA0', 'chayA0', 'chonNhomThu', 'duongDanKetQua']],
-    ['./scan/doi_chieu.js', ['batQuet', 'quetMotLuot']],
-    ['./lich/bo_chay.js', ['batLich', 'chayMotNhip', 'NHIP_MS']],
+    ['./scan/probe_a0.js', ['batA0', 'chayA0', 'pickTestGroup', 'probeResultPath']],
+    ['./scan/drift_check.js', ['isScanEnabled', 'runScanPass']],
+    ['./lich/runner.js', ['isSchedulerEnabled', 'runOneTick', 'TICK_MS']],
     ['./lib/hang_so.js', ['GIOI_HAN_QUET']],
     ['./store/query.js', ['groupMembers']],
     ['./zalo/send.js', ['sendToGroup', 'sendHostDm']],
@@ -392,13 +392,13 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
 test('H2 ★ hai cờ của phần A phải nằm SAU điều kiện bật, không chạy vô điều kiện', () => {
   const src = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
   assert.ok(/if \(batA0\(\)\)/.test(src), 'A0 phải nằm sau if (batA0())');
-  assert.ok(/if \(batQuet\(\)\)/.test(src), 'quét phải nằm sau if (batQuet())');
+  assert.ok(/if \(isScanEnabled\(\)\)/.test(src), 'quét phải nằm sau if (isScanEnabled())');
   // Bộ chạy lịch KHÔNG được phụ thuộc phần quét — B phải sống kể cả khi A hỏng hẳn.
-  const iQuet = src.indexOf('batQuet()');
-  const iLich = src.indexOf('batLich()');
+  const iQuet = src.indexOf('isScanEnabled()');
+  const iLich = src.indexOf('isSchedulerEnabled()');
   assert.ok(iLich > iQuet, 'thứ tự khai báo');
-  assert.ok(!/batQuet\(\)[\s\S]{0,400}batLich\(\)[\s\S]{0,50}\)/.test(src.slice(iQuet, iQuet + 100)),
-    'batLich KHÔNG được lồng trong nhánh batQuet');
+  assert.ok(!/isScanEnabled\(\)[\s\S]{0,400}isSchedulerEnabled\(\)[\s\S]{0,50}\)/.test(src.slice(iQuet, iQuet + 100)),
+    'isSchedulerEnabled KHÔNG được lồng trong nhánh isScanEnabled');
 });
 
 // ═══════════════════════════════════════════════════════════════════════

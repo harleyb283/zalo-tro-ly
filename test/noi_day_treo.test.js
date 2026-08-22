@@ -3,12 +3,12 @@
  * NỐI DÂY TREO — `index.js` phải THẬT SỰ nạp đạn cho lá chắn B5.
  *
  * 🔴 VÌ SAO CẦN FILE RIÊNG: `test/cum5_don.test.js` đã canh rất kỹ HÀNH VI của
- *    `chayNhipTheoDuoi` khi CÓ và KHÔNG có `recordSources` — nhưng nó tự tay
+ *    `runFollowUpTick` khi CÓ và KHÔNG có `recordSources` — nhưng nó tự tay
  *    truyền closure vào. Cả bộ đó vẫn XANH 100% trong khi `index.js` không
  *    truyền gì cả, tức đường THẬT đang chạy ở thế fail-closed: không rò, nhưng
  *    lời nhắc mất giọng model đúng những ca chạm nhóm khác.
  *    ⇒ Đây là chỗ chỉ có "test đường dây" mới bắt được: nối phía PHÁT
- *      (`index.js`) với phía NHẬN (`bo_chay.js`), không kiểm mỗi một đầu.
+ *      (`index.js`) với phía NHẬN (`runner.js`), không kiểm mỗi một đầu.
  *
  * 🔴 Khối wiring nằm trong `main()` của `index.js`, chỉ chạy SAU khi đăng nhập
  *    Zalo thật — thứ pack này CẤM thử. `node --check` không với tới. Nên:
@@ -23,9 +23,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { noiGhiNhanNguon } from '../src/index.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { chotLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
 import { HUONG_TRA_LOI } from '../src/lib/hang_so.js';
 import { getSources, decideReplyRoute, createSourceLedger } from '../src/policy/leak_guard.js';
 import { closeDb, openDb } from '../src/store/db.js';
@@ -58,12 +58,12 @@ function dbTam() {
 }
 
 function nhacDaChot(db) {
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma: 'NHAC',
   });
-  chotLich(db, { id: 'NHAC', ma: 'NHAC', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'NHAC', ma: 'NHAC', nguoiDat: HOST });
   const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('NHAC');
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
   return d;
@@ -83,7 +83,7 @@ const chiNhomMinh = () => ({
 
 /** Dựng tham số y như `index.js` dựng, chỉ thay phần chạm mạng bằng hàm giả. */
 function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
-  return chayNhipTheoDuoi({
+  return runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory,
     groupMembers: () => [],
     sendToGroup: async (_a, _c, t) => { thu.daGuiThangVaoNhom.push(t); return { msgId: 'x' }; },
@@ -99,7 +99,7 @@ function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('N1 ★ index.js export `noiGhiNhanNguon` và nó nhận ĐÚNG 2 đối số như bo_chay gọi', () => {
-  // `bo_chay.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số.
+  // `runner.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số.
   // `leak_guard.recordSources()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
   // là lỗi ném ra, `bo_chay` nuốt vào catch, lời nhắc lặng lẽ rơi xuống câu dự
   // phòng — không có dấu hiệu nào ngoài log.
@@ -114,12 +114,12 @@ test('N1 ★ index.js export `noiGhiNhanNguon` và nó nhận ĐÚNG 2 đối s�
     'gọi bằng 2 đối số mà sổ nguồn vẫn rỗng -> boTichLuy chưa được đóng vào closure');
 });
 
-test('N2 ★★★ `main()` THẬT SỰ truyền closure đó vào chayNhipTheoDuoi', () => {
+test('N2 ★★★ `main()` THẬT SỰ truyền closure đó vào runFollowUpTick', () => {
   // Bài N1/N3/N4 chạy trên closure lôi ra ngoài; nếu `main()` quên gọi nó thì cả
   // ba vẫn xanh mà đường thật vẫn chết. Chỗ gọi nằm trong `main()` (phải đăng
   // nhập Zalo mới chạy tới) nên canh bằng đọc mã nguồn — đây là cách DUY NHẤT.
-  const i = SRC_INDEX.indexOf('chayNhipTheoDuoi({');
-  assert.ok(i > 0, 'không tìm thấy chỗ gọi chayNhipTheoDuoi trong index.js');
+  const i = SRC_INDEX.indexOf('runFollowUpTick({');
+  assert.ok(i > 0, 'không tìm thấy chỗ gọi runFollowUpTick trong index.js');
   const khoiGoi = SRC_INDEX.slice(i, i + 1600);
   assert.match(khoiGoi, /recordSources:\s*noiGhiNhanNguon\(boTichLuy\)/,
     'index.js KHÔNG truyền recordSources -> bo_chay fail-closed, lời nhắc mất giọng model '
@@ -198,21 +198,21 @@ test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬ
 // ═══════════════════════════════════════════════════════════════════════
 
 test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có tới bo_chay không', async () => {
-  // `_baoHetLuot()` chỉ được gọi từ CHÍNH `chayNhipTheoDuoi`, và nó cần
+  // `_baoHetLuot()` chỉ được gọi từ CHÍNH `runFollowUpTick`, và nó cần
   // `p.dmHostChatId`. Thiếu ⇒ lời nhắc tiêu đủ trần rồi TỰ ĐÓNG trong im lặng,
   // host tưởng việc đã xong. Không có ngoại lệ nào ở đây: đã tự đóng thì BẮT
   // BUỘC phải có người được báo.
   const db = dbTam();
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'việc sắp hết lượt',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma: 'HET', tranSoLan: 1,
   });
-  chotLich(db, { id: 'HET', ma: 'HET', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'HET', ma: 'HET', nguoiDat: HOST });
   db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE ma_xac_nhan = ?').run('HET');
 
   const dm = [];
-  await chayNhipTheoDuoi({
+  await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chiNhomMinh,
     groupMembers: () => [],
     sendToGroup: async () => ({ msgId: 'x' }),
@@ -230,11 +230,11 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
 });
 
 test('N8 ★★ index.js truyền `dmHostChatId` cho CẢ HAI bộ chạy, không chỉ lịch một lần', () => {
-  const i = SRC_INDEX.indexOf('chayNhipTheoDuoi({');
+  const i = SRC_INDEX.indexOf('runFollowUpTick({');
   const khoiGoi = SRC_INDEX.slice(i, i + 2600);
   assert.match(khoiGoi, /dmHostChatId:\s*primaryHostDm\(cauHinh\)/,
-    'chayNhipTheoDuoi vẫn thiếu dmHostChatId -> câu báo HẾT LƯỢT rơi vào nhánh '
-    + '"host sẽ không biết" (chayMotNhip ngay trên đã có từ đầu)');
+    'runFollowUpTick vẫn thiếu dmHostChatId -> câu báo HẾT LƯỢT rơi vào nhánh '
+    + '"host sẽ không biết" (runOneTick ngay trên đã có từ đầu)');
 });
 
 test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bài N5 không tự xanh)', async () => {
@@ -245,7 +245,7 @@ test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bà
   nhacDaChot(db);
   let giaoModel = 0;
   const daGui = [];
-  const ra = await chayNhipTheoDuoi({
+  const ra = await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chamNhomKhac,
     groupMembers: () => [],
     sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },

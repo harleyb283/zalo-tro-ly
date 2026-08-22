@@ -223,7 +223,7 @@ test('★★★ C2 NGHIỆM THU⑤: client mở DB CŨ HƠN -> thoát mã ≠0 k
 test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việc của daemon', () => {
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
   const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
-  for (const cam of ['giuKhoaPid', 'loginWithCookie', 'startListening', 'chayNhipTheoDuoi', 'chayMotNhip', 'keepAlive']) {
+  for (const cam of ['giuKhoaPid', 'loginWithCookie', 'startListening', 'runFollowUpTick', 'runOneTick', 'keepAlive']) {
     assert.ok(!kh.includes(cam), `vai client gọi \`${cam}\` — đó là việc của daemon`);
   }
   // ⚠️ Neo vào ĐÚNG khối `registerTools`. Bản đầu em canh `/api: null/` trên cả

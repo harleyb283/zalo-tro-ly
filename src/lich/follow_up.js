@@ -66,7 +66,7 @@ function _lechMuiGioMs(ms, muiGio) {
 }
 
 /** Ngày/thứ ĐỊA PHƯƠNG của một thời điểm. */
-export function ngayDiaPhuong(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
+export function localDateParts(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
   const p = Object.fromEntries(
     new Intl.DateTimeFormat('en-US', {
       timeZone: muiGio, hour12: false, weekday: 'short',
@@ -89,7 +89,7 @@ export function ngayDiaPhuong(ms, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
  * trứng ở biên DST). Lần đầu đoán bằng offset tại mốc-coi-như-UTC, lần hai
  * chỉnh lại bằng offset tại mốc vừa đoán.
  */
-export function mocTuGioDiaPhuong(nam, thang, ngay, gio, phut, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
+export function localTimeToEpoch(nam, thang, ngay, gio, phut, muiGio = GIOI_HAN_LICH.MUI_GIO_MAC_DINH) {
   const nhuUtc = Date.UTC(nam, thang - 1, ngay, gio, phut, 0);
   let moc = nhuUtc;
   for (let i = 0; i < 2; i += 1) moc = nhuUtc - _lechMuiGioMs(moc, muiGio);
@@ -99,8 +99,8 @@ export function mocTuGioDiaPhuong(nam, thang, ngay, gio, phut, muiGio = GIOI_HAN
 /**
  * Giờ nhắc về dạng CHUỖI chuẩn "HH:MM".
  *
- * 🔴 KHÁC `docGioNhac()` — cái đó trả OBJECT `{gio, phut}` để tính toán.
- * Bug thật 20/08/2026: `_datNhacTheoDuoi` lấy thẳng kết quả `docGioNhac()`
+ * 🔴 KHÁC `parseReminderHour()` — cái đó trả OBJECT `{gio, phut}` để tính toán.
+ * Bug thật 20/08/2026: `_datNhacTheoDuoi` lấy thẳng kết quả `parseReminderHour()`
  * làm giá trị `gio_nhac` ⇒ (a) câu xác nhận in "lúc [object Object]",
  * (b) `node:sqlite` KHÔNG bind được object nên INSERT NÉM ⇒ nhắc theo đuổi
  * NHỊP NGÀY chưa từng tạo nổi trên hệ thật. Hai hàm tên gần giống nhau, trả
@@ -109,13 +109,13 @@ export function mocTuGioDiaPhuong(nam, thang, ngay, gio, phut, muiGio = GIOI_HAN
  * @param {unknown} s
  * @returns {string} luôn là "HH:MM" hợp lệ
  */
-export function chuanGioNhac(s) {
-  const { gio, phut } = docGioNhac(s);
+export function normalizeReminderHour(s) {
+  const { gio, phut } = parseReminderHour(s);
   return `${String(gio).padStart(2, '0')}:${String(phut).padStart(2, '0')}`;
 }
 
 /** 'HH:MM' -> {gio, phut}. Rác thì rơi về mặc định và NÓI RA. */
-export function docGioNhac(s) {
+export function parseReminderHour(s) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s ?? '').trim());
   if (!m || +m[1] > 23 || +m[2] > 59) {
     if (s) _log(`gio_nhac='${s}' không hợp lệ -> dùng ${NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}`);
@@ -143,7 +143,7 @@ export function docGioNhac(s) {
  * @param {any} dong dòng `lich_hen` (hoặc object cùng hình dạng)
  * @returns {{laPhut: boolean, phut: number|null, ngay: number}}
  */
-export function docNhip(dong) {
+export function parseCadence(dong) {
   const phutTho = dong?.chu_ky_phut ?? dong?.chuKyPhut;
   if (phutTho !== null && phutTho !== undefined && Number.isFinite(Number(phutTho))) {
     const phut = Math.trunc(Number(phutTho));
@@ -166,7 +166,7 @@ export function docNhip(dong) {
  * việc, không có trần leo thang". Trần sinh ra RIÊNG cho nhịp dày bất thường;
  * đừng để nó lây sang ca nhịp ngày.
  */
-export function tranMacDinh(nhip) {
+export function defaultAttemptCap(nhip) {
   if (!nhip?.laPhut) return null;
   return nhip.phut < NHAC_THEO_DUOI.NGUONG_NHIP_DAY_PHUT
     ? NHAC_THEO_DUOI.TRAN_SO_LAN_MAC_DINH_NHIP_DAY
@@ -178,7 +178,7 @@ export function tranMacDinh(nhip) {
  * tròn là anh dặn 2 phút mà nó chạy khác, và không ai biết.
  * @returns {{ok: true, phut: number}|{ok: false, ly: string}}
  */
-export function kiemChuKyPhut(v) {
+export function validateMinuteCadence(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || Math.trunc(n) !== n) {
     return { ok: false, ly: `chuKyPhut '${v}' không phải số nguyên.` };
@@ -197,7 +197,7 @@ export function kiemChuKyPhut(v) {
 }
 
 /** Kiểm trần số lần. Bỏ trống = KHÔNG trần (hợp lệ). */
-export function kiemTranSoLan(v) {
+export function validateAttemptCap(v) {
   if (v === null || v === undefined || v === '') return { ok: true, tran: null };
   const n = Number(v);
   if (!Number.isFinite(n) || Math.trunc(n) !== n || n < 1) {
@@ -217,36 +217,36 @@ export function kiemTranSoLan(v) {
  *          muiGio?: string, laLanDau?: boolean}} cfg
  * @returns {number}
  */
-export function mocNhacKeTiep(tuMs, cfg = {}) {
+export function nextReminderAt(tuMs, cfg = {}) {
   // ─── NHỊP PHÚT: đếm thẳng từ mốc trước, KHÔNG neo giờ, KHÔNG chừa Chủ Nhật.
   // 🔴 Chừa Chủ Nhật ở đây là SAI Ý ĐỊNH: "cứ 2 phút nhắc lại" mà gặp Chủ
   // Nhật thì nhảy sang thứ Hai — lệch hoàn toàn thứ anh dặn. Nhịp phút để
   // đuổi một việc GẤP trong ngày; tổng thời gian đã bị TRẦN SỐ LẦN khống chế
   // nên không cần luật lịch nào nữa.
   // `gio_nhac` cũng KHÔNG dùng ở nhánh này — hai cơ chế không đá nhau vì
-  // `docNhip()` chỉ chọn đúng MỘT nhánh.
-  const nhip = docNhip({ chu_ky_phut: cfg.chuKyPhut, chu_ky_ngay: cfg.chuKyNgay });
+  // `parseCadence()` chỉ chọn đúng MỘT nhánh.
+  const nhip = parseCadence({ chu_ky_phut: cfg.chuKyPhut, chu_ky_ngay: cfg.chuKyNgay });
   if (nhip.laPhut) return Math.floor(tuMs) + nhip.phut * 60_000;
 
   const muiGio = cfg.muiGio ?? GIOI_HAN_LICH.MUI_GIO_MAC_DINH;
   const boCn = cfg.boChuNhat ?? NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH;
-  const { gio, phut } = docGioNhac(cfg.gioNhac);
+  const { gio, phut } = parseReminderHour(cfg.gioNhac);
   const chuKy = Math.max(
     1,
     Math.min(NHAC_THEO_DUOI.CHU_KY_NGAY_TOI_DA, Math.trunc(Number(cfg.chuKyNgay) || 1)),
   );
 
-  const d = ngayDiaPhuong(tuMs, muiGio);
+  const d = localDateParts(tuMs, muiGio);
   // Lần ĐẦU: mốc gần nhất còn ở TƯƠNG LAI, có thể là ngay hôm nay nếu chưa tới
   // giờ nhắc. Lần SAU: cộng đúng `chuKy` ngày kể từ lần nhắc trước.
   let buoc = cfg.laLanDau ? 0 : chuKy;
   for (let i = 0; i < 400; i += 1) {
-    const moc = mocTuGioDiaPhuong(d.nam, d.thang, d.ngay + buoc, gio, phut, muiGio);
-    if (moc > tuMs && !(boCn && ngayDiaPhuong(moc, muiGio).thu === 0)) return moc;
+    const moc = localTimeToEpoch(d.nam, d.thang, d.ngay + buoc, gio, phut, muiGio);
+    if (moc > tuMs && !(boCn && localDateParts(moc, muiGio).thu === 0)) return moc;
     buoc += 1;
   }
   // Không bao giờ tới đây với tham số hợp lệ; thà trả mốc xa còn hơn trả NaN.
-  _log('mocNhacKeTiep: không tìm được mốc trong 400 ngày -> lùi 1 ngày thô');
+  _log('nextReminderAt: không tìm được mốc trong 400 ngày -> lùi 1 ngày thô');
   return tuMs + 86_400_000;
 }
 
@@ -258,7 +258,7 @@ export function mocNhacKeTiep(tuMs, cfg = {}) {
  * Tạo lời nhắc THEO ĐUỔI. Vẫn phải qua `cho_xac_nhan` như lịch một lần —
  * không có đường tắt, và cố ý không có tham số nào bỏ qua bước chốt.
  */
-export function taoNhacTheoDuoi(db, p) {
+export function createFollowUp(db, p) {
   const id = p.id ?? randomUUID();
   const muiGio = p.muiGio ?? GIOI_HAN_LICH.MUI_GIO_MAC_DINH;
   const gioNhac = p.gioNhac ?? NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH;
@@ -269,15 +269,15 @@ export function taoNhacTheoDuoi(db, p) {
   );
   const boCn = p.boChuNhat ?? NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH;
   const bayGio = p.bayGioMs ?? Date.now();
-  // Nhịp phút (nếu có) THẮNG nhịp ngày — luật ưu tiên khai ở `docNhip()`.
+  // Nhịp phút (nếu có) THẮNG nhịp ngày — luật ưu tiên khai ở `parseCadence()`.
   const chuKyPhut = p.chuKyPhut === null || p.chuKyPhut === undefined
     ? null : Math.trunc(Number(p.chuKyPhut));
-  const nhip = docNhip({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKy });
+  const nhip = parseCadence({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKy });
   // Trần: host khai gì dùng nấy; không khai thì lấy mặc định THEO NHỊP.
-  const tranSoLan = p.tranSoLan === undefined ? tranMacDinh(nhip)
+  const tranSoLan = p.tranSoLan === undefined ? defaultAttemptCap(nhip)
     : (p.tranSoLan === null ? null : Math.trunc(Number(p.tranSoLan)));
 
-  const mocDau = mocNhacKeTiep(bayGio, {
+  const mocDau = nextReminderAt(bayGio, {
     chuKyNgay: chuKy, chuKyPhut, gioNhac, boChuNhat: boCn, muiGio, laLanDau: true,
   });
 
@@ -317,7 +317,7 @@ export function taoNhacTheoDuoi(db, p) {
 }
 
 /** Lời nhắc theo đuổi TỚI HẠN. Đã chốt + đang theo đuổi + không tạm dừng. */
-export function layNhacDenHan(db, bayGioMs) {
+export function dueFollowUps(db, bayGioMs) {
   return db
     .prepare(
       `SELECT * FROM lich_hen
@@ -339,10 +339,10 @@ export function layNhacDenHan(db, bayGioMs) {
  * ★ Chờ model viết câu bao lâu thì code tự gửi câu dự phòng.
  *
  * 🔴 VÌ SAO KHÔNG DÙNG THẲNG `NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS` (10 phút):
- * nhịp phút cho phép xuống tận 1 phút. Mỗi lượt `danhChoLuotNhac` lại ghi đè
+ * nhịp phút cho phép xuống tận 1 phút. Mỗi lượt `claimReminderTurn` lại ghi đè
  * `cho_model_tu_ms = bayGio`, nên với nhịp 3 phút thì mốc đó được LÀM MỚI mỗi 3
  * phút và KHÔNG BAO GIỜ đuổi kịp ngưỡng 10 phút ⇒ **lưới dự phòng chưa từng bắn
- * một lần nào**. Mà lưới đó chính là thứ chú thích ở `bo_chay.js` gọi là "giữ cho
+ * một lần nào**. Mà lưới đó chính là thứ chú thích ở `runner.js` gọi là "giữ cho
  * tính năng không hỏng câm": Claude rớt thì lời nhắc BIẾN MẤT ÂM THẦM.
  * Hệ quả kèm theo: mỗi nhịp lại đẩy thêm một hàng đợi + một notification cho cùng
  * một lời nhắc (nhắc chồng nhắc), và `so_lan_da_nhac` tăng cho cả lượt CHƯA GỬI GÌ
@@ -352,20 +352,20 @@ export function layNhacDenHan(db, bayGioMs) {
  * nửa nhịp, mỗi lượt đã dành chỗ chắc chắn kết thúc (model trả lời HOẶC code gửi bù)
  * TRƯỚC khi lượt kế tiếp tới hạn. Nhịp ngày thì 10 phút vốn đã nhỏ hơn 1 ngày.
  *
- * @param {{laPhut: boolean, phut: number|null}} nhip kết quả `docNhip()`
+ * @param {{laPhut: boolean, phut: number|null}} nhip kết quả `parseCadence()`
  * @returns {number} ms
  */
-export function tranChoModelMs(nhip) {
+export function modelWaitCapMs(nhip) {
   if (!nhip?.laPhut) return NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS;
   return Math.min(NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS, Math.floor((nhip.phut * 60_000) / 2));
 }
 
 /**
- * Trần NHỎ NHẤT có thể có — dùng làm bộ lọc thô cho `layNhacTreoChoModel()`.
+ * Trần NHỎ NHẤT có thể có — dùng làm bộ lọc thô cho `stalledModelReminders()`.
  * Suy từ hằng số sẵn có, KHÔNG chép số vào đây: đổi `CHU_KY_PHUT_TOI_THIEU` mà
  * quên sửa chỗ này thì bộ quét bỏ sót lượt treo trong im lặng.
  */
-export const TRAN_CHO_MODEL_TOI_THIEU_MS = tranChoModelMs({
+export const MIN_MODEL_WAIT_MS = modelWaitCapMs({
   laPhut: true, phut: NHAC_THEO_DUOI.CHU_KY_PHUT_TOI_THIEU,
 });
 
@@ -379,12 +379,12 @@ export const TRAN_CHO_MODEL_TOI_THIEU_MS = tranChoModelMs({
  * Thiếu ba cái này thì bộ quét trở thành đường vòng qua chính van xả: host đóng
  * hoặc tạm dừng xong, ≤10 phút sau trợ lý vẫn nhắn vào nhóm có người thật.
  *
- * ⚠️ Lọc theo `TRAN_CHO_MODEL_TOI_THIEU_MS` là bộ lọc THÔ. Trần thật của từng
- * dòng phụ thuộc nhịp của chính nó ⇒ caller PHẢI lọc lại bằng `tranChoModelMs()`.
- * Cố ý không nhét phép tính đó vào SQL: `docNhip()` là nguồn sự thật DUY NHẤT về
+ * ⚠️ Lọc theo `MIN_MODEL_WAIT_MS` là bộ lọc THÔ. Trần thật của từng
+ * dòng phụ thuộc nhịp của chính nó ⇒ caller PHẢI lọc lại bằng `modelWaitCapMs()`.
+ * Cố ý không nhét phép tính đó vào SQL: `parseCadence()` là nguồn sự thật DUY NHẤT về
  * nhịp, viết lại luật ưu tiên phút-thắng-ngày bằng SQL là đẻ ra bản sao thứ hai.
  */
-export function layNhacTreoChoModel(db, bayGioMs) {
+export function stalledModelReminders(db, bayGioMs) {
   const now = Math.floor(bayGioMs);
   return db
     .prepare(
@@ -398,7 +398,7 @@ export function layNhacTreoChoModel(db, bayGioMs) {
         ORDER BY cho_model_tu_ms ASC LIMIT 20`,
     )
     .all({
-      han: now - TRAN_CHO_MODEL_TOI_THIEU_MS,
+      han: now - MIN_MODEL_WAIT_MS,
       tt: TRANG_THAI_LICH.DA_LEN_LICH,
       ttd: TRANG_THAI_TD.DANG_THEO_DUOI,
       now,
@@ -410,7 +410,7 @@ export function layNhacTreoChoModel(db, bayGioMs) {
  *
  * Nó là **quyền gửi** của MỘT lượt nhắc, và chỉ MỘT bên được cầm:
  *   · model gửi qua `tra_loi`  → giành token ở đây
- *   · lưới an toàn gửi câu dự phòng → giành token bằng CAS ở `bo_chay.js`
+ *   · lưới an toàn gửi câu dự phòng → giành token bằng CAS ở `runner.js`
  * Ai giành được (`changes === 1`) mới được chạm mạng. Bên thua **im**.
  *
  * 🔴 VÌ SAO PHẢI LÀ TOKEN CHỨ KHÔNG PHẢI "GỠ CỜ SAU KHI GỬI XONG":
@@ -419,14 +419,14 @@ export function layNhacTreoChoModel(db, bayGioMs) {
  * hàng đợi sống tới `queueTtlMs` = 30 PHÚT — dài gấp 20 lần trần chờ. Xảy ra thật
  * 21/08/2026 (một lượt đi 2 tin, cách nhau đúng 90 giây).
  *
- * ⚠️ Giành TRƯỚC khi gửi, và **trả lại nếu gửi hỏng** (`traVeQuyenGuiNhac`).
+ * ⚠️ Giành TRƯỚC khi gửi, và **trả lại nếu gửi hỏng** (`releaseReminderSend`).
  * Giành mà không trả là mất lưới an toàn — đúng ca ngược lại: model chết giữa
  * chừng mà không ai gửi bù, lời nhắc biến mất âm thầm.
  *
  * @returns {{ok: boolean, mocCu: number|null}} `ok=false` ⇒ bên kia đã gửi rồi,
  *   HOẶC host vừa `dong_nhac`/`chinh_nhip_nhac` (hai hàm đó cũng xoá cột này).
  */
-export function giuQuyenGuiNhac(db, idNhac) {
+export function claimReminderSend(db, idNhac) {
   const d = db
     .prepare('SELECT cho_model_tu_ms FROM lich_hen WHERE id = $id AND la_theo_duoi = 1')
     .get({ id: String(idNhac) });
@@ -447,7 +447,7 @@ export function giuQuyenGuiNhac(db, idNhac) {
  * `WHERE cho_model_tu_ms IS NULL` để không ghi đè lên mốc của một lượt MỚI mà
  * nhịp sau vừa dành chỗ trong lúc lời gọi mạng đang treo.
  */
-export function traVeQuyenGuiNhac(db, idNhac, mocCu) {
+export function releaseReminderSend(db, idNhac, mocCu) {
   if (mocCu === null || mocCu === undefined) return false;
   const kq = db
     .prepare('UPDATE lich_hen SET cho_model_tu_ms = $cu WHERE id = $id AND cho_model_tu_ms IS NULL')
@@ -463,7 +463,7 @@ export function traVeQuyenGuiNhac(db, idNhac, mocCu) {
  * báo hết lượt kèm cảnh báo *"em KHÔNG có bằng chứng tin nào đã gửi"* — báo động
  * giả. Cảnh báo giả lặp lại vài lần là lần sau host thôi tin cả cảnh báo đúng.
  */
-export function ghiBangChungGuiNhac(db, idNhac, msgId) {
+export function writeReminderProof(db, idNhac, msgId) {
   const kq = db
     .prepare('UPDATE lich_hen SET msg_id_da_gui = $m WHERE id = $id AND la_theo_duoi = 1')
     .run({ m: msgId ? String(msgId) : null, id: String(idNhac) });
@@ -480,7 +480,7 @@ export function ghiBangChungGuiNhac(db, idNhac, msgId) {
  *
  * ═══ 🔴 CÂU HỎI ĐÚNG LÀ "HOST CÓ BẢO DỪNG KHÔNG", KHÔNG PHẢI "CÒN ĐANG CHẠY KHÔNG" ═══
  * Bản đầu của hàm này đòi `trang_thai_td === 'dang_theo_duoi'` và suýt gây HỒI QUY:
- * `danhChoLuotNhac()` đóng dòng NGAY khi chạm trần (`HET_LUOT`) rồi caller mới gửi,
+ * `claimReminderTurn()` đóng dòng NGAY khi chạm trần (`HET_LUOT`) rồi caller mới gửi,
  * nên lượt CUỐI CÙNG sẽ bị chính lớp canh này chặn ⇒ trần 10 hoá thành nhắc 9 lần,
  * phá đúng chú thích *"trần 10 nghĩa là nhắc đủ 10 lần rồi mới thôi, không phải 9"*.
  *
@@ -488,10 +488,10 @@ export function ghiBangChungGuiNhac(db, idNhac, msgId) {
  *   · `HOST_DONG`  -> CHẶN. Host bảo xong việc rồi, nhắc nữa là làm phiền người thật.
  *   · `tam_dung`   -> CHẶN. Van xả — thứ DUY NHẤT ngăn nhắc mãi khi không có trần.
  *   · `HET_LUOT`   -> CHO QUA. Đây chính là lượt vừa chạm trần, nó PHẢI được gửi.
- * Dòng đóng bằng `HET_LUOT` từ lượt TRƯỚC không lọt tới đây được: cả `layNhacDenHan`
- * lẫn `layNhacTreoChoModel` đều đòi `trang_thai_td = 'dang_theo_duoi'`.
+ * Dòng đóng bằng `HET_LUOT` từ lượt TRƯỚC không lọt tới đây được: cả `dueFollowUps`
+ * lẫn `stalledModelReminders` đều đòi `trang_thai_td = 'dang_theo_duoi'`.
  */
-export function conDangTheoDuoi(db, id, bayGioMs) {
+export function isStillFollowingUp(db, id, bayGioMs) {
   const d = db
     .prepare(
       `SELECT trang_thai, trang_thai_td, ly_do_dong, tam_dung_toi_ms
@@ -522,18 +522,18 @@ export function conDangTheoDuoi(db, id, bayGioMs) {
  * `changes === 1`. Khác lịch một lần ở chỗ: KHÔNG đổi trạng thái (lời nhắc còn
  * sống để nhắc tiếp), chỉ dời mốc.
  *
- * 🔴 `AND trang_thai = $tt` — nửa còn lại của LUẬT ĐỐI XỨNG với `nhanDangGui`:
- * mọi cột mà `layNhacDenHan()` lọc thì lệnh dành chỗ này cũng phải lọc. Thiếu nó
- * thì ca ngược lại xảy ra: `chayMotNhip` (hoặc `huyLich`) đã lật `trang_thai` trong
- * lúc `chayNhipTheoDuoi` đang `await`, mà lệnh này vẫn cho qua vì nó chỉ nhìn
+ * 🔴 `AND trang_thai = $tt` — nửa còn lại của LUẬT ĐỐI XỨNG với `claimSending`:
+ * mọi cột mà `dueFollowUps()` lọc thì lệnh dành chỗ này cũng phải lọc. Thiếu nó
+ * thì ca ngược lại xảy ra: `runOneTick` (hoặc `cancelSchedule`) đã lật `trang_thai` trong
+ * lúc `runFollowUpTick` đang `await`, mà lệnh này vẫn cho qua vì nó chỉ nhìn
  * `gui_luc_ms` — tức là gửi một lời nhắc thuộc dòng đã bị người khác chốt sổ.
  * Ảnh tĩnh `ds` chụp TRƯỚC nên không thấy; chỉ `WHERE` của chính `UPDATE` này
- * mới nguyên tử. Xem chú thích dài ở `lich_hen.js: nhanDangGui`.
+ * mới nguyên tử. Xem chú thích dài ở `schedule.js: claimSending`.
  *
  * @returns {{ok: boolean, mocKeTiepMs: number|null}}
  */
-export function danhChoLuotNhac(db, dong, bayGioMs) {
-  const ke = mocNhacKeTiep(bayGioMs, {
+export function claimReminderTurn(db, dong, bayGioMs) {
+  const ke = nextReminderAt(bayGioMs, {
     chuKyNgay: dong.chu_ky_ngay,
     chuKyPhut: dong.chu_ky_phut,
     gioNhac: dong.gio_nhac,
@@ -594,7 +594,7 @@ export function danhChoLuotNhac(db, dong, bayGioMs) {
  * @param {{id: string, isHost: boolean, chuKyNgay?: number, gioNhac?: string,
  *          tamDungToiMs?: number|null, bayGioMs?: number}} p
  */
-export function chinhNhip(db, p) {
+export function adjustCadence(db, p) {
   if (!p.isHost) {
     // Người khác trong nhóm nói gì cũng KHÔNG đổi được nhịp — nếu không thì bất
     // kỳ ai bị nhắc cũng tự tắt được lời nhắc của chính mình.
@@ -628,7 +628,7 @@ export function chinhNhip(db, p) {
     cot.push('chu_ky_ngay = $ck'); dat.ck = ck;
   }
   if (p.gioNhac !== undefined && p.gioNhac !== null) {
-    const g = docGioNhac(p.gioNhac);
+    const g = parseReminderHour(p.gioNhac);
     cot.push('gio_nhac = $gn'); dat.gn = `${String(g.gio).padStart(2, '0')}:${String(g.phut).padStart(2, '0')}`;
   }
   if (p.tamDungToiMs !== undefined) {
@@ -648,13 +648,13 @@ export function chinhNhip(db, p) {
   // Dời mốc kế tiếp theo nhịp MỚI ngay, đừng để lượt sau vẫn chạy theo nhịp cũ.
   const moi = db.prepare('SELECT * FROM lich_hen WHERE id = $id').get({ id: dong.id });
   if (moi.trang_thai_td === TRANG_THAI_TD.DANG_THEO_DUOI) {
-    // 🔴 `chuKyPhut` BẮT BUỘC có mặt (A4). Thiếu nó thì `docNhip()` bên trong
-    // `mocNhacKeTiep` thấy `chu_ky_phut === undefined` và rơi xuống NHÁNH NGÀY —
+    // 🔴 `chuKyPhut` BẮT BUỘC có mặt (A4). Thiếu nó thì `parseCadence()` bên trong
+    // `nextReminderAt` thấy `chu_ky_phut === undefined` và rơi xuống NHÁNH NGÀY —
     // tức host bảo "3 phút một lần" thì cột DB ghi đúng 3 nhưng mốc kế tiếp nhảy
     // sang 08:00 hôm sau, mà tool VẪN BÁO OK. Van xả hỏng NGƯỢC với ý người dùng:
     // host siết nhịp lại thì nó tự giãn ra một ngày, và không có dấu hiệu nào.
-    // `taoNhacTheoDuoi()` ở trên CÓ truyền — hai chỗ gọi cùng một hàm phải giống nhau.
-    const ke = mocNhacKeTiep(bayGio, {
+    // `createFollowUp()` ở trên CÓ truyền — hai chỗ gọi cùng một hàm phải giống nhau.
+    const ke = nextReminderAt(bayGio, {
       chuKyNgay: moi.chu_ky_ngay, chuKyPhut: moi.chu_ky_phut, gioNhac: moi.gio_nhac,
       boChuNhat: Number(moi.bo_chu_nhat) === 1, muiGio: moi.mui_gio,
     });
@@ -671,7 +671,7 @@ export function chinhNhip(db, p) {
  * lặng bỏ rơi một việc thật, mà anh không có cách nào biết để cứu. Thấy dấu
  * hiệu xong thì HỎI anh; anh gật thì mới gọi hàm này.
  */
-export function dongNhac(db, { id, nguoiDong, isHost, bayGioMs }) {
+export function closeFollowUp(db, { id, nguoiDong, isHost, bayGioMs }) {
   if (!isHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
   const dong = db.prepare('SELECT * FROM lich_hen WHERE id = $k OR ma_xac_nhan = $k')
     .get({ k: String(id ?? '') });
@@ -705,14 +705,14 @@ export function dongNhac(db, { id, nguoiDong, isHost, bayGioMs }) {
 /**
  * ★ B1 — CÁC LỊCH "ĐÃ DÀNH CHỖ MÀ KHÔNG RÕ ĐÃ GỬI HAY CHƯA".
  *
- * 🔴 VÌ SAO TRẠNG THÁI NÀY TỒN TẠI: `nhanDangGui()` lật `da_len_lich -> da_gui`
+ * 🔴 VÌ SAO TRẠNG THÁI NÀY TỒN TẠI: `claimSending()` lật `da_len_lich -> da_gui`
  * TRƯỚC khi gọi mạng (đúng — gửi trước rồi mới đánh dấu thì daemon chết giữa
  * chừng là gửi lại lần nữa vào nhóm người thật). Nhưng nếu tiến trình chết
- * GIỮA `nhanDangGui()` và `ghiKetQuaGui()` thì dòng nằm lại `da_gui` với
+ * GIỮA `claimSending()` và `writeSendOutcome()` thì dòng nằm lại `da_gui` với
  * `msg_id_da_gui = NULL` và `ly_do_loi = NULL` — KHÔNG có gì phân biệt nó với
  * một lịch đã gửi thành công.
  *
- * ⛔ Chú thích ở `bo_chay.js` nói "host đọc `xem_lich` thấy trạng thái lỗi rồi
+ * ⛔ Chú thích ở `runner.js` nói "host đọc `xem_lich` thấy trạng thái lỗi rồi
  * tự quyết" — nhánh đó CHỈ chạy khi `catch` bắt được. Bị `kill`, máy sập, OOM
  * thì KHÔNG có `catch` nào cả.
  *
@@ -725,7 +725,7 @@ export function dongNhac(db, { id, nguoiDong, isHost, bayGioMs }) {
  *
  * @returns {Array<{id: string, ma: string|null, noiDung: string, laTheoDuoi: boolean, tsCapNhat: string}>}
  */
-export function layLichDanhChoChuaRoGui(db) {
+export function claimedButUnsent(db) {
   try {
     return db
       .prepare(
@@ -756,7 +756,7 @@ export function layLichDanhChoChuaRoGui(db) {
  * Giữ phép dò lại kể cả sau khi đã vá — dòng cũ trong DB vẫn mang trạng thái đó,
  * và nếu bất biến vỡ lần nữa thì phải thấy ngay chứ không đợi anh phát hiện.
  */
-export function layNhacBatBienVo(db) {
+export function brokenInvariantReminders(db) {
   try {
     return db
       .prepare(
@@ -773,7 +773,7 @@ export function layNhacBatBienVo(db) {
 }
 
 /** Danh sách lời nhắc theo đuổi (mặc định: đang chạy). */
-export function xemNhacTheoDuoi(db, { trangThaiTd, soLuong = 50 } = {}) {
+export function listFollowUps(db, { trangThaiTd, soLuong = 50 } = {}) {
   return db
     .prepare(
       `SELECT * FROM lich_hen
@@ -804,7 +804,7 @@ export function xemNhacTheoDuoi(db, { trangThaiTd, soLuong = 50 } = {}) {
  * @param {any} dong dòng lich_hen
  * @param {{bayGioMs?: number, truyVan?: Function}} [t]
  */
-export function layBoiCanhNhac(db, dong, t = {}) {
+export function reminderContext(db, dong, t = {}) {
   const bayGio = t.bayGioMs ?? Date.now();
   const chatId = String(dong.chat_id_dich);
   const uid = dong.nguoi_phu_trach ? String(dong.nguoi_phu_trach) : null;
@@ -858,7 +858,7 @@ export function layBoiCanhNhac(db, dong, t = {}) {
  * thiếu, thì hễ Claude không nối được là lời nhắc BIẾN MẤT ÂM THẦM — mà cả tính
  * năng này sinh ra để chống đúng chuyện "việc rơi không ai biết".
  */
-export function cauNhacDuPhong(dong, boiCanh) {
+export function fallbackReminderText(dong, boiCanh) {
   const p = [];
   if (boiCanh.soLanDaNhac === 0) p.push('Em nhắc lần đầu:');
   else p.push(`Em nhắc lần ${boiCanh.soLanDaNhac + 1}`
@@ -891,15 +891,15 @@ export function cauNhacDuPhong(dong, boiCanh) {
  * @param {{bayGioMs?: number}} [t]
  * @returns {{soDong: number, duongDan: string}|null}
  */
-/** Mô tả nhịp bằng lời — đi qua `docNhip()`, nguồn sự thật DUY NHẤT về nhịp. */
+/** Mô tả nhịp bằng lời — đi qua `parseCadence()`, nguồn sự thật DUY NHẤT về nhịp. */
 function _moTaNhip(d) {
-  const nhip = docNhip(d);
+  const nhip = parseCadence(d);
   if (nhip.laPhut) return `nhịp **${nhip.phut} phút** một lần (tính từ lần nhắc trước)`;
   return `nhịp **${nhip.ngay} ngày** lúc **${d.gio_nhac ?? NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}**`
     + (Number(d.bo_chu_nhat) === 1 ? ' (chừa CN)' : '');
 }
 
-export function sinhSoNhac(db, duongDan, t = {}) {
+export function writeReminderBook(db, duongDan, t = {}) {
   const bayGio = t.bayGioMs ?? Date.now();
   let ds;
   try {
@@ -920,7 +920,7 @@ export function sinhSoNhac(db, duongDan, t = {}) {
     '',
   ];
 
-  const treo = layLichDanhChoChuaRoGui(db);
+  const treo = claimedButUnsent(db);
   if (treo.length) {
     dong.push(
       `## 🔴 Đã dành chỗ, KHÔNG RÕ đã gửi hay chưa (${treo.length})`, '',
@@ -942,7 +942,7 @@ export function sinhSoNhac(db, duongDan, t = {}) {
     const tam = d.trang_thai_td === TRANG_THAI_TD.TAM_DUNG;
     dong.push(
       `- **${d.noi_dung}**`,
-      // 🔴 A10 — ĐỌC NHỊP QUA `docNhip()`, KHÔNG hardcode `chu_ky_ngay`.
+      // 🔴 A10 — ĐỌC NHỊP QUA `parseCadence()`, KHÔNG hardcode `chu_ky_ngay`.
       // Bản cũ luôn in "nhịp N ngày lúc HH:MM" kể cả khi nhịp là PHÚT, và không
       // bao giờ in `tran_so_lan`. File thật sinh lúc 00:02 ngày 21/08 ghi
       // "nhịp 1 ngày lúc 08:00" trong khi DB là 3 PHÚT / trần 10 lần.

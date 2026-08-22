@@ -30,8 +30,8 @@ import {
   HUONG_TRA_LOI, MA_LOI, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC,
   TRANG_THAI_TD, PHIEN_BAN_SCHEMA,
 } from '../src/lib/hang_so.js';
-import { chotLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
 import { registerTools } from '../src/mcp/tools.js';
 
 const NHOM = '9990000000001';
@@ -102,12 +102,12 @@ function demCongGhi(db, suKien) {
 test('★★★ T7-NGHIEM-THU: diễn lại NGUYÊN VĂN ca 08:03 — nói mà không ghi thì KHÔNG gửi được', async () => {
   const db = dbTam();
   // Lời nhắc theo đuổi vụ "chốt địa điểm" đang chạy — đúng bối cảnh sáng 21/08.
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, ma: 'DIADIEM',
   });
-  chotLich(db, { id: 'DIADIEM', ma: 'DIADIEM', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'DIADIEM', ma: 'DIADIEM', nguoiDat: HOST });
 
   const req = phien(db, { noiDung: CAU_0803 });
   const { goi, daGui } = dungTool(db);
@@ -147,12 +147,12 @@ test('★★★ T7-NGHIEM-THU: diễn lại NGUYÊN VĂN ca 08:03 — nói mà k
 
 test('★★★ T7-NGHIEM-THU-3: dong_nhac -> mo_lai_nhac -> xem_nhac thấy lại dang_theo_duoi', async () => {
   const db = dbTam();
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'câu đọc lại',
     nguoiDat: HOST, chatIdDat: NHOM, ma: 'DIADIEM',
   });
-  chotLich(db, { id: 'DIADIEM', ma: 'DIADIEM', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'DIADIEM', ma: 'DIADIEM', nguoiDat: HOST });
   const req = phien(db, { noiDung: 'xong rồi nhé' });
   const { goi } = dungTool(db);
 
@@ -343,16 +343,16 @@ test('★★★ B5 cue lấy từ CONFIG, không phải hằng số trong code',
 });
 
 test('★★★ B6 lượt NHẮC không bị cổng chặn (nội dung do CODE dựng, không phải host gõ)', async () => {
-  // Câu tóm tắt lượt nhắc do `bo_chay.js` dựng và nó hay chứa đúng chữ "chốt".
+  // Câu tóm tắt lượt nhắc do `runner.js` dựng và nó hay chứa đúng chữ "chốt".
   // Chặn ở đây là lời nhắc không bao giờ gửi được — hỏng câm đúng thứ tính năng
   // theo đuổi sinh ra để chống.
   const db = dbTam();
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'chốt giúp địa điểm',
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'x',
     nguoiDat: HOST, chatIdDat: NHOM, ma: 'N1',
   });
-  chotLich(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
   const d = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N1'").get();
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), d.id);
   const req = phien(db, { noiDung: '[LỜI NHẮC] chốt lịch giúp em', msgId: `nhac:${d.id}:0` });
@@ -440,12 +440,12 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
 // ═══════════════════════════════════════════════════════════════════════
 
 function nhacDaDong(db, ma = 'N1', them = {}) {
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: `việc ${ma}`,
     dienGiaiGoc: 'nhắc tới khi xong', dienGiaiXacNhan: 'x',
     nguoiDat: HOST, chatIdDat: NHOM, ma, ...them,
   });
-  chotLich(db, { id: ma, ma, nguoiDat: HOST });
+  confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
 }
 
@@ -516,11 +516,11 @@ test('★★★ C5 bỏ trống id -> lấy lời nhắc VỪA ĐÓNG của ĐÚ
   nhacDaDong(db, 'N-A');
   // Một lời nhắc đã đóng của nhóm KHÁC, đóng SAU -> nếu thiếu bộ lọc nhóm thì
   // nó sẽ bị chọn, tức đứng ở nhóm A mở được lời nhắc của nhóm B.
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     chatIdDich: '999', loaiDich: 'GROUP', noiDung: 'việc nhóm B',
     dienGiaiGoc: 'x', dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: '999', ma: 'N-B',
   });
-  chotLich(db, { id: 'N-B', ma: 'N-B', nguoiDat: HOST });
+  confirmSchedule(db, { id: 'N-B', ma: 'N-B', nguoiDat: HOST });
 
   const req = phien(db, { noiDung: 'xong' });
   const { goi } = dungTool(db);

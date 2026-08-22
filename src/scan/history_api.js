@@ -31,7 +31,7 @@ import {
 import { toId } from '../lib/ids.js';
 
 /** Tên API tự đăng ký. Đặt tiền tố `ztl` để không bao giờ đụng tên của zca-js. */
-export const TEN_API_LICH_SU = 'ztlLayLichSuNhom';
+export const HISTORY_API_NAME = 'ztlLayLichSuNhom';
 
 function _canhBao(msg) {
   process.stderr.write(`[scan/api_lichsu] ${msg}\n`);
@@ -49,7 +49,7 @@ function _canhBao(msg) {
  * @param {string} groupId
  * @returns {string}
  */
-export function bocTienToG(groupId) {
+export function stripGPrefix(groupId) {
   const s = String(groupId ?? '').trim();
   return s.startsWith('g') ? s.slice(1) : s;
 }
@@ -92,7 +92,7 @@ export function bocTienToG(groupId) {
  * @param {any} ctx
  * @returns {string|null}
  */
-export function layBaseCloudMessage(api, ctx) {
+export function cloudMessageBase(api, ctx) {
   return (
     ctx?.loginInfo?.zpw_service_map_v3?.group_cloud_message?.[0]
     // Thư viện tự dùng `api.zpwServiceMap` ở mọi API của nó -> nguồn đáng tin
@@ -103,8 +103,8 @@ export function layBaseCloudMessage(api, ctx) {
 }
 
 /** Phiên đã có đủ thứ cần để gọi `getrecentv2` chưa. */
-export function phienSanSang(api, ctx) {
-  return Boolean(layBaseCloudMessage(api, ctx));
+export function sessionReady(api, ctx) {
+  return Boolean(cloudMessageBase(api, ctx));
 }
 
 /**
@@ -123,9 +123,9 @@ export function phienSanSang(api, ctx) {
  *
  * @param {{groupId: string, conTro: any, soLuong: any, imei: any, bienThe?: string}} p
  */
-export function dungThamSo(p) {
+export function buildApiParams(p) {
   const t = {
-    groupId: bocTienToG(p.groupId),
+    groupId: stripGPrefix(p.groupId),
     globalMsgId: p.conTro === null || p.conTro === undefined ? 0 : String(p.conTro),
     count: Math.min(GIOI_HAN_QUET.SO_TIN_MOI_TRANG, Math.max(1, Number(p.soLuong) || 1)),
     msgIds: [],
@@ -172,7 +172,7 @@ export function dungThamSo(p) {
  * tiến trình này". Đó mới là định nghĩa đúng của "chạm mạng".
  * ═══════════════════════════════════════════════════════════════════════
  */
-export function taoSoChanDoan() {
+export function createDiagnosticLog() {
   return {
     soGoiMang: 0,       // request đã BẮN ĐI (kể cả không nối được)
     soPhanHoi: 0,       // request có phản hồi HTTP quay về
@@ -196,7 +196,7 @@ export function taoSoChanDoan() {
  * @param {any} res
  * @param {(r:any)=>Promise<string>} [doc]
  */
-export async function tomTatThanPhanHoi(res, doc) {
+export async function summarizeResponseBody(res, doc) {
   try {
     const chu = String((doc ? await doc(res) : await res.text()) ?? '');
     let j = null;
@@ -234,7 +234,7 @@ export async function tomTatThanPhanHoi(res, doc) {
  * Lỗi KHÔNG có `message` (object trần) -> `JSON.stringify` cả nó ra, đừng để
  * rơi về `"[object Object]"`.
  */
-export function moTaLoi(e) {
+export function describeError(e) {
   const mo = { loi: null, loi_ten: null, loi_ma: null, loi_json: null, stack_rut_gon: null };
   const msg = e?.message;
   mo.loi_ten = e?.name ?? (e === null ? 'null' : typeof e);
@@ -271,7 +271,7 @@ export function moTaLoi(e) {
  *          loiMa?: any, thanPhanHoi?: any}} bc
  * @returns {string} một giá trị của NHOM_LOI_A0
  */
-export function phanNhomLoi(bc = {}) {
+export function classifyErrorGroup(bc = {}) {
   if ((Number(bc.soGoiMang) || 0) === 0) return NHOM_LOI_A0.CHUA_CHAM_MANG;
   if (bc.loiKetNoi) return NHOM_LOI_A0.KHONG_KET_NOI_DUOC;
 
@@ -289,7 +289,7 @@ export function phanNhomLoi(bc = {}) {
 }
 
 /** Câu giải thích đi kèm `nhom_loi`, để không ai phải tra nghĩa ở chỗ khác. */
-export function yNghiaNhomLoi(nhom) {
+export function errorGroupMeaning(nhom) {
   switch (nhom) {
     case NHOM_LOI_A0.CHUA_CHAM_MANG:
       return 'Chưa có request nào rời khỏi tiến trình -> KHÔNG nói gì được về endpoint. '
@@ -306,7 +306,7 @@ export function yNghiaNhomLoi(nhom) {
       return 'Lỗi 5xx phía Zalo -> chạy lại lượt sau, chưa kết luận gì.';
     case NHOM_LOI_A0.THAM_SO_SAI_DA_CHUNG_MINH:
       return '🟢 ĐÃ CHỨNG MINH LÀ SAI THAM SỐ, không phải đoán: bộ tham số chuẩn hỏng '
-        + 'nhưng lượt biến thể LẤY ĐƯỢC TIN THẬT. Sửa `dungThamSo()` theo `bien_the` rồi '
+        + 'nhưng lượt biến thể LẤY ĐƯỢC TIN THẬT. Sửa `buildApiParams()` theo `bien_the` rồi '
         + 'chạy lại A0. PHƯƠNG ÁN A VẪN SỐNG.';
     case NHOM_LOI_A0.ENDPOINT_SONG_LOI_GIAO_THUC:
       return '✅ ENDPOINT SỐNG (HTTP OK, Zalo trả đúng khuôn giao thức của nó, chỉ kèm '
@@ -317,15 +317,15 @@ export function yNghiaNhomLoi(nhom) {
   }
 }
 
-export function dangKyApiLichSu(api) {
+export function registerHistoryApi(api) {
   if (!api || typeof api.custom !== 'function') {
     _canhBao('api.custom không tồn tại -> không đăng ký được (zca-js quá cũ?)');
     return false;
   }
-  if (typeof api[TEN_API_LICH_SU] === 'function') return false;
+  if (typeof api[HISTORY_API_NAME] === 'function') return false;
 
   try {
-    api.custom(TEN_API_LICH_SU, async ({ ctx, utils, props }) => {
+    api.custom(HISTORY_API_NAME, async ({ ctx, utils, props }) => {
       const {
         groupId, conTro = null, soLuong = GIOI_HAN_QUET.SO_TIN_MOI_TRANG,
         so = null, bienThe = BIEN_THE_THAM_SO.CHUAN,
@@ -334,7 +334,7 @@ export function dangKyApiLichSu(api) {
       // `api` lấy từ closure: callback của `api.custom()` CHỈ nhận
       // {ctx, utils, props} — không có `api`. Đây chính là lý do bản đầu quay
       // sang ctx rồi đọc nhầm thuộc tính.
-      const base = layBaseCloudMessage(api, ctx);
+      const base = cloudMessageBase(api, ctx);
       if (!base) {
         // Không bịa URL. Gọi tiếp chỉ tạo request rác vào một host bịa ra.
         throw new Error(
@@ -344,7 +344,7 @@ export function dangKyApiLichSu(api) {
         );
       }
 
-      const thamSo = dungThamSo({ groupId, conTro, soLuong, imei: ctx.imei, bienThe });
+      const thamSo = buildApiParams({ groupId, conTro, soLuong, imei: ctx.imei, bienThe });
 
       const mahoa = utils.encodeAES(JSON.stringify(thamSo));
       if (!mahoa) throw new Error('encodeAES trả rỗng — không mã hoá được tham số.');
@@ -397,13 +397,13 @@ export function dangKyApiLichSu(api) {
       } catch (e) {
         // ★ CHỖ NÀY LÀ CẢ ĐIỂM MẤU CHỐT: Zalo trả HTTP 200 kèm error_code trong
         // THÂN, nên chỉ nhìn mã HTTP là không thấy gì. Đọc thân từ bản sao.
-        if (so && ban) so.thanPhanHoi = await tomTatThanPhanHoi(ban);
+        if (so && ban) so.thanPhanHoi = await summarizeResponseBody(ban);
         throw e;
       }
     });
     return true;
   } catch (e) {
-    _canhBao(`đăng ký ${TEN_API_LICH_SU} thất bại: ${e?.message ?? e}`);
+    _canhBao(`đăng ký ${HISTORY_API_NAME} thất bại: ${e?.message ?? e}`);
     return false;
   }
 }
@@ -428,7 +428,7 @@ export function dangKyApiLichSu(api) {
  * @returns {Promise<{tin: any[], soGoi: number, cutTrang: boolean, minMsgId: string|null,
  *                    maxMsgId: string|null, minMsgIdTrangCuoiTron: string|null}>}
  */
-export async function layLichSuNhom(api, groupId, tuyChon = {}) {
+export async function fetchGroupHistory(api, groupId, tuyChon = {}) {
   const tranGoi = tuyChon.tranGoi ?? GIOI_HAN_QUET.TRAN_MOI_LAN_QUET;
   const nghiMs = tuyChon.nghiMs ?? GIOI_HAN_QUET.NGHI_GIUA_2_REQUEST_MS;
   const nghi = tuyChon.nghi ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -439,8 +439,8 @@ export async function layLichSuNhom(api, groupId, tuyChon = {}) {
   // CON_TRO_THAT bơm vào đây một msg_id THẬT để thử thay cho số 0.
   const conTroDau = tuyChon.conTroDau ?? null;
 
-  if (typeof api?.[TEN_API_LICH_SU] !== 'function') {
-    throw new Error(`Chưa đăng ký ${TEN_API_LICH_SU} — gọi dangKyApiLichSu(api) trước.`);
+  if (typeof api?.[HISTORY_API_NAME] !== 'function') {
+    throw new Error(`Chưa đăng ký ${HISTORY_API_NAME} — gọi registerHistoryApi(api) trước.`);
   }
 
   /** @type {Map<string, any>} khử trùng NGAY trong vòng lặp, không để tới cuối */
@@ -459,7 +459,7 @@ export async function layLichSuNhom(api, groupId, tuyChon = {}) {
 
     let d;
     try {
-      d = await api[TEN_API_LICH_SU]({ groupId, conTro, so, bienThe });
+      d = await api[HISTORY_API_NAME]({ groupId, conTro, so, bienThe });
       soGoi += 1;
     } catch (e) {
       // 🔴 SỬA SAI 20/08/2026 — bản cũ ghi `e.soGoi = soGoi + 1`, tức ĐẾM SỐ LẦN

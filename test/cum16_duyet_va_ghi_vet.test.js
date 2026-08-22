@@ -33,8 +33,8 @@ import test from 'node:test';
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation, readActionTrail, writeActionTrail } from '../src/store/write.js';
 import { _xoaPhamViChoTest } from '../src/store/query.js';
-import { chotLich } from '../src/lich/lich_hen.js';
-import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
+import { confirmSchedule } from '../src/lich/schedule.js';
+import { createFollowUp } from '../src/lich/follow_up.js';
 import {
   TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_DUYET,
   TRANG_THAI_DUYET,
@@ -84,12 +84,12 @@ function dbCoNhac() {
   writeMessage(db, tin({ msgId: 'cu1' }));
   writeMessage(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh' }));
   const id = 'NHAC1';
-  taoNhacTheoDuoi(db, {
+  createFollowUp(db, {
     id, ma: id, chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'gửi báo giá cho khách', dienGiaiGoc: 'nhắc mỗi ngày', dienGiaiXacNhan: 'ok',
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: PHU_TRACH,
   });
-  chotLich(db, { id, ma: id, nguoiDat: HOST });
+  confirmSchedule(db, { id, ma: id, nguoiDat: HOST });
   return { db, id, duongDan };
 }
 

@@ -2,7 +2,7 @@
  * v3 — test DÒ TIN THU HỒI BẰNG ĐỐI CHIẾU.
  *
  * Chạy HOÀN TOÀN KHÔNG CẦN ZALO, không cần mạng: `api` là đồ giả, thuật toán
- * lõi (`phanLoai`, `chotBien`) là hàm thuần.
+ * lõi (`classifyDrift`, `lockBand`) là hàm thuần.
  *
  * 🔴 Trọng tâm bộ test này là CHỐNG VU OAN. Kết luận nhầm "người này đã thu
  * hồi tin" nặng hơn hẳn bỏ sót, nên phần lớn bài dưới đây kiểm đúng một thứ:
@@ -22,15 +22,15 @@ import {
 } from '../src/lib/hang_so.js';
 
 import {
-  bocTienToG, dungThamSo, layLichSuNhom, dangKyApiLichSu, layBaseCloudMessage,
-  moTaLoi, phanNhomLoi, phienSanSang, TEN_API_LICH_SU, tomTatThanPhanHoi,
-  yNghiaNhomLoi,
-} from '../src/scan/api_lichsu.js';
+  stripGPrefix, buildApiParams, fetchGroupHistory, registerHistoryApi, cloudMessageBase,
+  describeError, classifyErrorGroup, sessionReady, HISTORY_API_NAME, summarizeResponseBody,
+  errorGroupMeaning,
+} from '../src/scan/history_api.js';
 import {
-  apKetQua, chotBien, ghiNhatKyQuet, nhomCanQuet, phanLoai, quetMotLuot,
-  soGoiTrongNgay, tinTrongCuaSo, trongBien, trongGioYen, batQuet,
-} from '../src/scan/doi_chieu.js';
-import { cheTinMau, batA0, chayA0, choPhienSanSang } from '../src/scan/probe_a0.js';
+  applyScanResult, lockBand, writeScanLog, groupsToScan, classifyDrift, runScanPass,
+  callsToday, messagesInWindow, withinBand, inQuietHours, isScanEnabled,
+} from '../src/scan/drift_check.js';
+import { maskSampleMessage, batA0, chayA0, waitForSession } from '../src/scan/probe_a0.js';
 
 const RAC = [];
 function dbTam() {
@@ -62,21 +62,21 @@ function them(db, msgId, tsZalo, v = {}) {
 
 test('A1 ★ so msg_id bằng BigInt, KHÔNG bằng chuỗi (chuỗi thì "9" > "10")', () => {
   // Nếu so chuỗi, '9' > '10' và '9' sẽ bị coi là NGOÀI biên [1, 10].
-  assert.equal(trongBien('9', '1', '10'), true);
+  assert.equal(withinBand('9', '1', '10'), true);
   // Vượt Number.MAX_SAFE_INTEGER: ép Number là mất chính xác ÂM THẦM.
   const lon = '9007199254740993';      // 2^53 + 1
-  assert.equal(trongBien(lon, '9007199254740992', '9007199254740994'), true);
-  assert.equal(trongBien('9007199254740991', lon, '9007199254740995'), false);
+  assert.equal(withinBand(lon, '9007199254740992', '9007199254740994'), true);
+  assert.equal(withinBand('9007199254740991', lon, '9007199254740995'), false);
 });
 
 test('A2 id không ép được BigInt -> KHÔNG kết luận (fail-closed)', () => {
-  assert.equal(trongBien('abc', '1', '10'), false);
+  assert.equal(withinBand('abc', '1', '10'), false);
 });
 
-test('A3 bocTienToG bỏ đúng một ký tự "g" đầu', () => {
-  assert.equal(bocTienToG('g123'), '123');
-  assert.equal(bocTienToG('123'), '123');
-  assert.equal(bocTienToG('gg1'), 'g1', 'chỉ bỏ MỘT ký tự, không tham lam');
+test('A3 stripGPrefix bỏ đúng một ký tự "g" đầu', () => {
+  assert.equal(stripGPrefix('g123'), '123');
+  assert.equal(stripGPrefix('123'), '123');
+  assert.equal(stripGPrefix('gg1'), 'g1', 'chỉ bỏ MỘT ký tự, không tham lam');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -84,7 +84,7 @@ test('A3 bocTienToG bỏ đúng một ký tự "g" đầu', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('B1 ★ tin có trong DB, trong biên, vắng ở Zalo -> NGHI bị thu hồi', () => {
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: ['100', '300'],
     dsDb: [{ msgId: '100', tsZalo: GIO }, { msgId: '200', tsZalo: GIO }, { msgId: '300', tsZalo: GIO }],
     bienMin: '100', bienMax: '300', bayGioMs: GIO + 3_600_000,
@@ -96,7 +96,7 @@ test('B2 ★ KHOẢNG TRỐNG msg_id KHÔNG phải dấu hiệu thu hồi', () =
   // Đây là cái sai gốc phải chặn: msg_id là đồng hồ toàn cục ~58 đơn vị/ms,
   // hai tin cách nhau 2 giây đã có ~116.000 id trống. Nếu ai đó cài "thiếu id
   // = thu hồi" thì bài này đỏ.
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: ['1000000', '1116000'],
     dsDb: [{ msgId: '1000000', tsZalo: GIO }, { msgId: '1116000', tsZalo: GIO }],
     bienMin: '1000000', bienMax: '1116000', bayGioMs: GIO + 3_600_000,
@@ -107,7 +107,7 @@ test('B2 ★ KHOẢNG TRỐNG msg_id KHÔNG phải dấu hiệu thu hồi', () =
 test('B3 ★ Zalo trả RỖNG -> tuyệt đối KHÔNG kết luận gì (chống vu oan cả nhóm)', () => {
   // Một lời gọi mạng hỏng trả danh sách rỗng. Nếu coi rỗng là "hiện trạng" thì
   // CẢ NHÓM bị đánh dấu thu hồi trong một lượt.
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: [],
     dsDb: [{ msgId: '1', tsZalo: GIO }, { msgId: '2', tsZalo: GIO }],
     bienMin: null, bienMax: null, bayGioMs: GIO + 3_600_000,
@@ -117,7 +117,7 @@ test('B3 ★ Zalo trả RỖNG -> tuyệt đối KHÔNG kết luận gì (chốn
 });
 
 test('B4 tin NGOÀI biên -> không kết luận (ca ③)', () => {
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: ['200', '300'],
     dsDb: [{ msgId: '100', tsZalo: GIO }, { msgId: '250', tsZalo: GIO }],
     bienMin: '200', bienMax: '300', bayGioMs: GIO + 3_600_000,
@@ -127,7 +127,7 @@ test('B4 tin NGOÀI biên -> không kết luận (ca ③)', () => {
 });
 
 test('B5 Zalo có mà DB không -> BACKFILL (ca ②, phần thưởng thêm)', () => {
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: ['100', '200'],
     dsDb: [{ msgId: '100', tsZalo: GIO }],
     bienMin: '100', bienMax: '200', bayGioMs: GIO + 3_600_000,
@@ -137,7 +137,7 @@ test('B5 Zalo có mà DB không -> BACKFILL (ca ②, phần thưởng thêm)', (
 
 test('B6 ★ CHỐT 3: tin mới < 60 giây -> BỎ QUA (có thể đang đồng bộ)', () => {
   const bayGio = GIO + 10_000;
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: ['100'],
     dsDb: [{ msgId: '100', tsZalo: GIO }, { msgId: '150', tsZalo: bayGio - 5_000 }],
     bienMin: '100', bienMax: '200', bayGioMs: bayGio,
@@ -146,7 +146,7 @@ test('B6 ★ CHỐT 3: tin mới < 60 giây -> BỎ QUA (có thể đang đồng
 });
 
 test('B7 ★ CHỐT 4: bản ghi nguồn SU_KIEN KHÔNG bị đối chiếu đụng vào', () => {
-  const kq = phanLoai({
+  const kq = classifyDrift({
     zIds: [],
     dsDb: [{ msgId: '150', tsZalo: GIO, nguonHienTai: NGUON_THU_HOI.SU_KIEN }],
     bienMin: '100', bienMax: '200', bayGioMs: GIO + 3_600_000,
@@ -159,14 +159,14 @@ test('B7 ★ CHỐT 4: bản ghi nguồn SU_KIEN KHÔNG bị đối chiếu đ�
 // ═══════════════════════════════════════════════════════════════════════
 
 test('C1 không cắt trang -> giữ nguyên biên', () => {
-  const b = chotBien({ cutTrang: false, minMsgId: '10', maxMsgId: '90', minMsgIdTrangCuoiTron: '10' });
+  const b = lockBand({ cutTrang: false, minMsgId: '10', maxMsgId: '90', minMsgIdTrangCuoiTron: '10' });
   assert.deepEqual([b.bienMin, b.bienMax, b.daThuHep], ['10', '90', false]);
 });
 
 test('C1b ★ CẮT TRANG -> THU HẸP biên về trang cuối lấy trọn', () => {
   // Không thu hẹp thì những tin cũ hơn phần đã đọc sẽ "vắng mặt" chỉ vì ta
   // chưa đọc tới -> vu oan đúng nhóm tin đó.
-  const b = chotBien({ cutTrang: true, minMsgId: '10', maxMsgId: '90', minMsgIdTrangCuoiTron: '50' });
+  const b = lockBand({ cutTrang: true, minMsgId: '10', maxMsgId: '90', minMsgIdTrangCuoiTron: '50' });
   assert.deepEqual([b.bienMin, b.bienMax, b.daThuHep], ['50', '90', true]);
 });
 
@@ -176,7 +176,7 @@ test('C1b ★ CẮT TRANG -> THU HẸP biên về trang cuối lấy trọn', ()
 
 test('D1 ★ vắng LẦN ĐẦU -> chỉ NGHI_NGO, CHƯA đánh dấu da_thu_hoi', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
-  const kq = apKetQua(db, {
+  const kq = applyScanResult(db, {
     chatId: NHOM, vangMat: ['200'], hienDien: [],
     bayGioIso: new Date(GIO).toISOString(), bayGioMs: GIO, quetTruocMs: GIO - 1000,
   });
@@ -191,8 +191,8 @@ test('D1 ★ vắng LẦN ĐẦU -> chỉ NGHI_NGO, CHƯA đánh dấu da_thu_ho
 test('D2 ★ vắng LẦN HAI liên tiếp -> mới nâng lên SUY_RA + ghi sự kiện', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   const chung = { chatId: NHOM, vangMat: ['200'], hienDien: [], bayGioMs: GIO, quetTruocMs: GIO - 1000 };
-  apKetQua(db, { ...chung, bayGioIso: new Date(GIO).toISOString() });
-  const kq = apKetQua(db, { ...chung, bayGioIso: new Date(GIO + 1000).toISOString() });
+  applyScanResult(db, { ...chung, bayGioIso: new Date(GIO).toISOString() });
+  const kq = applyScanResult(db, { ...chung, bayGioIso: new Date(GIO + 1000).toISOString() });
   const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
   assert.equal(kq.soXacNhan, 1);
   assert.equal(Number(r.da_thu_hoi), 1);
@@ -211,11 +211,11 @@ test('D3 ★ xuất hiện LẠI -> XOÁ dấu nghi ngờ, không cộng dồn q
   // Một lần mạng hỏng làm tin "vắng"; lượt sau thấy lại thì phải quên đi. Không
   // xoá thì bộ đếm cứ cộng dồn và cuối cùng vu oan một tin hoàn toàn bình thường.
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
-  apKetQua(db, {
+  applyScanResult(db, {
     chatId: NHOM, vangMat: ['200'], hienDien: [],
     bayGioIso: new Date(GIO).toISOString(), bayGioMs: GIO, quetTruocMs: null,
   });
-  const kq = apKetQua(db, {
+  const kq = applyScanResult(db, {
     chatId: NHOM, vangMat: [], hienDien: ['200'],
     bayGioIso: new Date(GIO + 1).toISOString(), bayGioMs: GIO + 1, quetTruocMs: GIO,
   });
@@ -226,12 +226,12 @@ test('D3 ★ xuất hiện LẠI -> XOÁ dấu nghi ngờ, không cộng dồn q
   closeDb(db);
 });
 
-test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì apKetQua không đụng, kể cả bị ép', () => {
+test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì applyScanResult không đụng, kể cả bị ép', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   db.exec("UPDATE tin_nhan SET da_thu_hoi=1, thu_hoi_nguon='SU_KIEN', thu_hoi_do_tin_cay='CHAC_CHAN' WHERE msg_id='200'");
   const chung = { chatId: NHOM, vangMat: ['200'], hienDien: [], bayGioMs: GIO, quetTruocMs: null };
-  apKetQua(db, { ...chung, bayGioIso: 'x' });
-  apKetQua(db, { ...chung, bayGioIso: 'y' });
+  applyScanResult(db, { ...chung, bayGioIso: 'x' });
+  applyScanResult(db, { ...chung, bayGioIso: 'y' });
   const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
   assert.equal(r.thu_hoi_nguon, NGUON_THU_HOI.SU_KIEN, 'KHÔNG được hạ cấp xuống DOI_CHIEU');
   assert.equal(r.thu_hoi_do_tin_cay, 'CHAC_CHAN');
@@ -245,8 +245,8 @@ test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì apKetQua không đụng, kể c�
 test('E1 ★ query trả kèm nguồn: DOI_CHIEU KHÔNG được nói một mốc giờ', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   const chung = { chatId: NHOM, vangMat: ['200'], hienDien: [], bayGioMs: GIO, quetTruocMs: GIO - 60_000 };
-  apKetQua(db, { ...chung, bayGioIso: 'a' });
-  apKetQua(db, { ...chung, bayGioIso: 'b' });
+  applyScanResult(db, { ...chung, bayGioIso: 'a' });
+  applyScanResult(db, { ...chung, bayGioIso: 'b' });
 
   const kq = queryHistory(db, { chatId: NHOM });
   const r = kq.rows.find((x) => String(x.msg_id) === '200');
@@ -275,9 +275,9 @@ test('E2 nguồn SU_KIEN thì được nói mốc chính xác', () => {
 test('F1 ★ nhóm KHÔNG có tin trong cửa sổ -> không nằm trong danh sách quét (0 request)', () => {
   const db = dbTam(); moNghe(db);
   them(db, '1', GIO - 10_000_000);              // rất cũ
-  assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), []);
+  assert.deepEqual(groupsToScan(db, GIO - 4_500_000), []);
   them(db, '2', GIO - 1000);                    // vừa có tin
-  assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), [NHOM]);
+  assert.deepEqual(groupsToScan(db, GIO - 4_500_000), [NHOM]);
   closeDb(db);
 });
 
@@ -285,30 +285,30 @@ test('F1b nhóm KHÔNG được nghe thì không quét, dù có tin', () => {
   const db = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'lạ', duocNghe: false });
   them(db, '2', GIO);
-  assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), []);
+  assert.deepEqual(groupsToScan(db, GIO - 4_500_000), []);
   closeDb(db);
 });
 
 test('F2 giờ yên [0,6) chặn quét', () => {
   const nuaDem = new Date(2026, 7, 20, 3, 0, 0).getTime();
   const chieu = new Date(2026, 7, 20, 15, 0, 0).getTime();
-  assert.equal(trongGioYen(nuaDem), true);
-  assert.equal(trongGioYen(chieu), false);
+  assert.equal(inQuietHours(nuaDem), true);
+  assert.equal(inQuietHours(chieu), false);
 });
 
 test('F3 ★ chạm trần ngày -> KHÔNG quét và PHẢI báo host (không im lặng chết)', async () => {
   const db = dbTam(); moNghe(db); them(db, '2', GIO);
   for (let i = 0; i < 3; i += 1) {
-    ghiNhatKyQuet(db, {
+    writeScanLog(db, {
       chatId: NHOM, tsBatDau: new Date().toISOString(), tsKetThuc: new Date().toISOString(),
       cuaSoTuMs: 0, cuaSoDenMs: 0, bienMin: null, bienMax: null,
       soTinZalo: 0, soTinDb: 0, soNghiNgo: 0, soXacNhan: 0, soBackfill: 0,
       soGoiMang: 50, ketQua: 'OK',
     });
   }
-  assert.equal(soGoiTrongNgay(db, Date.now()), 150);
+  assert.equal(callsToday(db, Date.now()), 150);
   const baoDuoc = [];
-  const kq = await quetMotLuot({
+  const kq = await runScanPass({
     db, api: {}, bayGioMs: new Date().setHours(12, 0, 0, 0),
     tranNgay: 100, notifyHost: (s) => baoDuoc.push(s),
   });
@@ -324,8 +324,8 @@ test('F4 ★ lỗi mạng -> ghi LOI_MANG, KHÔNG kết luận tin nào bị thu
   // vào danh sách quét, không có dòng nhật ký nào để kiểm).
   const bayGio = new Date().setHours(12, 0, 0, 0);
   them(db, '200', bayGio - 100_000);
-  const api = { custom() {}, [TEN_API_LICH_SU]: async () => { throw new Error('mạng hỏng'); } };
-  const kq = await quetMotLuot({ db, api, bayGioMs: bayGio, nghi: async () => {} });
+  const api = { custom() {}, [HISTORY_API_NAME]: async () => { throw new Error('mạng hỏng'); } };
+  const kq = await runScanPass({ db, api, bayGioMs: bayGio, nghi: async () => {} });
   const nk = db.prepare('SELECT * FROM doi_chieu_lich_su ORDER BY id DESC LIMIT 1').get();
   assert.equal(nk.ket_qua, 'LOI_MANG');
   assert.equal(Number(db.prepare('SELECT count(*) c FROM tin_nhan WHERE da_thu_hoi=1').get().c), 0);
@@ -341,12 +341,12 @@ test('G1 ★ hasMore mãi mãi + con trỏ LẶP LẠI -> dừng, không lặp v
   let goi = 0;
   const api = {
     custom() {},
-    [TEN_API_LICH_SU]: async () => {
+    [HISTORY_API_NAME]: async () => {
       goi += 1;
       return { groupMsgs: [{ msgId: '1' }], hasMore: true, lastMsgId: '99' };  // con trỏ ĐỨNG YÊN
     },
   };
-  const kq = await layLichSuNhom(api, NHOM, { nghi: async () => {} });
+  const kq = await fetchGroupHistory(api, NHOM, { nghi: async () => {} });
   assert.ok(goi <= 3, `phải dừng sớm, đã gọi ${goi} lần`);
   assert.equal(kq.tin.length, 1, 'khử trùng theo msgId ngay trong vòng lặp');
   closeDb;
@@ -356,23 +356,23 @@ test('G2 ★ trần request chạm -> cutTrang = true (để tầng trên thu h�
   let n = 0;
   const api = {
     custom() {},
-    [TEN_API_LICH_SU]: async () => {
+    [HISTORY_API_NAME]: async () => {
       n += 1;
       return { groupMsgs: [{ msgId: String(1000 - n) }], hasMore: true, lastMsgId: String(1000 - n) };
     },
   };
-  const kq = await layLichSuNhom(api, NHOM, { tranGoi: 3, nghi: async () => {} });
+  const kq = await fetchGroupHistory(api, NHOM, { tranGoi: 3, nghi: async () => {} });
   assert.equal(kq.soGoi, 3);
   assert.equal(kq.cutTrang, true);
 });
 
 test('G3 chưa đăng ký API -> NÉM rõ ràng, không gọi mạng mù', async () => {
-  await assert.rejects(() => layLichSuNhom({}, NHOM), /Chưa đăng ký/);
+  await assert.rejects(() => fetchGroupHistory({}, NHOM), /Chưa đăng ký/);
 });
 
-test('G4 dangKyApiLichSu: api không có custom -> trả false, KHÔNG ném', () => {
-  assert.equal(dangKyApiLichSu({}), false);
-  assert.equal(dangKyApiLichSu(null), false);
+test('G4 registerHistoryApi: api không có custom -> trả false, KHÔNG ném', () => {
+  assert.equal(registerHistoryApi({}), false);
+  assert.equal(registerHistoryApi(null), false);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -380,16 +380,16 @@ test('G4 dangKyApiLichSu: api không có custom -> trả false, KHÔNG ném', ()
 // ═══════════════════════════════════════════════════════════════════════
 
 test('H1 ★ HAI CỜ đều MẶC ĐỊNH TẮT', () => {
-  assert.equal(batQuet({}), false, 'quét đối chiếu phải TẮT khi chưa qua A0');
+  assert.equal(isScanEnabled({}), false, 'quét đối chiếu phải TẮT khi chưa qua A0');
   assert.equal(batA0({}), false);
-  assert.equal(batQuet({ ZTL_QUET_DOI_CHIEU: '0' }), false);
-  assert.equal(batQuet({ ZTL_QUET_DOI_CHIEU: '1' }), true);
+  assert.equal(isScanEnabled({ ZTL_QUET_DOI_CHIEU: '0' }), false);
+  assert.equal(isScanEnabled({ ZTL_QUET_DOI_CHIEU: '1' }), true);
   assert.equal(batA0({ ZTL_PROBE_A0: '1' }), true);
 });
 
 test('H2 ★ A0 CHE nội dung tin của người thật, chỉ giữ độ dài + 12 ký tự đầu', () => {
   const goc = 'nội dung riêng tư rất dài của người khác';
-  const m = cheTinMau({ msgId: '9', ts: 123, data: { content: goc } });
+  const m = maskSampleMessage({ msgId: '9', ts: 123, data: { content: goc } });
   // Tính từ chuỗi gốc chứ KHÔNG gõ số cứng — gõ số cứng thì bài test chỉ đo
   // được kỹ năng đếm ký tự của người viết test, không đo được hàm che.
   assert.equal(m.doDaiNoiDung, goc.length);
@@ -398,10 +398,10 @@ test('H2 ★ A0 CHE nội dung tin của người thật, chỉ giữ độ dài
   assert.ok(m.dauNoiDung.length < goc.length, 'phải NGẮN HƠN bản gốc');
 });
 
-test('H3 tinTrongCuaSo trả kèm nguồn hiện tại (để thi hành chốt 4)', () => {
+test('H3 messagesInWindow trả kèm nguồn hiện tại (để thi hành chốt 4)', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   db.exec("UPDATE tin_nhan SET thu_hoi_nguon='SU_KIEN' WHERE msg_id='200'");
-  const ds = tinTrongCuaSo(db, NHOM, GIO - 1000);
+  const ds = messagesInWindow(db, NHOM, GIO - 1000);
   assert.equal(ds[0].nguonHienTai, 'SU_KIEN');
   closeDb(db);
 });
@@ -412,7 +412,7 @@ test('H3 tinTrongCuaSo trả kèm nguồn hiện tại (để thi hành chốt 4
 
 test('I1 ★ base URL đọc được từ ctx.loginInfo.zpw_service_map_v3', () => {
   const ctx = { loginInfo: { zpw_service_map_v3: { group_cloud_message: ['https://a'] } } };
-  assert.equal(layBaseCloudMessage(null, ctx), 'https://a');
+  assert.equal(cloudMessageBase(null, ctx), 'https://a');
 });
 
 test('I2 ★★ base URL đọc được từ api.zpwServiceMap — ĐÚNG HÌNH DẠNG THẬT của zca-js', () => {
@@ -422,8 +422,8 @@ test('I2 ★★ base URL đọc được từ api.zpwServiceMap — ĐÚNG HÌNH
   // (lên đối tượng API), và zalo.js:72 `new API(ctx, loginInfo.zpw_service_map_v3, …)`.
   // Đối tượng api dưới đây dựng theo ĐÚNG hình dạng đó: KHÔNG có ctx đi kèm.
   const api = { zpwServiceMap: { group_cloud_message: ['https://b'] } };
-  assert.equal(layBaseCloudMessage(api, null), 'https://b');
-  assert.equal(phienSanSang(api, null), true);
+  assert.equal(cloudMessageBase(api, null), 'https://b');
+  assert.equal(sessionReady(api, null), true);
 });
 
 test('I3 ★ ctx.zpwServiceMap (thuộc tính KHÔNG có thật) không cứu được gì', () => {
@@ -432,19 +432,19 @@ test('I3 ★ ctx.zpwServiceMap (thuộc tính KHÔNG có thật) không cứu đ
   const ctxSai = { zpwServiceMap: { group_cloud_message: ['https://c'] } };
   const api = { zpwServiceMap: { group_cloud_message: ['https://b'] } };
   // Vẫn phải lấy được từ api — không phụ thuộc thuộc tính ma kia.
-  assert.equal(layBaseCloudMessage(api, ctxSai), 'https://b');
+  assert.equal(cloudMessageBase(api, ctxSai), 'https://b');
 });
 
-test('I4 không nguồn nào có -> null, và phienSanSang = false', () => {
-  assert.equal(layBaseCloudMessage(null, null), null);
-  assert.equal(layBaseCloudMessage({}, {}), null);
-  assert.equal(phienSanSang({}, {}), false);
+test('I4 không nguồn nào có -> null, và sessionReady = false', () => {
+  assert.equal(cloudMessageBase(null, null), null);
+  assert.equal(cloudMessageBase({}, {}), null);
+  assert.equal(sessionReady({}, {}), false);
 });
 
 test('I5 ★ chờ CÓ ĐIỀU KIỆN: sẵn sàng ngay -> trả về lập tức, không ngủ', async () => {
   const api = { zpwServiceMap: { group_cloud_message: ['https://b'] } };
   let daNgu = 0;
-  const kq = await choPhienSanSang({ api, ctx: null }, { nghi: async () => { daNgu += 1; } });
+  const kq = await waitForSession({ api, ctx: null }, { nghi: async () => { daNgu += 1; } });
   assert.equal(kq.sanSang, true);
   assert.equal(kq.doiMs, 0);
   assert.equal(daNgu, 0, 'phiên sẵn sàng rồi mà vẫn ngủ là phí thời gian khởi động');
@@ -453,7 +453,7 @@ test('I5 ★ chờ CÓ ĐIỀU KIỆN: sẵn sàng ngay -> trả về lập tứ
 test('I6 ★ chờ: chưa sẵn sàng rồi sẵn sàng giữa chừng -> bắt được', async () => {
   const api = {};
   let n = 0;
-  const kq = await choPhienSanSang({ api, ctx: null }, {
+  const kq = await waitForSession({ api, ctx: null }, {
     tranMs: 5000, nhipMs: 100,
     nghi: async () => {
       n += 1;
@@ -465,7 +465,7 @@ test('I6 ★ chờ: chưa sẵn sàng rồi sẵn sàng giữa chừng -> bắt 
 });
 
 test('I7 ★ chờ: hết trần vẫn rỗng -> sanSang=false, KHÔNG treo vô hạn', async () => {
-  const kq = await choPhienSanSang({ api: {}, ctx: null }, {
+  const kq = await waitForSession({ api: {}, ctx: null }, {
     tranMs: 1000, nhipMs: 250, nghi: async () => {},
   });
   assert.equal(kq.sanSang, false);
@@ -504,7 +504,7 @@ test('I9 ★★ lời gọi mạng ĐẦU TIÊN hỏng -> so_goi_mang = 1 và ke
   const api = {
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
-    [TEN_API_LICH_SU]: async ({ so }) => {
+    [HISTORY_API_NAME]: async ({ so }) => {
       if (so) { so.soGoiMang += 1; so.soPhanHoi += 1; so.httpMa = 404; so.httpOk = false; }
       throw new Error('404 Not Found');
     },
@@ -538,7 +538,7 @@ test('I11 A0 chạy được thật khi phiên sẵn sàng + vẫn CHE nội dun
   const api = {
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
-    [TEN_API_LICH_SU]: async () => ({
+    [HISTORY_API_NAME]: async () => ({
       groupMsgs: [{ msgId: '100', ts: 1, content: 'nội dung rất riêng tư của người ta' }],
       hasMore: false, lastMsgId: '100',
     }),
@@ -566,7 +566,7 @@ test('J1 ★★ CHỖ NUỐT LỖI: ZaloApiError có .code -> phải giữ, khô
   const e = new Error('Lỗi không xác định');
   e.name = 'ZcaApiError';
   e.code = 114;
-  const mo = moTaLoi(e);
+  const mo = describeError(e);
   assert.equal(mo.loi, 'Lỗi không xác định');
   assert.equal(mo.loi_ma, 114, 'MẤT trường này là mất thứ DUY NHẤT phân biệt được nhóm');
   assert.equal(mo.loi_ten, 'ZcaApiError');
@@ -574,14 +574,14 @@ test('J1 ★★ CHỖ NUỐT LỖI: ZaloApiError có .code -> phải giữ, khô
 });
 
 test('J2 ★ lỗi là object KHÔNG có message -> JSON.stringify ra, không "[object Object]"', () => {
-  const mo = moTaLoi({ error_code: 216, ghi_chu: 'khong co message' });
+  const mo = describeError({ error_code: 216, ghi_chu: 'khong co message' });
   assert.ok(!String(mo.loi).includes('[object Object]'), 'rơi về chuỗi mặc định là mất sạch');
   assert.match(mo.loi, /216/);
   assert.match(mo.loi_json, /216/);
 });
 
 test('J3 ★ Error rỗng message vẫn bóc được stack (own-property không đếm được)', () => {
-  const mo = moTaLoi(new Error(''));
+  const mo = describeError(new Error(''));
   // JSON.stringify(err) trần trả "{}" — phải dùng danh sách khoá own-property.
   assert.ok(mo.loi_json, 'stringify trần trả "{}" là mất hết');
   assert.match(mo.loi_json, /stack|message/);
@@ -590,13 +590,13 @@ test('J3 ★ Error rỗng message vẫn bóc được stack (own-property không
 test('J4 ★★ HTTP 200 + error_code trong THÂN -> ENDPOINT SỐNG, không phải chết', () => {
   // ⚠️ Zalo hay trả 200 kèm mã lỗi trong thân. Chỉ nhìn mã HTTP là bỏ sót hẳn
   // nhánh này, rồi xếp nhầm sang "endpoint chết" = chôn phương án A oan.
-  const nhom = phanNhomLoi({ soGoiMang: 1, httpMa: 200, loiMa: 114 });
+  const nhom = classifyErrorGroup({ soGoiMang: 1, httpMa: 200, loiMa: 114 });
   assert.equal(nhom, NHOM_LOI_A0.ENDPOINT_SONG_LOI_GIAO_THUC);
-  assert.match(yNghiaNhomLoi(nhom), /KHÔNG PHẢI nhóm "endpoint chết"/);
+  assert.match(errorGroupMeaning(nhom), /KHÔNG PHẢI nhóm "endpoint chết"/);
 });
 
 test('J4b ★ mã lỗi nằm trong thân (không có e.code) vẫn xếp đúng nhóm', () => {
-  const nhom = phanNhomLoi({
+  const nhom = classifyErrorGroup({
     soGoiMang: 1, httpMa: 200, loiMa: null,
     thanPhanHoi: { dang: 'JSON', error_code: 216 },
   });
@@ -604,39 +604,39 @@ test('J4b ★ mã lỗi nằm trong thân (không có e.code) vẫn xếp đúng
 });
 
 test('J5 ★★ CHỈ 404/410 mới là ENDPOINT_CHET — điều kiện dừng phương án A', () => {
-  assert.equal(phanNhomLoi({ soGoiMang: 1, httpMa: 404 }), NHOM_LOI_A0.ENDPOINT_CHET);
-  assert.equal(phanNhomLoi({ soGoiMang: 1, httpMa: 410 }), NHOM_LOI_A0.ENDPOINT_CHET);
+  assert.equal(classifyErrorGroup({ soGoiMang: 1, httpMa: 404 }), NHOM_LOI_A0.ENDPOINT_CHET);
+  assert.equal(classifyErrorGroup({ soGoiMang: 1, httpMa: 410 }), NHOM_LOI_A0.ENDPOINT_CHET);
   // Ba nhóm dưới đây TUYỆT ĐỐI không được xếp thành "endpoint chết".
-  assert.notEqual(phanNhomLoi({ soGoiMang: 1, httpMa: 403 }), NHOM_LOI_A0.ENDPOINT_CHET);
-  assert.notEqual(phanNhomLoi({ soGoiMang: 1, httpMa: 500 }), NHOM_LOI_A0.ENDPOINT_CHET);
+  assert.notEqual(classifyErrorGroup({ soGoiMang: 1, httpMa: 403 }), NHOM_LOI_A0.ENDPOINT_CHET);
+  assert.notEqual(classifyErrorGroup({ soGoiMang: 1, httpMa: 500 }), NHOM_LOI_A0.ENDPOINT_CHET);
   assert.notEqual(
-    phanNhomLoi({ soGoiMang: 1, httpMa: 200, loiMa: 1 }), NHOM_LOI_A0.ENDPOINT_CHET,
+    classifyErrorGroup({ soGoiMang: 1, httpMa: 200, loiMa: 1 }), NHOM_LOI_A0.ENDPOINT_CHET,
   );
-  assert.match(yNghiaNhomLoi(NHOM_LOI_A0.ENDPOINT_CHET), /ĐIỀU KIỆN DỪNG/);
+  assert.match(errorGroupMeaning(NHOM_LOI_A0.ENDPOINT_CHET), /ĐIỀU KIỆN DỪNG/);
 });
 
 test('J6 ★ 401/403 -> QUYỀN/PHIÊN, hướng khác hẳn', () => {
-  assert.equal(phanNhomLoi({ soGoiMang: 1, httpMa: 401 }), NHOM_LOI_A0.QUYEN_PHIEN);
-  assert.equal(phanNhomLoi({ soGoiMang: 1, httpMa: 403 }), NHOM_LOI_A0.QUYEN_PHIEN);
+  assert.equal(classifyErrorGroup({ soGoiMang: 1, httpMa: 401 }), NHOM_LOI_A0.QUYEN_PHIEN);
+  assert.equal(classifyErrorGroup({ soGoiMang: 1, httpMa: 403 }), NHOM_LOI_A0.QUYEN_PHIEN);
 });
 
 test('J7 ★★ chưa chạm mạng -> CHUA_CHAM_MANG, cấm suy ra gì về endpoint', () => {
-  assert.equal(phanNhomLoi({ soGoiMang: 0, httpMa: 404 }), NHOM_LOI_A0.CHUA_CHAM_MANG);
-  assert.match(yNghiaNhomLoi(NHOM_LOI_A0.CHUA_CHAM_MANG), /ĐỪNG kết luận/);
+  assert.equal(classifyErrorGroup({ soGoiMang: 0, httpMa: 404 }), NHOM_LOI_A0.CHUA_CHAM_MANG);
+  assert.match(errorGroupMeaning(NHOM_LOI_A0.CHUA_CHAM_MANG), /ĐỪNG kết luận/);
 });
 
 test('J8 ★ không nối được (DNS/TCP) -> nhóm RIÊNG, không phải endpoint chết', () => {
-  const nhom = phanNhomLoi({ soGoiMang: 1, loiKetNoi: 'ENOTFOUND' });
+  const nhom = classifyErrorGroup({ soGoiMang: 1, loiKetNoi: 'ENOTFOUND' });
   assert.equal(nhom, NHOM_LOI_A0.KHONG_KET_NOI_DUOC);
   assert.notEqual(nhom, NHOM_LOI_A0.ENDPOINT_CHET);
 });
 
 test('J9 ★ không đủ bằng chứng -> nói thẳng CHUA_PHAN_LOAI_DUOC, KHÔNG đoán bừa', () => {
-  assert.equal(phanNhomLoi({ soGoiMang: 1 }), NHOM_LOI_A0.CHUA_PHAN_LOAI_DUOC);
+  assert.equal(classifyErrorGroup({ soGoiMang: 1 }), NHOM_LOI_A0.CHUA_PHAN_LOAI_DUOC);
 });
 
 test('J10 ★★ thân phản hồi: giữ error_code/error_message, CHE nội dung tin', async () => {
-  const than = await tomTatThanPhanHoi(null, async () => JSON.stringify({
+  const than = await summarizeResponseBody(null, async () => JSON.stringify({
     error_code: 114,
     error_message: 'Lỗi không xác định',
     data: 'noi-dung-tin-that-cua-nguoi-ta-da-ma-hoa',
@@ -652,13 +652,13 @@ test('J10 ★★ thân phản hồi: giữ error_code/error_message, CHE nội d
 });
 
 test('J11 thân không phải JSON (trang lỗi HTML) -> cắt ngắn, vẫn ghi được', async () => {
-  const than = await tomTatThanPhanHoi(null, async () => '<html>502 Bad Gateway</html>');
+  const than = await summarizeResponseBody(null, async () => '<html>502 Bad Gateway</html>');
   assert.equal(than.dang, 'KHONG_PHAI_JSON');
   assert.match(than.dau, /502/);
 });
 
 test('J12 đọc thân hỏng -> KHÔNG ném, phép đo chính vẫn phải chạy tiếp', async () => {
-  const than = await tomTatThanPhanHoi(null, async () => { throw new Error('stream đã đóng'); });
+  const than = await summarizeResponseBody(null, async () => { throw new Error('stream đã đóng'); });
   assert.equal(than.dang, 'KHONG_DOC_DUOC');
 });
 
@@ -674,7 +674,7 @@ test('J13 ★★ ném TRƯỚC khi chạm mạng -> so_goi_mang = 0 và KHÔNG �
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
     // Ném mà KHÔNG chạm sổ = chưa hề bắn request nào đi.
-    [TEN_API_LICH_SU]: async () => { throw new Error('encodeAES trả rỗng'); },
+    [HISTORY_API_NAME]: async () => { throw new Error('encodeAES trả rỗng'); },
   };
   const ra = await chayA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   assert.equal(ra.so_goi_mang, 0);
@@ -691,7 +691,7 @@ test('J14 ★★ ca thật 20/08: 200 + "Lỗi không xác định" -> file nói
   const api = {
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
-    [TEN_API_LICH_SU]: async ({ so }) => {
+    [HISTORY_API_NAME]: async ({ so }) => {
       so.soGoiMang += 1; so.soPhanHoi += 1; so.httpMa = 200; so.httpOk = true;
       so.thanPhanHoi = { dang: 'JSON', error_code: 114, error_message: 'Lỗi không xác định' };
       const e = new Error('Lỗi không xác định');
@@ -715,7 +715,7 @@ test('J14 ★★ ca thật 20/08: 200 + "Lỗi không xác định" -> file nói
 });
 
 test('J18 ★★ THAM SỐ khớp diff PR #370 — đối chiếu bằng test, không bằng mắt', () => {
-  const t = dungThamSo({ groupId: 'g12345', conTro: null, soLuong: 999, imei: 'IM-1' });
+  const t = buildApiParams({ groupId: 'g12345', conTro: null, soLuong: 999, imei: 'IM-1' });
   assert.equal(t.groupId, '12345', 'còn tiền tố "g" -> Zalo trả rỗng -> VU OAN cả nhóm');
   assert.equal(t.globalMsgId, 0, 'trang đầu phải là số 0');
   assert.equal(t.count, 50, 'trần cứng 50 của endpoint');
@@ -731,14 +731,14 @@ test('J18 ★★ THAM SỐ khớp diff PR #370 — đối chiếu bằng test, k
 
 test('J19 ★★ con trỏ trang sau GIỮ CHUỖI, không ép Number (vượt MAX_SAFE_INTEGER)', () => {
   const to = '18446744073709551615';
-  const t = dungThamSo({ groupId: '1', conTro: to, soLuong: 50, imei: 'x' });
+  const t = buildApiParams({ groupId: '1', conTro: to, soLuong: 50, imei: 'x' });
   assert.equal(t.globalMsgId, to, 'ép Number là mất chính xác ÂM THẦM -> phân trang nhảy cóc');
   assert.notEqual(t.globalMsgId, Number(to));
 });
 
 test('J20 biến thể MSG_IDS_CHUOI đổi ĐÚNG MỘT tham số, không đụng phần còn lại', () => {
-  const c = dungThamSo({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'x' });
-  const b = dungThamSo({
+  const c = buildApiParams({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'x' });
+  const b = buildApiParams({
     groupId: 'g1', conTro: null, soLuong: 50, imei: 'x',
     bienThe: BIEN_THE_THAM_SO.MSG_IDS_CHUOI,
   });
@@ -760,14 +760,14 @@ test('J21 ★★ ĐƯỜNG QUÉT THẬT cũng phải ghi mã lỗi, không chỉ
   const api = {
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
-    [TEN_API_LICH_SU]: async ({ so }) => {
+    [HISTORY_API_NAME]: async ({ so }) => {
       so.soGoiMang += 1; so.httpMa = 200;
       const e = new Error('Lỗi không xác định');
       e.name = 'ZcaApiError'; e.code = 114;
       throw e;
     },
   };
-  await quetMotLuot({ db, api, bayGioMs: bayGio, nghi: async () => {}, notifyHost: () => {} });
+  await runScanPass({ db, api, bayGioMs: bayGio, nghi: async () => {}, notifyHost: () => {} });
   const nk = db.prepare('SELECT * FROM doi_chieu_lich_su ORDER BY id DESC LIMIT 1').get();
   assert.equal(nk.ket_qua, 'LOI_MANG');
   assert.match(nk.ghi_chu, /ma=114/, 'mã lỗi Zalo là thứ DUY NHẤT phân biệt được nguyên nhân');
@@ -788,7 +788,7 @@ function apiGia({ theoBienThe = {}, macDinh = 604, dem = null, ghiNhip = null } 
   return {
     custom() {},
     zpwServiceMap: { group_cloud_message: ['https://b'] },
-    [TEN_API_LICH_SU]: async ({ so, bienThe, conTro }) => {
+    [HISTORY_API_NAME]: async ({ so, bienThe, conTro }) => {
       if (dem) dem.push({ bienThe, conTro });
       if (ghiNhip) ghiNhip.push(bienThe);
       so.soGoiMang += 1; so.soPhanHoi += 1; so.httpOk = true;
@@ -894,9 +894,9 @@ test('K3 ★★ mỗi biến thể đổi ĐÚNG MỘT thứ, và KHÔNG thử l
     'MSG_IDS_CHUOI đã LOẠI lúc 22:37 (cũng ra 604) — thử lại là phí một request thật',
   );
   // Đối chiếu từng biến thể: so với CHUẨN phải lệch đúng 1 khoá.
-  const chuan = dungThamSo({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'IM' });
+  const chuan = buildApiParams({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'IM' });
   for (const bt of [BIEN_THE_THAM_SO.SRC_1, BIEN_THE_THAM_SO.BO_IMEI]) {
-    const b = dungThamSo({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'IM', bienThe: bt });
+    const b = buildApiParams({ groupId: 'g1', conTro: null, soLuong: 50, imei: 'IM', bienThe: bt });
     const khac = [...new Set([...Object.keys(chuan), ...Object.keys(b)])]
       .filter((k) => JSON.stringify(chuan[k]) !== JSON.stringify(b[k]));
     assert.deepEqual(khac.length, 1, `${bt} đổi ${khac.length} thứ — đổi 2 thứ thì kết quả vô nghĩa`);
@@ -904,7 +904,7 @@ test('K3 ★★ mỗi biến thể đổi ĐÚNG MỘT thứ, và KHÔNG thử l
 });
 
 test('K3b ★ TOI_THIEU là LƯỚI VÉT, cố ý bỏ 3 khoá — chạy CUỐI nên không gây mơ hồ', () => {
-  const t = dungThamSo({
+  const t = buildApiParams({
     groupId: 'g1', conTro: null, soLuong: 50, imei: 'IM',
     bienThe: BIEN_THE_THAM_SO.TOI_THIEU,
   });

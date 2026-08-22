@@ -581,10 +581,10 @@ function toolNhac(ghiDe = {}) {
     },
     dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: ghiDe.nguoiGui ?? HOST_UID, trang_thai: 'da_day' },
     nhac: {
-      taoNhacTheoDuoi: (_db, p) => { daGoi.tao.push(p); return { id: 'nhac-1', mocDauMs: Date.now() + 3600_000 }; },
-      chinhNhip: (_db, p) => { daGoi.chinh.push(p); return p.isHost ? { ok: true, dong: { id: p.id, chu_ky_ngay: p.chuKyNgay ?? 1, gio_nhac: '08:00', trang_thai_td: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
-      dongNhac: (_db, p) => { daGoi.dong.push(p); return p.isHost ? { ok: true, dong: { id: p.id, trang_thai_td: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
-      xemNhacTheoDuoi: (_db, p) => { daGoi.xem.push(p); return []; },
+      createFollowUp: (_db, p) => { daGoi.tao.push(p); return { id: 'nhac-1', mocDauMs: Date.now() + 3600_000 }; },
+      adjustCadence: (_db, p) => { daGoi.chinh.push(p); return p.isHost ? { ok: true, dong: { id: p.id, chu_ky_ngay: p.chuKyNgay ?? 1, gio_nhac: '08:00', trang_thai_td: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      closeFollowUp: (_db, p) => { daGoi.dong.push(p); return p.isHost ? { ok: true, dong: { id: p.id, trang_thai_td: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      listFollowUps: (_db, p) => { daGoi.xem.push(p); return []; },
       ...(ghiDe.nhac ?? {}),
     },
   });
@@ -709,7 +709,7 @@ test('J3 🔴 câu từ chối KHÔNG rò số lượng, KHÔNG rò tên nhóm �
   const t = toolNhac({
     nguoiGui: 'nguoi-la',
     nhac: {
-      xemNhacTheoDuoi: () => [
+      listFollowUps: () => [
         { id: 'a', noi_dung: 'việc nhóm KHÁC', ma_xac_nhan: 'AAAA', chu_ky_ngay: 1 },
         { id: 'b', noi_dung: 'việc nhóm KHÁC nữa', ma_xac_nhan: 'BBBB', chu_ky_ngay: 1 },
       ],
@@ -729,7 +729,7 @@ test('J4 ★ xem_lich CÙNG HỌ LỖI — cũng phải gác host', async () => 
   const goi = [];
   const chung = {
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: HOST_UID, dmChatId: 'dm1' }], groups: [] },
-    lich: { xemLich: (_db, p) => { goi.push(p); return []; } },
+    lich: { listSchedules: (_db, p) => { goi.push(p); return []; } },
   };
   const host = dungTool({
     ...chung,
@@ -755,8 +755,8 @@ test('J5 mọi tool ĐỌC DANH SÁCH xuyên nhóm đều gác host (chống só
     const t = dungTool({
       cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: HOST_UID, dmChatId: 'dm1' }], groups: [] },
       dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'nguoi-la', trang_thai: 'da_day' },
-      nhac: { xemNhacTheoDuoi: () => [] },
-      lich: { xemLich: () => [] },
+      nhac: { listFollowUps: () => [] },
+      lich: { listSchedules: () => [] },
     });
     // eslint-disable-next-line no-await-in-loop
     const { kq } = await t.goi(ten, { request_id: REQ });
@@ -881,7 +881,7 @@ function lichGia(v = {}) {
   };
 }
 
-/** `xemLich` giả CÓ lọc `nguoiDat` như hàng thật — không lọc thì bài test vô nghĩa. */
+/** `listSchedules` giả CÓ lọc `nguoiDat` như hàng thật — không lọc thì bài test vô nghĩa. */
 function toolChot(kho_, nguoiGui = U_TOI) {
   const daChot = [];
   const daHuy = [];
@@ -889,17 +889,17 @@ function toolChot(kho_, nguoiGui = U_TOI) {
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: U_TOI, dmChatId: 'dm1' }], groups: [] },
     dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: nguoiGui, trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
     lich: {
-      xemLich: (_db, p) => kho_.filter(
+      listSchedules: (_db, p) => kho_.filter(
         (d) => d.trang_thai === p.trangThai && (!p.nguoiDat || d.nguoi_dat === p.nguoiDat),
       ),
-      chotLich: (_db, p) => {
+      confirmSchedule: (_db, p) => {
         const d = kho_.find((x) => x.ma_xac_nhan === p.ma || x.id === p.id);
         if (!d) return { ok: false, ly: 'KHONG_TIM_THAY' };
         if (d.nguoi_dat !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
         daChot.push(d.ma_xac_nhan);
         return { ok: true, dong: d };
       },
-      huyLich: (_db, p) => {
+      cancelSchedule: (_db, p) => {
         const d = kho_.find((x) => x.ma_xac_nhan === p.id || x.id === p.id);
         if (!d) return { ok: false, ly: 'KHONG_TIM_THAY' };
         if (d.nguoi_dat !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
@@ -974,17 +974,17 @@ test('L6 "huỷ" TRỐNG cũng theo đúng 3 ca đó', async () => {
 });
 
 test('L7 câu xác nhận: 1 lịch -> KHÔNG bắt gõ mã; nhiều lịch -> có nhắc mã', async () => {
-  const { dungCauXacNhan } = await import('../src/lich/lich_hen.js');
+  const { buildConfirmText } = await import('../src/lich/schedule.js');
   const chung = {
     ma: 'A1B2', tenDich: 'Nhóm A', guiLucMs: 1_800_000_000_000,
     muiGio: '+07:00', noiDung: 'họp', bayGioMs: 1_700_000_000_000,
   };
-  const mot = dungCauXacNhan({ ...chung, nhieuLichCho: false });
+  const mot = buildConfirmText({ ...chung, nhieuLichCho: false });
   assert.match(mot, /Anh nhắn "ok" để chốt/);
   assert.ok(!/ok A1B2/.test(mot), 'ca một lịch thì đừng bắt anh gõ mã nữa');
   assert.match(mot, /\[A1B2\]/, 'nhưng mã VẪN phải hiện để sau này gọi tên lịch đó');
 
-  const nhieu = dungCauXacNhan({ ...chung, nhieuLichCho: true });
+  const nhieu = buildConfirmText({ ...chung, nhieuLichCho: true });
   assert.match(nhieu, /ok A1B2/, 'nhiều lịch thì "ok" trống mơ hồ -> phải nhắc mã');
 });
 
@@ -1007,37 +1007,37 @@ test('L8 mô tả tool DẶN model các từ chốt/huỷ và cấm hỏi lại 
 // và DỪNG ĐÚNG, không phải cản.
 // ═══════════════════════════════════════════════════════════════════════
 
-const TD = await import('../src/lich/theo_duoi.js');
+const TD = await import('../src/lich/follow_up.js');
 
 test('M1 ★ nhịp phút: mốc kế tiếp đúng N phút, KHÔNG neo giờ, KHÔNG chừa Chủ Nhật', () => {
   // 23/08/2026 là Chủ Nhật. Nhịp ngày sẽ né; nhịp phút thì KHÔNG được né —
   // né là lệch hoàn toàn ý "cứ 2 phút nhắc lại".
   const cn = Date.UTC(2026, 7, 23, 3, 0, 0);   // 10:00 giờ VN, Chủ Nhật
-  assert.equal(TD.mocNhacKeTiep(cn, { chuKyPhut: 2 }) - cn, 120_000);
-  assert.equal(TD.mocNhacKeTiep(cn, { chuKyPhut: 30, gioNhac: '08:00' }) - cn, 1_800_000,
+  assert.equal(TD.nextReminderAt(cn, { chuKyPhut: 2 }) - cn, 120_000);
+  assert.equal(TD.nextReminderAt(cn, { chuKyPhut: 30, gioNhac: '08:00' }) - cn, 1_800_000,
     'gioNhac phải bị BỎ QUA ở nhịp phút — hai cơ chế không được đá nhau');
 });
 
 test('M2 nhịp phút THẮNG nhịp ngày — chỉ MỘT chỗ quyết định', () => {
-  assert.deepEqual(TD.docNhip({ chu_ky_phut: 5, chu_ky_ngay: 3 }), { laPhut: true, phut: 5, ngay: 0 });
-  assert.deepEqual(TD.docNhip({ chu_ky_phut: null, chu_ky_ngay: 3 }), { laPhut: false, phut: null, ngay: 3 });
+  assert.deepEqual(TD.parseCadence({ chu_ky_phut: 5, chu_ky_ngay: 3 }), { laPhut: true, phut: 5, ngay: 0 });
+  assert.deepEqual(TD.parseCadence({ chu_ky_phut: null, chu_ky_ngay: 3 }), { laPhut: false, phut: null, ngay: 3 });
 });
 
 test('M3 🔴 trần mặc định: nhịp DÀY có trần, nhịp thưa/ngày KHÔNG', () => {
-  assert.equal(TD.tranMacDinh({ laPhut: true, phut: 2 }), 10);
-  assert.equal(TD.tranMacDinh({ laPhut: true, phut: 59 }), 10);
-  assert.equal(TD.tranMacDinh({ laPhut: true, phut: 60 }), null, 'từ 1 giờ trở lên KHÔNG trần');
-  assert.equal(TD.tranMacDinh({ laPhut: false }), null,
+  assert.equal(TD.defaultAttemptCap({ laPhut: true, phut: 2 }), 10);
+  assert.equal(TD.defaultAttemptCap({ laPhut: true, phut: 59 }), 10);
+  assert.equal(TD.defaultAttemptCap({ laPhut: true, phut: 60 }), null, 'từ 1 giờ trở lên KHÔNG trần');
+  assert.equal(TD.defaultAttemptCap({ laPhut: false }), null,
     'nhịp ngày phải giữ luật cũ "nhắc tới khi xong" — trần không được lây sang');
 });
 
 test('M4 cận trên/dưới: từ chối kèm lý do, ⛔ KHÔNG âm thầm làm tròn', () => {
   for (const xau of [0, -3, 1441, 2.5, 'hai']) {
-    assert.equal(TD.kiemChuKyPhut(xau).ok, false, String(xau));
+    assert.equal(TD.validateMinuteCadence(xau).ok, false, String(xau));
   }
-  assert.equal(TD.kiemChuKyPhut(1).ok, true);
-  assert.equal(TD.kiemChuKyPhut(1440).ok, true);
-  assert.match(TD.kiemChuKyPhut(5000).ly, /chuKyNgay/, 'phải chỉ đường sang nhịp ngày');
+  assert.equal(TD.validateMinuteCadence(1).ok, true);
+  assert.equal(TD.validateMinuteCadence(1440).ok, true);
+  assert.match(TD.validateMinuteCadence(5000).ly, /chuKyNgay/, 'phải chỉ đường sang nhịp ngày');
 });
 
 test('M5 tool từ chối nhịp ngoài khoảng, KHÔNG ghi DB', async () => {
@@ -1103,11 +1103,11 @@ test('M10 🔴 nhịp NGÀY giữ nguyên câu cũ và KHÔNG bị gắn trần'
 });
 
 test('M11 🔴 gio_nhac phải là CHUỖI "HH:MM" — object là INSERT ném ở tận DB', async () => {
-  // Bug thật: `docGioNhac()` trả OBJECT {gio,phut}, lấy thẳng làm giá trị cột
+  // Bug thật: `parseReminderHour()` trả OBJECT {gio,phut}, lấy thẳng làm giá trị cột
   // ⇒ câu xác nhận in "[object Object]" và node:sqlite không bind được object
   // ⇒ nhắc theo đuổi nhịp NGÀY chưa từng tạo nổi trên hệ thật.
-  assert.equal(TD.chuanGioNhac('14:30'), '14:30');
-  assert.equal(TD.chuanGioNhac(undefined), '08:00');
+  assert.equal(TD.normalizeReminderHour('14:30'), '14:30');
+  assert.equal(TD.normalizeReminderHour(undefined), '08:00');
   const t = toolNhac();
   const { kq } = await t.goi(TN.DAT_NHAC_THEO_DUOI, {
     request_id: REQ, noiDung: 'x', dienGiaiGoc: 'y', gioNhac: '14:30',

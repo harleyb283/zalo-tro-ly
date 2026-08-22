@@ -21,9 +21,9 @@ import { closeDb, openDb } from '../src/store/db.js';
 import { writeSendResult, claimOutbound, upsertConversation, enqueueOutbound } from '../src/store/write.js';
 import { TRANG_THAI_GUI } from '../src/lib/hang_so.js';
 import {
-  GIAN_AN_KHOI_DONG_MS, NGUONG_KET_MS, TRAN_LIET_KE, taoBoCanhOutbox,
-} from '../src/lich/canh_outbox.js';
-import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
+  STARTUP_GRACE_MS, STUCK_THRESHOLD_MS, MAX_LISTED, createOutboxWatcher,
+} from '../src/lich/outbox_watcher.js';
+import { runFollowUpTick } from '../src/lich/runner.js';
 
 const NHOM = '9990000000001';
 const T0 = 1_700_000_000_000;
@@ -46,7 +46,7 @@ function moiTruong() {
  * bài đều phải đốt một nhịp cho gian ân, che mất thứ đang muốn đo.
  */
 function bo(so, tuyChon = {}) {
-  return taoBoCanhOutbox({ duongDanSo: so, mocKhoiDongMs: T0 - GIAN_AN_KHOI_DONG_MS, ...tuyChon });
+  return createOutboxWatcher({ duongDanSo: so, mocKhoiDongMs: T0 - STARTUP_GRACE_MS, ...tuyChon });
 }
 
 function docSo(duongDan) {
@@ -77,11 +77,11 @@ function xepHang(db, { id = 'g-1', giaMs = 0, text = 'câu trả lời cho anh' 
 
 test('O1 — tin ở "cho" quá ngưỡng: DM host, và KHÔNG bắn gì vào nhóm', async () => {
   const { db, so } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const daBaoHost = [];
   const b = bo(so);
 
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); },
   });
   assert.equal(n.ket, 1);
@@ -98,11 +98,11 @@ test('O1 — tin ở "cho" quá ngưỡng: DM host, và KHÔNG bắn gì vào nh
 
 test('O1b — chưa tới ngưỡng thì im (đừng bắn khi daemon còn đang đẩy)', async () => {
   const { db, so } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS - 1000 });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS - 1000 });
   const daBaoHost = [];
   const b = bo(so);
 
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); },
   });
   assert.equal(n.ket, 0);
@@ -117,16 +117,16 @@ test('O1b — chưa tới ngưỡng thì im (đừng bắn khi daemon còn đang
 
 test('O2 — tin đã gửi xong: lưới KHÔNG nổ dù dòng cũ bao nhiêu đi nữa', async () => {
   const { db, so } = moiTruong();
-  const id = xepHang(db, { giaMs: NGUONG_KET_MS * 10 });
+  const id = xepHang(db, { giaMs: STUCK_THRESHOLD_MS * 10 });
   assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
   assert.equal(writeSendResult(db, id, { msgId: 'm-999' }), true);
   // Lùi cả dòng 'da_gui' về quá khứ: tuổi KHÔNG được là lý do để nổ.
   db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
-    .run({ t: new Date(T0 - NGUONG_KET_MS * 10).toISOString(), id });
+    .run({ t: new Date(T0 - STUCK_THRESHOLD_MS * 10).toISOString(), id });
 
   const daBaoHost = [];
   const b = bo(so);
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); },
   });
   assert.equal(n.ket, 0);
@@ -146,11 +146,11 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
   // Daemon nhận việc rồi chết trước khi gửi -> dòng nằm 'dang_gui' vĩnh viễn.
   assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
   db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
-    .run({ t: new Date(T0 - NGUONG_KET_MS).toISOString(), id });
+    .run({ t: new Date(T0 - STUCK_THRESHOLD_MS).toISOString(), id });
 
   const daBaoHost = [];
   const b = bo(so);
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); },
   });
   assert.equal(n.notifyHost, 1, "'dang_gui' quá lâu mà bỏ qua = tin chết câm đúng ca daemon sập");
@@ -166,14 +166,14 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
 
 test('O4 — kẹt suốt 20 nhịp: host chỉ nhận ĐÚNG MỘT tin', async () => {
   const { db, so } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const daBaoHost = [];
   const notifyHost = async (s) => { daBaoHost.push(s); };
   const b = bo(so);
 
   for (let i = 0; i < 20; i += 1) {
     // eslint-disable-next-line no-await-in-loop
-    await b.chayMotNhip({ db, bayGioMs: T0 + i * 30_000, notifyHost });
+    await b.runOneTick({ db, bayGioMs: T0 + i * 30_000, notifyHost });
   }
   assert.equal(daBaoHost.length, 1, 'nhịp 30 giây mà báo mỗi nhịp = 120 tin/giờ vào DM của anh');
   assert.equal(docSo(so).filter((r) => r.su_kien === 'ket').length, 1, 'sổ cũng chỉ ghi một lần');
@@ -183,11 +183,11 @@ test('O4 — kẹt suốt 20 nhịp: host chỉ nhận ĐÚNG MỘT tin', async 
 
 test('O4b — nhiều tin cùng kẹt: gom MỘT tin, không phải mỗi tin một DM', async () => {
   const { db, so } = moiTruong();
-  for (let i = 0; i < 3; i += 1) xepHang(db, { id: `g-${i}`, giaMs: NGUONG_KET_MS });
+  for (let i = 0; i < 3; i += 1) xepHang(db, { id: `g-${i}`, giaMs: STUCK_THRESHOLD_MS });
   const daBaoHost = [];
   const b = bo(so);
 
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); },
   });
   assert.equal(n.ket, 3);
@@ -199,14 +199,14 @@ test('O4b — nhiều tin cùng kẹt: gom MỘT tin, không phải mỗi tin m�
   closeDb(db);
 });
 
-test('O4c — nhiều tin hơn TRAN_LIET_KE: tin DM phải nói rõ còn bao nhiêu nữa', async () => {
+test('O4c — nhiều tin hơn MAX_LISTED: tin DM phải nói rõ còn bao nhiêu nữa', async () => {
   const { db, so } = moiTruong();
-  const tong = TRAN_LIET_KE + 3;
-  for (let i = 0; i < tong; i += 1) xepHang(db, { id: `g-${i}`, giaMs: NGUONG_KET_MS });
+  const tong = MAX_LISTED + 3;
+  for (let i = 0; i < tong; i += 1) xepHang(db, { id: `g-${i}`, giaMs: STUCK_THRESHOLD_MS });
   const daBaoHost = [];
   const b = bo(so);
 
-  await b.chayMotNhip({ db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); } });
+  await b.runOneTick({ db, bayGioMs: T0, notifyHost: async (s) => { daBaoHost.push(s); } });
   assert.match(daBaoHost[0], new RegExp(`${tong} tin đã XẾP HÀNG`));
   assert.match(daBaoHost[0], /và 3 tin nữa/, 'cắt danh sách mà không nói là giấu bớt sự thật');
 
@@ -215,18 +215,18 @@ test('O4c — nhiều tin hơn TRAN_LIET_KE: tin DM phải nói rõ còn bao nhi
 
 test('O4d — tin kẹt rồi ĐI ĐƯỢC: ghi sổ thoat_ket (bằng chứng lưới không kêu oan)', async () => {
   const { db, so } = moiTruong();
-  const id = xepHang(db, { giaMs: NGUONG_KET_MS });
+  const id = xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const daBaoHost = [];
   const notifyHost = async (s) => { daBaoHost.push(s); };
   const b = bo(so);
 
-  await b.chayMotNhip({ db, bayGioMs: T0, notifyHost });
+  await b.runOneTick({ db, bayGioMs: T0, notifyHost });
   assert.equal(daBaoHost.length, 1);
 
   claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   writeSendResult(db, id, { msgId: 'm-1' });
 
-  const n = await b.chayMotNhip({ db, bayGioMs: T0 + 30_000, notifyHost });
+  const n = await b.runOneTick({ db, bayGioMs: T0 + 30_000, notifyHost });
   assert.equal(n.thoatKet, 1);
   assert.equal(daBaoHost.length, 1, 'thoát kẹt rồi thì đừng nhắn thêm gì');
   const d = docSo(so).find((r) => r.su_kien === 'thoat_ket');
@@ -247,7 +247,7 @@ test('O5 — outbox rỗng (chế độ một-tiến-trình): lưới KHÔNG bao
   // Chạy xuyên một ngày giả lập.
   for (let i = 0; i < 50; i += 1) {
     // eslint-disable-next-line no-await-in-loop
-    const n = await b.chayMotNhip({
+    const n = await b.runOneTick({
       db, bayGioMs: T0 + i * 30_000, notifyHost: async (s) => { daBaoHost.push(s); },
     });
     assert.equal(n.ket, 0);
@@ -273,13 +273,13 @@ test('O6 — sổ ghi cả lúc KHOẺ, nhưng chỉ khi có gì đổi', async 
   const { db, so } = moiTruong();
   const b = bo(so);
 
-  await b.chayMotNhip({ db, bayGioMs: T0 });
+  await b.runOneTick({ db, bayGioMs: T0 });
   const id = xepHang(db);
-  await b.chayMotNhip({ db, bayGioMs: T0 + 30_000 });
-  await b.chayMotNhip({ db, bayGioMs: T0 + 60_000 });   // không đổi gì -> không ghi
+  await b.runOneTick({ db, bayGioMs: T0 + 30_000 });
+  await b.runOneTick({ db, bayGioMs: T0 + 60_000 });   // không đổi gì -> không ghi
   claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   writeSendResult(db, id, { msgId: 'm-1' });
-  await b.chayMotNhip({ db, bayGioMs: T0 + 90_000 });
+  await b.runOneTick({ db, bayGioMs: T0 + 90_000 });
 
   const dem = docSo(so).filter((r) => r.su_kien === 'dem_outbox');
   assert.equal(dem.length, 3, 'ba lần phân bố khác nhau -> đúng ba dòng, không hơn không kém');
@@ -297,22 +297,22 @@ test('O6 — sổ ghi cả lúc KHOẺ, nhưng chỉ khi có gì đổi', async 
 
 test('O7 — daemon vừa lên, lô tồn cũ: nhường trọn một nhịp rồi mới báo', async () => {
   const { db, so } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS * 5 });   // tồn từ đêm qua
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS * 5 });   // tồn từ đêm qua
   const daBaoHost = [];
   const notifyHost = async (s) => { daBaoHost.push(s); };
   // Mốc khởi động = ĐÚNG bây giờ (tiến trình vừa lên).
-  const b = taoBoCanhOutbox({ duongDanSo: so, mocKhoiDongMs: T0 });
+  const b = createOutboxWatcher({ duongDanSo: so, mocKhoiDongMs: T0 });
 
-  const n0 = await b.chayMotNhip({ db, bayGioMs: T0, notifyHost });
+  const n0 = await b.runOneTick({ db, bayGioMs: T0, notifyHost });
   assert.equal(n0.boQuaGianAn, 1);
   assert.equal(daBaoHost.length, 0, 'daemon chưa kịp thở đã kêu = báo động giả');
 
-  const n1 = await b.chayMotNhip({ db, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS - 1, notifyHost });
+  const n1 = await b.runOneTick({ db, bayGioMs: T0 + STARTUP_GRACE_MS - 1, notifyHost });
   assert.equal(n1.boQuaGianAn, 1);
   assert.equal(daBaoHost.length, 0);
 
   // Hết gian ân mà vẫn kẹt -> báo.
-  const n2 = await b.chayMotNhip({ db, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS, notifyHost });
+  const n2 = await b.runOneTick({ db, bayGioMs: T0 + STARTUP_GRACE_MS, notifyHost });
   assert.equal(n2.notifyHost, 1);
 
   closeDb(db);
@@ -323,7 +323,7 @@ test('O7b — gian ân KHÔNG che ca đang chạy thì bị chặn (mốc ≤150
   const daBaoHost = [];
   const notifyHost = async (s) => { daBaoHost.push(s); };
   // Tiến trình đã sống từ lâu — đúng hoàn cảnh của mốc nghiệm thu ①.
-  const b = taoBoCanhOutbox({ duongDanSo: so, mocKhoiDongMs: T0 - 86_400_000 });
+  const b = createOutboxWatcher({ duongDanSo: so, mocKhoiDongMs: T0 - 86_400_000 });
 
   // Tin xếp hàng lúc T0, đường gửi bị chặn.
   xepHang(db, { giaMs: 0 });
@@ -331,7 +331,7 @@ test('O7b — gian ân KHÔNG che ca đang chạy thì bị chặn (mốc ≤150
   // Nhịp 30 giây, y như bo_chay.
   for (let t = 0; t <= 180_000 && baoLuc === null; t += 30_000) {
     // eslint-disable-next-line no-await-in-loop
-    const n = await b.chayMotNhip({ db, bayGioMs: T0 + t, notifyHost });
+    const n = await b.runOneTick({ db, bayGioMs: T0 + t, notifyHost });
     if (n.notifyHost) baoLuc = t;
   }
   assert.notEqual(baoLuc, null, 'chặn đường gửi mà im luôn = đúng bệnh cần chống');
@@ -358,9 +358,9 @@ function nhipThat(db, them = {}) {
   };
 }
 
-test('O8 — chayNhipTheoDuoi TỰ chạy lưới outbox, không cần index.js truyền gì', async () => {
+test('O8 — runFollowUpTick TỰ chạy lưới outbox, không cần index.js truyền gì', async () => {
   const { db } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const vaoNhom = [];
   const dmHost = [];
   const p = nhipThat(db, {
@@ -369,8 +369,8 @@ test('O8 — chayNhipTheoDuoi TỰ chạy lưới outbox, không cần index.js 
     // Mốc khởi động của bộ canh mặc định = nhịp đầu tiên -> đốt một nhịp gian ân.
   });
 
-  await chayNhipTheoDuoi({ ...p, bayGioMs: T0 });
-  await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS });
+  await runFollowUpTick({ ...p, bayGioMs: T0 });
+  await runFollowUpTick({ ...p, bayGioMs: T0 + STARTUP_GRACE_MS });
 
   assert.equal(dmHost.length, 1, 'lưới không được chạy qua nhịp thật -> tin kẹt = im lặng');
   assert.equal(dmHost[0][1], 'dm-host');
@@ -385,7 +385,7 @@ test('O8b — CÔNG TẮC RIÊNG: ZTL_LUOI_OUTBOX=0 tắt được, và mặc đ
   const cu = process.env.ZTL_LUOI_OUTBOX;
   try {
     const { db } = moiTruong();
-    xepHang(db, { giaMs: NGUONG_KET_MS });
+    xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
     const b = bo(null);
     const dmHost = [];
     const p = nhipThat(db, {
@@ -394,12 +394,12 @@ test('O8b — CÔNG TẮC RIÊNG: ZTL_LUOI_OUTBOX=0 tắt được, và mặc đ
     });
 
     process.env.ZTL_LUOI_OUTBOX = '0';
-    await chayNhipTheoDuoi({ ...p, bayGioMs: T0 });
+    await runFollowUpTick({ ...p, bayGioMs: T0 });
     assert.equal(dmHost.length, 0, 'tắt mà vẫn chạy = công tắc vô nghĩa');
     assert.equal(b.storeStats().ket, 0, 'tắt là KHÔNG soi DB, không chỉ là không gửi');
 
     delete process.env.ZTL_LUOI_OUTBOX;
-    await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + 30_000 });
+    await runFollowUpTick({ ...p, bayGioMs: T0 + 30_000 });
     assert.equal(dmHost.length, 1, 'MẶC ĐỊNH phải BẬT — lưới này canh sự thật khách quan');
 
     closeDb(db);
@@ -422,13 +422,13 @@ test('O8c — 🔴 công tắc CHỈ nghe ĐÚNG biến của mình, không nghe
     process.env.ZTL_LUOI_OUTBOX_X = '0';
 
     const { db } = moiTruong();
-    xepHang(db, { giaMs: NGUONG_KET_MS });
+    xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
     const dmHost = [];
     const p = nhipThat(db, {
       sendHostDm: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
     });
-    await chayNhipTheoDuoi({ ...p, bayGioMs: T0 });
-    await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS });
+    await runFollowUpTick({ ...p, bayGioMs: T0 });
+    await runFollowUpTick({ ...p, bayGioMs: T0 + STARTUP_GRACE_MS });
     assert.equal(dmHost.length, 1, 'một biến lạ tắt được lưới = công tắc nghe nhầm đài');
 
     closeDb(db);
@@ -449,7 +449,7 @@ test('O9 — đọc outbox hỏng: đếm lỗi, KHÔNG ném ra ngoài làm ch�
   const b = bo(null, {
     layKet: () => { throw new Error('outbox hỏng (giả lập)'); },
   });
-  const n = await b.chayMotNhip({ db, bayGioMs: T0, notifyHost: async () => {} });
+  const n = await b.runOneTick({ db, bayGioMs: T0, notifyHost: async () => {} });
   assert.equal(n.loi, 1);
   assert.equal(b.storeStats().loi, 1);
 
@@ -458,9 +458,9 @@ test('O9 — đọc outbox hỏng: đếm lỗi, KHÔNG ném ra ngoài làm ch�
 
 test('O9b — DM host ném lỗi: nhịp vẫn về bình thường', async () => {
   const { db } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const b = bo(null);
-  const n = await b.chayMotNhip({
+  const n = await b.runOneTick({
     db, bayGioMs: T0, notifyHost: async () => { throw new Error('Zalo chết'); },
   });
   assert.equal(n.notifyHost, 1, 'đã đánh dấu là ĐÃ BÁO — không được quay lại spam mỗi nhịp');
@@ -472,9 +472,9 @@ test('O9b — DM host ném lỗi: nhịp vẫn về bình thường', async () =
 
 test('O9c — không có đường DM host: vẫn ghi sổ, không im lặng tuyệt đối', async () => {
   const { db, so } = moiTruong();
-  xepHang(db, { giaMs: NGUONG_KET_MS });
+  xepHang(db, { giaMs: STUCK_THRESHOLD_MS });
   const b = bo(so);
-  const n = await b.chayMotNhip({ db, bayGioMs: T0, notifyHost: null });
+  const n = await b.runOneTick({ db, bayGioMs: T0, notifyHost: null });
   assert.equal(n.notifyHost, 1);
   assert.equal(docSo(so).filter((r) => r.su_kien === 'ket').length, 1,
     'mất đường DM mà sổ cũng trống thì sau này không ai lần ra được');
