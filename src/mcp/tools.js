@@ -192,6 +192,12 @@ export const KHAI_BAO_TOOL = Object.freeze([
   {
     name: TEN_TOOL_LICH.DAT_LICH_NHAP,
     description:
+      '⚠️ LỊCH NHẮC MỘT LẦN — anh chốt 22/08/2026: MẶC ĐỊNH mọi lời nhắc là ' +
+      'NHẮC THEO ĐUỔI, nên tool này CHỈ dùng khi anh nói RÕ là chỉ nhắc một lần ' +
+      '("nhắc mỗi lần đó thôi", "một lần thôi nhé"), hoặc khi đó là MỘT MỐC SỰ KIỆN ' +
+      'trôi qua là hết nghĩa (giờ đá bóng, giờ lên máy bay). Còn lại — mọi VIỆC CẦN ' +
+      'LÀM XONG — dùng `dat_nhac_theo_duoi`. Nhắc một lần cho một việc chưa xong là ' +
+      'việc đó rơi mà không ai biết. ' +
       'BƯỚC 1/2 của đặt lịch nhắc. Ghi lịch ở trạng thái CHỜ XÁC NHẬN và trả về câu đọc lại ' +
       'để anh duyệt — CHƯA có gì được gửi đi. Bạn phải tự quy đổi thời gian anh nói ("2 ngày ' +
       'nữa", "9h sáng thứ Sáu") sang ISO 8601 TUYỆT ĐỐI kèm offset, ví dụ ' +
@@ -308,7 +314,9 @@ export const KHAI_BAO_TOOL = Object.freeze([
   {
     name: TEN_TOOL_NHAC.DAT_NHAC_THEO_DUOI,
     description:
-      'BƯỚC 1/2 của lời nhắc THEO ĐUỔI — loại nhắc LẶP LẠI mỗi chu kỳ cho tới khi anh bảo xong. '
+      '★ ĐÂY LÀ LOẠI NHẮC MẶC ĐỊNH (anh chốt 22/08/2026). Anh nhờ nhắc một việc mà '
+      + 'KHÔNG nói rõ "chỉ một lần" ⇒ dùng tool NÀY. '
+      + 'BƯỚC 1/2 của lời nhắc THEO ĐUỔI — loại nhắc LẶP LẠI mỗi chu kỳ cho tới khi anh bảo xong. '
       + `⚠️ ĐỪNG NHẦM với ${TEN_TOOL_LICH.DAT_LICH_NHAP}: cái đó chỉ nhắc MỘT LẦN rồi thôi, `
       + 'nên nếu anh muốn "ngày nào cũng nhắc tới khi xong" mà bạn dùng nhầm nó thì mỗi sáng '
       + 'bạn phải tự nhớ đặt lại một lịch mới — quên một hôm là việc rơi mà không ai biết. '

@@ -567,13 +567,25 @@ lần sau chính trợ lý cũng không biết file đó tồn tại.
 
 ## ⏰ THEO ĐUỔI LỜI NHẮC — nhắc tới khi XONG VIỆC
 
+🔴 **MẶC ĐỊNH LÀ THEO ĐUỔI (anh chốt 22/08/2026).** Anh nhờ nhắc một việc mà ⛔ không
+nói rõ *"chỉ một lần"* ⇒ dùng `dat_nhac_theo_duoi`, ⛔ KHÔNG dùng `dat_lich_nhap`.
+
+`dat_lich_nhap` chỉ còn dùng cho đúng hai ca:
+- anh nói thẳng **"nhắc một lần thôi"**
+- đó là **một mốc sự kiện**, trôi qua là hết nghĩa: giờ đá bóng, giờ lên máy bay,
+  giờ hẹn khám. Nhắc lại vào hôm sau là vô nghĩa với mấy ca này.
+
+⚠️ Còn lại — mọi **việc cần làm xong** — đều là theo đuổi. Nhắc một lần cho một việc
+chưa xong nghĩa là việc đó rơi mà ⛔ không ai biết, và đó đúng là thứ anh lập hệ này để
+tránh.
+
 Lời nhắc ở đây **không phải bắn một phát rồi thôi** — nó là **theo đuổi tới khi việc xong**.
 
 | | Chốt |
 |---|---|
 | Dừng khi nào | **KHI XONG VIỆC.** Không có trần số lần, không có "quá N ngày thì thôi" |
 | Tần suất | **1 lần/ngày, 08:00** |
-| Cuối tuần | Nhắc bình thường, **CHỪA CHỦ NHẬT**. **Thứ Bảy VẪN nhắc** |
+| Cuối tuần | **Nhắc CẢ THỨ BẢY LẪN CHỦ NHẬT.** ⚠️ Đổi 22/08/2026 — anh chốt *"Bỏ giới hạn không nhắc vào CN đi"*. Muốn chừa CN cho một việc cụ thể thì vẫn khai riêng được |
 | Nhắc ở đâu | **Trong nhóm, TAG THẲNG người phụ trách** |
 | Nhắc chính host | **Thẳng tay, không chốt chặn nào** |
 

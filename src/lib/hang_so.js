@@ -419,8 +419,21 @@ export const TRANG_THAI_TD = Object.freeze({
 export const NHAC_THEO_DUOI = Object.freeze({
   CHU_KY_NGAY_MAC_DINH: 1,
   GIO_NHAC_MAC_DINH: '08:00',
-  // Thứ Bảy VẪN nhắc. Chỉ chừa Chủ Nhật — anh nói *"Không chắc chủ nhật nhé"*.
-  BO_CHU_NHAT_MAC_DINH: true,
+  /**
+   * ⚠️ ĐỔI 22/08/2026 — anh chốt: *"Bỏ giới hạn không nhắc vào CN đi"*.
+   *
+   * Trước đây `true` vì anh nói *"Không chắc chủ nhật nhé"* (20/08). Nay bỏ:
+   * Chủ Nhật nhắc như mọi ngày.
+   *
+   * ⚠️ Cờ vẫn giữ nguyên trong schema và vẫn khai được cho từng lời nhắc —
+   * ⛔ KHÔNG xoá. Đây là đổi MẶC ĐỊNH, ⛔ không phải bỏ tính năng: anh muốn
+   * chừa Chủ Nhật cho một việc cụ thể thì vẫn khai được.
+   *
+   * 🔴 Bỏ chừa Chủ Nhật còn sửa luôn một cái bẫy phụ: khi chừa CN thì nhịp 1
+   * ngày và nhịp 2 ngày rơi TRÙNG nhau nếu hôm nay là thứ Bảy — đúng ca đã
+   * làm bài test D2 (`theo_duoi`) đỏ oan sáng nay.
+   */
+  BO_CHU_NHAT_MAC_DINH: false,
   CHU_KY_NGAY_TOI_DA: 90,        // chặn model quy đổi nhầm ("2 năm nữa check lại")
 
   // ─── NHỊP THEO PHÚT (anh chốt 20/08/2026: "cứ 2p nhắc lại 1 lần") ────

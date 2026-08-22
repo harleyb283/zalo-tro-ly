@@ -129,7 +129,11 @@ test('B2 chốt rồi mới vào danh sách tới hạn', () => {
   dongDb(db);
 });
 
-test('B3 ★ mặc định đúng 5 điều anh chốt: 1 ngày, 08:00, chừa CN, theo đuổi', () => {
+test('B3 ★ mặc định đúng 5 điều anh chốt: 1 ngày, 08:00, CN VẪN NHẮC, theo đuổi', () => {
+  // ⚠️ ĐỔI 22/08/2026 — anh chốt *"Bỏ giới hạn không nhắc vào CN đi"*.
+  // Trước đó mặc định là CHỪA Chủ Nhật (anh nói 20/08: "Không chắc chủ nhật nhé").
+  // Bài này canh mặc định THEO ĐÚNG ĐIỀU ANH ĐANG MUỐN, ⛔ không phải theo điều
+  // anh từng muốn — nên khi anh đổi ý thì bài này phải đổi theo, có ghi lý do.
   const { db } = dbTam();
   nhacGia(db);
   const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
@@ -137,8 +141,19 @@ test('B3 ★ mặc định đúng 5 điều anh chốt: 1 ngày, 08:00, chừa C
   assert.equal(Number(d.chu_ky_ngay), NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH);
   assert.equal(Number(d.chu_ky_ngay), 1);
   assert.equal(d.gio_nhac, '08:00');
-  assert.equal(Number(d.bo_chu_nhat), 1);
+  assert.equal(Number(d.bo_chu_nhat), 0, '🔴 mặc định nay là CHỦ NHẬT VẪN NHẮC');
+  assert.equal(NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH, false);
   assert.equal(d.trang_thai_td, TRANG_THAI_TD.DANG_THEO_DUOI);
+  dongDb(db);
+});
+
+test('B3b ★ vẫn KHAI RIÊNG được "chừa Chủ Nhật" cho một lời nhắc cụ thể', () => {
+  // Đổi MẶC ĐỊNH ⛔ không phải bỏ tính năng. Anh muốn chừa CN cho một việc thì
+  // vẫn phải khai được — bỏ hẳn cờ đi là lấy mất lựa chọn của anh.
+  const { db } = dbTam();
+  nhacGia(db, { boChuNhat: true });
+  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
+  assert.equal(Number(d.bo_chu_nhat), 1);
   dongDb(db);
 });
 
