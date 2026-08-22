@@ -133,8 +133,10 @@ npm run health
   `cheDo`, `tichHop`) thì nó **nói ra**, chứ không âm thầm bỏ qua.
 - **Tự cấu hình khi bị thêm vào nhóm mới** — nếu **chính host** thêm thì bật đủ;
   người khác thêm (hoặc không rõ ai thêm) thì **chỉ nghe**, không ghi, và hỏi host.
-- **Lưới vớt câu hỏi rơi** — câu nào đã đẩy cho phiên trả lời mà quá 3 phút chưa
-  ai đụng tới thì đẩy lại, 2 lần không xong thì báo host ngay.
+- **Lưới vớt câu hỏi rơi** — câu nào đã đẩy cho phiên trả lời mà **quá 12 phút**
+  vẫn chưa ai trả lời thì đẩy lại, 2 lần không xong thì báo host ngay (thay vì
+  đợi hết hạn 30 phút). ⚠️ Ngưỡng phải cao hơn hẳn một lượt model bình thường —
+  để 3 phút thì nó vớt nhầm câu **đang được soạn dở** và đẩy sang phiên thứ hai.
 - **Ghi cả tin đã thu hồi** — đó là tính năng, không phải lỗi.
 - **Chống rò chéo nhóm** — câu trả lời dùng dữ liệu nhóm khác sẽ tự chuyển sang
   tin riêng cho host; trong nhóm chỉ nói đúng một câu trung tính do bạn khai sẵn.
