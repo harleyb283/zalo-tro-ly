@@ -39,7 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { moRong, baoDamThuMucCha } from '../lib/duong_dan.js';
+import { expandPath, ensureParentDir } from '../lib/paths.js';
 import { redact } from '../lib/redact.js';
 import {
   TRANG_THAI_SUC_KHOE,
@@ -88,7 +88,7 @@ export function ghiTrangThai(duongDanHealth, trangThai) {
     );
   }
 
-  const p = moRong(duongDanHealth);
+  const p = expandPath(duongDanHealth);
   const cu = docTrangThai(p);
   const bayGio = new Date().toISOString();
 
@@ -113,7 +113,7 @@ export function ghiTrangThai(duongDanHealth, trangThai) {
     ghiLuc: bayGio,
   };
 
-  baoDamThuMucCha(p);
+  ensureParentDir(p);
   // Ghi nguyên tử: `bin/zalo-health.js` chạy bằng cron có thể đọc đúng lúc
   // daemon đang ghi. Không có bước rename thì thỉnh thoảng nó đọc được nửa
   // file rồi báo động giả "health.json hỏng".
@@ -148,7 +148,7 @@ export function ghiTrangThai(duongDanHealth, trangThai) {
  * @returns {(TrangThaiSucKhoe & {ghiLuc: string})|null} null = chưa có file / file hỏng
  */
 export function docTrangThai(duongDanHealth) {
-  const p = moRong(duongDanHealth);
+  const p = expandPath(duongDanHealth);
   if (!fs.existsSync(p)) return null;
 
   let tho;
@@ -264,7 +264,7 @@ export function moTaKhoangThoiGian(ms) {
 export function duongDanPid(cauHinh) {
   const db = cauHinh?.duongDan?.db;
   if (!db) return null;
-  return path.join(path.dirname(moRong(db)), 'zalo-tro-ly.pid');
+  return path.join(path.dirname(expandPath(db)), 'zalo-tro-ly.pid');
 }
 
 /**

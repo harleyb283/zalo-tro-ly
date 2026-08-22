@@ -9,7 +9,7 @@
  *
  * Bài học lấy từ repo mẫu zalo-bot-mcp: `redact + raise from None`
  * (Python) — cắt luôn chuỗi __cause__ để traceback gốc không kèm bí mật.
- * Đối ứng Node là `loiSach()` bên dưới: tạo Error MỚI, KHÔNG gắn `cause`.
+ * Đối ứng Node là `cleanError()` bên dưới: tạo Error MỚI, KHÔNG gắn `cause`.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -96,7 +96,7 @@ export function redact(v, sau = 0) {
  * Biến một lỗi bất kỳ thành Error MỚI đã che sạch, KHÔNG mang `cause`.
  *
  * 🔴 Dùng hàm này ở MỌI chỗ ném lỗi ra khỏi module chạm mạng/đọc file bí mật:
- *      catch (e) { throw loiSach('đăng nhập Zalo thất bại', e); }
+ *      catch (e) { throw cleanError('đăng nhập Zalo thất bại', e); }
  * KHÔNG viết `throw new Error('...', { cause: e })` — `cause` kéo theo
  * nguyên stack và headers của thư viện HTTP, tức là kéo theo cookie.
  *
@@ -104,7 +104,7 @@ export function redact(v, sau = 0) {
  * @param {unknown} [goc]     lỗi gốc, chỉ dùng để trích một dòng đã che
  * @returns {Error}
  */
-export function loiSach(thongDiep, goc) {
+export function cleanError(thongDiep, goc) {
   let phu = '';
   if (goc !== undefined && goc !== null) {
     const g = /** @type {any} */ (goc);
@@ -119,7 +119,7 @@ export function loiSach(thongDiep, goc) {
  * @param {unknown} v
  * @returns {string}
  */
-export function ghiLogAnToan(v) {
+export function safeLogText(v) {
   try {
     return JSON.stringify(redact(v));
   } catch {

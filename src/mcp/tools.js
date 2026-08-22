@@ -62,7 +62,7 @@ import {
   docGioNhac, chuanGioNhac, mocNhacKeTiep, mocTuGioDiaPhuong,
   docNhip, tranMacDinh, kiemChuKyPhut, kiemTranSoLan,
 } from '../lich/theo_duoi.js';
-import { redact, loiSach } from '../lib/redact.js';
+import { redact, cleanError } from '../lib/redact.js';
 import { toId } from '../lib/ids.js';
 
 import {
@@ -720,7 +720,7 @@ function _kiemPhien(kho, db, thamSo) {
   try {
     dong = kho.layHangDoi(db, requestId);
   } catch (e) {
-    return { loi: _loi(MA_LOI.DB_LOI, loiSach('không đọc được hàng đợi', e).message) };
+    return { loi: _loi(MA_LOI.DB_LOI, cleanError('không đọc được hàng đợi', e).message) };
   }
   if (!dong) {
     return {
@@ -949,7 +949,7 @@ const TRAN_NHAN_TEXT = 200_000;
  *
  * 🔴 VÌ SAO KHÔNG DÙNG `_cat()` Ở ĐÂY NỮA: `_cat()` cắt cứng
  * `slice(0, 4000)` và **không để lại dấu vết nào**. Nó chạy NGAY ĐẦU tool,
- * tức trước cả tầng chia tin — nên dù có `chiaTin()` thì đuôi cũng đã mất
+ * tức trước cả tầng chia tin — nên dù có `splitMessage()` thì đuôi cũng đã mất
  * từ lâu, mà người đọc vẫn thấy "1/3, 2/3, 3/3" nên tưởng đã nhận đủ. Đúng
  * cái bẫy "cắt rồi mới chia" mà tầng dưới có bài test canh; chỗ hở nằm ở
  * đây, phía trên nó.
@@ -1084,9 +1084,9 @@ export function dangKyTool(server, phuThuoc) {
       }
     } catch (e) {
       // ⛔ Lưới cuối. Stack KHÔNG ra tới client — stack của thư viện HTTP kéo
-      // theo cả header Cookie (xem loiSach trong lib/redact.js).
-      _log(loiSach(`tool '${ten}' ném lỗi ngoài dự kiến`, e).message);
-      return _goi(_loi(MA_LOI.KHONG_RO, loiSach('lỗi ngoài dự kiến', e).message));
+      // theo cả header Cookie (xem cleanError trong lib/redact.js).
+      _log(cleanError(`tool '${ten}' ném lỗi ngoài dự kiến`, e).message);
+      return _goi(_loi(MA_LOI.KHONG_RO, cleanError('lỗi ngoài dự kiến', e).message));
     }
   });
 }
@@ -1110,7 +1110,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
       boQuaDaThuHoi: thamSo.boQuaDaThuHoi,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('truy vấn lịch sử thất bại', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('truy vấn lịch sử thất bại', e).message);
   }
 
   const nguon = Array.isArray(kq?.nguonChatIds) ? kq.nguonChatIds : [];
@@ -1127,7 +1127,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
     // nguy hiểm nhất: đọc được mà không để lại vết.
     return _loi(
       MA_LOI.KHONG_RO,
-      loiSach('không ghi nhận được nguồn truy vấn -> từ chối trả dữ liệu (fail-closed)', e).message,
+      cleanError('không ghi nhận được nguồn truy vấn -> từ chối trả dữ liệu (fail-closed)', e).message,
     );
   }
 
@@ -1194,7 +1194,7 @@ function _bangTenHoiThoai(db, chatIds) {
     const rows = db.prepare(`SELECT chat_id, ten FROM hoi_thoai WHERE chat_id IN (${cho})`).all(bien);
     for (const r of rows ?? []) ra.set(String(r.chat_id), r.ten ?? null);
   } catch (e) {
-    _log(loiSach('không lấy được tên hội thoại (bỏ qua, chỉ mất phần trang trí)', e).message);
+    _log(cleanError('không lấy được tên hội thoại (bỏ qua, chỉ mất phần trang trí)', e).message);
   }
   return ra;
 }
@@ -1262,8 +1262,8 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   } catch (e) {
     // FAIL-CLOSED. Không quyết được hướng thì KHÔNG GỬI GÌ CẢ. Tuyệt đối
     // không có nhánh "không chắc thì cứ gửi vào nhóm".
-    _log(loiSach('quyết định chống rò chéo thất bại -> KHÔNG gửi gì', e).message);
-    return _loi(MA_LOI.KHONG_RO, loiSach('không quyết định được hướng trả lời -> từ chối gửi', e).message);
+    _log(cleanError('quyết định chống rò chéo thất bại -> KHÔNG gửi gì', e).message);
+    return _loi(MA_LOI.KHONG_RO, cleanError('không quyết định được hướng trả lời -> từ chối gửi', e).message);
   }
   if (!qd || !qd.huong) {
     return _loi(MA_LOI.KHONG_RO, 'leak_guard không trả hướng trả lời -> từ chối gửi (fail-closed).');
@@ -1277,7 +1277,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
     try {
       dmChatId = toId(chinhSach.layDmHost(cauHinh, phien.dong.user_id), 'cauHinh.dmChatId');
     } catch (e) {
-      return _loi(MA_LOI.CAU_HINH_SAI, loiSach('không tra được DM host', e).message);
+      return _loi(MA_LOI.CAU_HINH_SAI, cleanError('không tra được DM host', e).message);
     }
     if (!dmChatId) {
       return _loi(
@@ -1350,7 +1350,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
     } catch (e) {
       // Hỏng ở đây KHÔNG được chặn câu trả lời — nhưng phải NÓI RA, vì im lặng
       // là đúng cái lỗi câm đang vá.
-      _log(loiSach('cưỡng chế tag thất bại -> gửi nguyên văn model viết', e).message);
+      _log(cleanError('cưỡng chế tag thất bại -> gửi nguyên văn model viết', e).message);
       tagRa.khongKhop.push('(lỗi khi tra tag — xem log)');
     }
   }
@@ -1372,7 +1372,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
     try {
       giu = nhac.giuQuyenGuiNhac(db, idNhac);
     } catch (e) {
-      return _loi(MA_LOI.DB_LOI, loiSach('không giành được quyền gửi lời nhắc', e).message);
+      return _loi(MA_LOI.DB_LOI, cleanError('không giành được quyền gửi lời nhắc', e).message);
     }
     if (!giu.ok) {
       // ⛔ KHÔNG gửi. Đây là ca ĐÚNG, không phải lỗi: lưới an toàn đã gửi câu dự
@@ -1455,7 +1455,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
           }
         } catch (e) {
           // Tin trong nhóm ĐÃ gửi rồi — ⛔ không được báo cả lượt là thất bại.
-          _log(loiSach('cửa 2: lùi về DM host thất bại', e).message);
+          _log(cleanError('cửa 2: lùi về DM host thất bại', e).message);
         }
       }
     } else if (qd.huong === HUONG_TRA_LOI.DM_HOST) {
@@ -1476,7 +1476,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
           await guiMot(chatIdHoi, cauTrungTinh, { laDm: laDmHoi });
         } catch (e) {
           // DM đã tới nơi rồi — không được vì câu xã giao hỏng mà báo cả lượt là thất bại.
-          _log(loiSach('gửi câu trung tính vào nơi hỏi thất bại (DM host đã gửi xong)', e).message);
+          _log(cleanError('gửi câu trung tính vào nơi hỏi thất bại (DM host đã gửi xong)', e).message);
         }
       } else if (trungDich) {
         _log('nơi hỏi CHÍNH LÀ DM host -> bỏ câu trung tính, đáp án đã tới đúng chỗ.');
@@ -1493,11 +1493,11 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       try {
         nhac.traVeQuyenGuiNhac(db, idNhac, mocChoCu);
       } catch (e2) {
-        _log(loiSach(`KHÔNG trả được quyền gửi lời nhắc ${idNhac} -> lưới an toàn mất lượt này`, e2).message);
+        _log(cleanError(`KHÔNG trả được quyền gửi lời nhắc ${idNhac} -> lưới an toàn mất lượt này`, e2).message);
       }
     }
     _ghiNhatKy(kho, db, phien.requestId, chatIdHoi, nguon, qd, null);
-    return _loi(MA_LOI.ZALO_CHUA_SAN_SANG, loiSach('gửi tin Zalo thất bại', e).message);
+    return _loi(MA_LOI.ZALO_CHUA_SAN_SANG, cleanError('gửi tin Zalo thất bại', e).message);
   }
 
   // 🔴 GHI BẰNG CHỨNG ĐÃ GỬI cho đường model. Trước bản này chỉ đường dự phòng
@@ -1508,7 +1508,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
     try {
       nhac.ghiBangChungGuiNhac(db, idNhac, msgId);
     } catch (e) {
-      _log(loiSach('không ghi được bằng chứng gửi lời nhắc', e).message);
+      _log(cleanError('không ghi được bằng chứng gửi lời nhắc', e).message);
     }
   }
 
@@ -1652,7 +1652,7 @@ function _laDmDich(kho, db, cauHinh, chatId) {
       if (loai === LOAI_HOI_THOAI.GROUP) return false;
     }
   } catch (e) {
-    _log(loiSach('không đọc được loại hội thoại -> tra tiếp config', e).message);
+    _log(cleanError('không đọc được loại hội thoại -> tra tiếp config', e).message);
   }
   const n = layNhomChoLich(cauHinh, chatId);
   if (n) return n.loai === LOAI_HOI_THOAI.DM;
@@ -1678,7 +1678,7 @@ function _tuyChonGui(kho, db, api, chatIdNhom) {
     try {
       t.dsNguoi = kho.dsNguoiTrongNhom(db, chatIdNhom);
     } catch (e) {
-      _log(loiSach('không tra được danh sách người trong nhóm -> sẽ không tag ai', e).message);
+      _log(cleanError('không tra được danh sách người trong nhóm -> sẽ không tag ai', e).message);
     }
   }
   return t;
@@ -1692,7 +1692,7 @@ function _tuyChonGui(kho, db, api, chatIdNhom) {
 // Nên `kenhPhu` mặc định là "zalo" và mọi tích hợp đều là LỆNH SHELL người
 // setup tự cắm (`tichHop.kenhPhuLenh`), pack không biết Telegram là gì.
 //
-//   "zalo"     -> chiaTin() rồi gửi từng phần, throttle 1,2s giữa các tin
+//   "zalo"     -> splitMessage() rồi gửi từng phần, throttle 1,2s giữa các tin
 //   "telegram" -> câu ngắn vào Zalo + đẩy bản đầy đủ qua lệnh shell (JSON/stdin)
 //   "khong"    -> chỉ câu ngắn
 //
@@ -1736,7 +1736,7 @@ async function _baoRoiVe(cauHinh, api, lyDo, soPhan, baoHostTiem) {
     await baoHost(cauHinh, tin, { api });
     return true;
   } catch (e) {
-    _log(loiSach('không báo được host chuyện rơi về kênh phụ', e).message);
+    _log(cleanError('không báo được host chuyện rơi về kênh phụ', e).message);
     return false;
   }
 }
@@ -1797,7 +1797,7 @@ async function _guiTheoChinhSach(nen, chatId, text, tuyChon = {}) {
           noiDung: text,
         });
       } catch (e) {
-        kq = { thanhCong: false, lyDo: loiSach('kenhPhuLenh ném lỗi', e).message };
+        kq = { thanhCong: false, lyDo: cleanError('kenhPhuLenh ném lỗi', e).message };
       }
       if (!kq.thanhCong) lyDo = kq.lyDo ? `lệnh lỗi: ${kq.lyDo}` : `lệnh thoát mã ${kq.ma}`;
     }
@@ -1877,7 +1877,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
       );
     }
   } catch (e) {
-    return _loi(MA_LOI.CAU_HINH_SAI, loiSach('không tra được DM host', e).message);
+    return _loi(MA_LOI.CAU_HINH_SAI, cleanError('không tra được DM host', e).message);
   }
   if (!dmChatId) {
     return _loi(MA_LOI.KHONG_CO_HOST, 'Không tìm được DM host trong config -> không gửi.');
@@ -1888,7 +1888,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
     const kqN = await _guiTheoChinhSach({ cauHinh, api, kho, db, guiTin }, dmChatId, text, { laDm: true });
     msgId = kqN.msgId;
   } catch (e) {
-    return _loi(MA_LOI.ZALO_CHUA_SAN_SANG, loiSach('gửi DM host thất bại', e).message);
+    return _loi(MA_LOI.ZALO_CHUA_SAN_SANG, cleanError('gửi DM host thất bại', e).message);
   }
 
   // CỐ Ý ghi nhật ký với huong='dm_host': đây cũng là một lần dữ liệu rời hệ,
@@ -1959,7 +1959,7 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
   try {
     sucKhoe = docSucKhoe?.() ?? null;
   } catch (e) {
-    _log(loiSach('đọc sức khoẻ thất bại', e).message);
+    _log(cleanError('đọc sức khoẻ thất bại', e).message);
   }
 
   // Định danh MỀM: thiếu/sai request_id thì KHÔNG làm hỏng tool, chỉ là không
@@ -1969,7 +1969,7 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
     const phien = _kiemPhien(kho, db, thamSo);
     if (!phien.loi) laHost = _laHost(cauHinh, phien);
   } catch (e) {
-    _log(loiSach('không xác định được người gọi trang_thai -> coi là người ngoài', e).message);
+    _log(cleanError('không xác định được người gọi trang_thai -> coi là người ngoài', e).message);
   }
 
   if (!laHost) return _ok({ sucKhoe: _sucKhoeGon(sucKhoe) });
@@ -1978,7 +1978,7 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
   try {
     so = { ...so, ...(kho.thongKe(db) ?? {}) };
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('đếm số liệu kho thất bại', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('đếm số liệu kho thất bại', e).message);
   }
   // ═══ 🔴 B1 + A10 — ĐƯA HAI TRẠNG THÁI VÔ HÌNH RA ÁNH SÁNG ═══
   // Cả hai đều đã tồn tại trong DB từ trước nhưng KHÔNG CÓ ĐƯỜNG NÀO ĐỌC RA:
@@ -2034,7 +2034,7 @@ function _ghiNhatKy(kho, db, requestId, chatIdHoi, nguon, qd, huong) {
   } catch (e) {
     // Nhật ký là BẰNG CHỨNG NGHIỆM THU, mất nó là mất khả năng chứng minh
     // luật chạy đúng — nhưng tin đã gửi rồi, không quay lại được. Kêu to.
-    _log(loiSach(`KHÔNG ghi được nhat_ky_truy_van cho ${requestId} (tin ĐÃ gửi)`, e).message);
+    _log(cleanError(`KHÔNG ghi được nhat_ky_truy_van cho ${requestId} (tin ĐÃ gửi)`, e).message);
   }
 }
 
@@ -2043,12 +2043,12 @@ function _dongPhien(kho, chinhSach, db, boTichLuy, requestId) {
   try {
     kho.capNhatHangDoi(db, requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
   } catch (e) {
-    _log(loiSach(`không cập nhật được hàng đợi ${requestId}`, e).message);
+    _log(cleanError(`không cập nhật được hàng đợi ${requestId}`, e).message);
   }
   try {
     chinhSach.xoaPhien(boTichLuy, requestId);
   } catch (e) {
-    _log(loiSach(`không xoá được phiên tích luỹ ${requestId}`, e).message);
+    _log(cleanError(`không xoá được phiên tích luỹ ${requestId}`, e).message);
   }
 }
 
@@ -2147,7 +2147,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
   try {
     dangCho = lich.demDangCho(db);
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đếm được lịch đang chờ', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đếm được lịch đang chờ', e).message);
   }
   if (dangCho >= GIOI_HAN_LICH.TRAN_DANG_CHO) {
     return _loi(
@@ -2168,7 +2168,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
         else tagKhongTraRa.push(u);
       }
     } catch (e) {
-      _log(loiSach('không tra được người trong nhóm để tag', e).message);
+      _log(cleanError('không tra được người trong nhóm để tag', e).message);
       tagKhongTraRa = [...tagUserIds];
       tenTag = [];
     }
@@ -2213,7 +2213,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
     });
     ghi.cau = cau;
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không ghi được lịch', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không ghi được lịch', e).message);
   }
 
   // Đặt lịch CHÉO NHÓM là nhu cầu thật (đứng ở nhóm A dặn nhắc nhóm B), nhưng
@@ -2228,7 +2228,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
         huongTraLoi: HUONG_TRA_LOI.NHOM,
       });
     } catch (e) {
-      _log(loiSach('không ghi được nhật ký cho lịch chéo nhóm', e).message);
+      _log(cleanError('không ghi được nhật ký cho lịch chéo nhóm', e).message);
     }
   }
 
@@ -2269,7 +2269,7 @@ function _lichChoCuaToi(lich, db, nguoiDat) {
   try {
     return lich.xemLich(db, { trangThai: TRANG_THAI_LICH.CHO_XAC_NHAN, nguoiDat }) ?? [];
   } catch (e) {
-    _log(loiSach('không đọc được danh sách lịch chờ', e).message);
+    _log(cleanError('không đọc được danh sách lịch chờ', e).message);
     return [];
   }
 }
@@ -2322,7 +2322,7 @@ function _datLichChot({ kho, lich, db }, thamSo) {
   try {
     kq = lich.chotLich(db, { id: ma, ma, nguoiDat });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không chốt được lịch', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không chốt được lịch', e).message);
   }
   if (!kq.ok) {
     const noi = {
@@ -2359,7 +2359,7 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
       trangThai: thamSo.trangThai ?? TRANG_THAI_LICH.DA_LEN_LICH,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đọc được lịch', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đọc được lịch', e).message);
   }
 
   // 🔴 LỌC THEO PHẠM VI. `xemNhacTheoDuoi`/`xemLich` đọc bảng CHUNG cho MỌI
@@ -2403,7 +2403,7 @@ function _huyLich({ kho, lich, db }, thamSo) {
   try {
     kq = lich.huyLich(db, { id, nguoiDat });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không huỷ được lịch', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không huỷ được lịch', e).message);
   }
   if (!kq.ok) {
     const noi = {
@@ -2567,7 +2567,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
     try {
       dangCho = lich.demDangCho(db);
     } catch (e) {
-      return _loi(MA_LOI.DB_LOI, loiSach('không đếm được lịch đang chờ', e).message);
+      return _loi(MA_LOI.DB_LOI, cleanError('không đếm được lịch đang chờ', e).message);
     }
   }
   if (dangCho >= GIOI_HAN_LICH.TRAN_DANG_CHO) {
@@ -2672,7 +2672,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
       bayGioMs: bayGio,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không ghi được lời nhắc theo đuổi', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không ghi được lời nhắc theo đuổi', e).message);
   }
 
   // ═══ 🔴 A14 — ĐẶT NHẮC CHÉO NHÓM PHẢI ĐỂ LẠI VẾT ═══
@@ -2690,7 +2690,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
         huongTraLoi: HUONG_TRA_LOI.NHOM,
       });
     } catch (e) {
-      _log(loiSach('không ghi được nhật ký cho lời nhắc chéo nhóm', e).message);
+      _log(cleanError('không ghi được nhật ký cho lời nhắc chéo nhóm', e).message);
     }
   }
 
@@ -2762,7 +2762,7 @@ function _chinhNhipNhac({ kho, nhac, db, cauHinh }, thamSo) {
       tamDungToiMs,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không chỉnh được nhịp nhắc', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không chỉnh được nhịp nhắc', e).message);
   }
   if (!kq.ok) return _loi(MA_LOI.KHONG_RO, _noiLyDoNhac(kq.ly, id));
 
@@ -2792,7 +2792,7 @@ function _dongNhac({ kho, nhac, db, cauHinh }, thamSo) {
       bayGioMs: Date.now(),
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đóng được lời nhắc', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đóng được lời nhắc', e).message);
   }
   if (!kq.ok) return _loi(MA_LOI.KHONG_RO, _noiLyDoNhac(kq.ly, id));
 
@@ -2816,7 +2816,7 @@ function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
   try {
     ds = nhac.xemNhacTheoDuoi(db, { trangThaiTd: thamSo.trangThaiTd });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đọc được danh sách nhắc', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đọc được danh sách nhắc', e).message);
   }
 
   // 🔴 LỌC THEO PHẠM VI. `xemNhacTheoDuoi`/`xemLich` đọc bảng CHUNG cho MỌI
@@ -2874,7 +2874,7 @@ function _xinDuyet({ kho, db, cauHinh, api }, thamSo) {
       lyDo: thamSo?.lyDo ?? null,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không ghi được yêu cầu duyệt', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không ghi được yêu cầu duyệt', e).message);
   }
 
   // ⚠️ Báo host MỘT DÒNG. ⛔ Không mở đường mới ra Zalo từ client: `baoHost`
@@ -2906,7 +2906,7 @@ function _xemYeuCau({ kho, db }, thamSo) {
   try {
     ds = kho.xemYeuCauDuyet(db, { trangThai: thamSo?.trangThai, soLuong: 50 });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đọc được hàng đợi duyệt', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đọc được hàng đợi duyệt', e).message);
   }
   return _ok({
     soLuong: ds.length,
@@ -2949,7 +2949,7 @@ function _duyetYeuCau({ kho, db }, thamSo) {
       ghiChu: thamSo?.ghiChu ?? null,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không cập nhật được yêu cầu', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không cập nhật được yêu cầu', e).message);
   }
   if (kq === false) {
     return _loi(
@@ -3008,7 +3008,7 @@ function _ghiVetNeuOk(nen, phien, tenTool, thamSo, ketQua) {
       daBaoHost: 1,
     });
   } catch (e) {
-    _log(loiSach(`🔴 ⛔ KHÔNG ghi được vết cho '${tenTool}' (việc ĐÃ chạy)`, e).message);
+    _log(cleanError(`🔴 ⛔ KHÔNG ghi được vết cho '${tenTool}' (việc ĐÃ chạy)`, e).message);
   }
   _baoHostMotDong(nen.cauHinh, nen.api,
     `[${chatId}] ${tenTool} chạy theo lời ${ai}: "${cau.slice(0, 160)}"`, nen.kho?.baoHost);
@@ -3030,9 +3030,9 @@ function _baoHostMotDong(cauHinh, api, thongDiep, baoHostTiem) {
     Promise.resolve(baoHostTiem
       ? baoHostTiem(cauHinh, thongDiep, { api: api ?? null })
       : import('../ops/notify_host.js').then((m) => m.baoHost(cauHinh, thongDiep, { api: api ?? null })))
-      .catch((e) => _log(loiSach('báo host thất bại (đã nuốt)', e).message));
+      .catch((e) => _log(cleanError('báo host thất bại (đã nuốt)', e).message));
   } catch (e) {
-    _log(loiSach('báo host ném ngay (đã nuốt)', e).message);
+    _log(cleanError('báo host ném ngay (đã nuốt)', e).message);
   }
 }
 
@@ -3057,7 +3057,7 @@ function _boQua({ kho, db }, thamSo) {
   try {
     kho.capNhatHangDoi(db, phien.requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không đóng được lượt', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không đóng được lượt', e).message);
   }
   const ghiChu = String(thamSo?.ghiChu ?? '').trim();
   _log(`bo_qua ${phien.requestId}${phien.chiNghe ? ' (lượt chỉ nghe)' : ''}`
@@ -3126,7 +3126,7 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
       nguonNguyenVan: _ngGhi?.cau ?? null,
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không ghi nhớ được', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không ghi nhớ được', e).message);
   }
   // ⚠️ BÁO HOST + GHI VẾT ⛔ KHÔNG làm ở đây nữa (21/08/2026). Làm TẬP TRUNG ở
   // `_ghiVetNeuOk` trong `dangKyTool`: rải vào từng handler thì thêm tool
@@ -3170,7 +3170,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
       bayGioMs: Date.now(),
     });
   } catch (e) {
-    return _loi(MA_LOI.DB_LOI, loiSach('không mở lại được lời nhắc', e).message);
+    return _loi(MA_LOI.DB_LOI, cleanError('không mở lại được lời nhắc', e).message);
   }
 
   if (!kq.ok) {
@@ -3277,7 +3277,7 @@ function _daGhiTrongPhien(kho, db, requestId) {
       return [TEN_TOOL_GHI.GHI_NHO];
     }
   } catch (e) {
-    _log(loiSach('không đọc được dấu ghi bền của phiên', e).message);
+    _log(cleanError('không đọc được dấu ghi bền của phiên', e).message);
   }
   return ra;
 }
@@ -3324,7 +3324,7 @@ function _congGhi({ kho, db, cauHinh }, phien, thamSo, laLuotNhac) {
     } catch (e) {
       // Sổ đo hỏng thì mất SỐ LIỆU; sổ đo làm chết một câu trả lời thì mất CÂU
       // TRẢ LỜI. Không bao giờ để cái sau xảy ra vì cái trước.
-      _log(loiSach('không ghi được nhật ký cổng ghi', e).message);
+      _log(cleanError('không ghi được nhật ký cổng ghi', e).message);
     }
   };
 

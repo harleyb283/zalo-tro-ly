@@ -29,8 +29,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline/promises';
 
-import { moRong } from '../src/lib/duong_dan.js';
-import { ghiLogAnToan } from '../src/lib/redact.js';
+import { expandPath } from '../src/lib/paths.js';
+import { safeLogText } from '../src/lib/redact.js';
 import { dangChayTest } from '../src/ops/notify_host.js';
 import {
   dangNhapBangCookie,
@@ -84,9 +84,9 @@ function docThamSo(argv) {
  */
 function docCauHinhKhoanDung(chiDinh) {
   const p = chiDinh
-    ? moRong(chiDinh)
+    ? expandPath(chiDinh)
     : process.env.ZTL_CONFIG
-      ? moRong(process.env.ZTL_CONFIG)
+      ? expandPath(process.env.ZTL_CONFIG)
       : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
 
   let ch = {};
@@ -101,10 +101,10 @@ function docCauHinhKhoanDung(chiDinh) {
   }
 
   // ZTL_DATA_DIR thắng config — giữ đúng thứ tự mà bin/init-db.js đã chốt.
-  const thuMucDuLieu = process.env.ZTL_DATA_DIR ? moRong(process.env.ZTL_DATA_DIR) : null;
+  const thuMucDuLieu = process.env.ZTL_DATA_DIR ? expandPath(process.env.ZTL_DATA_DIR) : null;
   const session = thuMucDuLieu
     ? path.join(thuMucDuLieu, 'session.json')
-    : moRong(ch?.duongDan?.session || '~/.zalo-tro-ly/session.json');
+    : expandPath(ch?.duongDan?.session || '~/.zalo-tro-ly/session.json');
 
   return {
     tuFile,
@@ -241,7 +241,7 @@ async function lenhDungPhienSanCo(cauHinh, { canNhom }) {
 async function lenhQuetQr(cauHinh, tuyChon) {
   const duongDanSession = cauHinh.duongDan.session;
   const qrPath = tuyChon.qrPath
-    ? moRong(tuyChon.qrPath)
+    ? expandPath(tuyChon.qrPath)
     : path.join(path.dirname(duongDanSession), 'qr.png');
 
   out('');
@@ -285,7 +285,7 @@ async function lenhQuetQr(cauHinh, tuyChon) {
     ten: toi.ten,
   });
   out('');
-  out(`  ✅ Đã lưu phiên (quyền 0600): ${moRong(duongDanSession)}`);
+  out(`  ✅ Đã lưu phiên (quyền 0600): ${expandPath(duongDanSession)}`);
 
   // ⚠️ Cài đặt CẤP TÀI KHOẢN — hỏi MỘT LẦN, không tự ý làm.
   if (cauHinh.anTrangThai) {
@@ -381,7 +381,7 @@ const laFileChinh = process.argv[1]
 if (laFileChinh) {
   main(process.argv).catch((e) => {
     err('');
-    err(`⛔ ${e?.message ?? ghiLogAnToan(e)}`);
+    err(`⛔ ${e?.message ?? safeLogText(e)}`);
     process.exitCode = process.exitCode || 1;
   });
 }

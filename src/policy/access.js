@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { moRong, namTrongPack } from '../lib/duong_dan.js';
+import { expandPath, isInsidePack } from '../lib/paths.js';
 import { toId } from '../lib/ids.js';
 // ⚠️ `hang_so.js` KHÔNG import gì (đã kiểm) ⇒ ⛔ không có vòng import.
 // Lấy mặc định từ đó chứ ⛔ không khai lại ở đây: hai bản sao của một con số
@@ -137,13 +137,13 @@ function _kiemId(v, nhan) {
  * và ⛔ không có lỗi nào nổ ra. Một nguồn sự thật duy nhất, dùng chung.
  *
  * @param {string} [duongDan]
- * @returns {string} đường dẫn tuyệt đối, đã moRong()
+ * @returns {string} đường dẫn tuyệt đối, đã expandPath()
  */
 export function duongDanCauHinh(duongDan) {
   return duongDan
-    ? moRong(duongDan)
+    ? expandPath(duongDan)
     : process.env.ZTL_CONFIG
-      ? moRong(process.env.ZTL_CONFIG)
+      ? expandPath(process.env.ZTL_CONFIG)
       : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
 }
 
@@ -156,7 +156,7 @@ export function duongDanCauHinh(duongDan) {
  * Còn `ZTL_DATA_DIR` THẮNG `duongDan.*` trong config.
  *
  * @param {string} [duongDan]
- * @returns {CauHinh} đã validate, đường dẫn đã moRong()
+ * @returns {CauHinh} đã validate, đường dẫn đã expandPath()
  */
 export function docCauHinh(duongDan) {
   const file = duongDanCauHinh(duongDan);
@@ -254,24 +254,24 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   }
 
   // ── duongDan ─────────────────────────────────────────────────────────
-  const thuMucDuLieu = process.env.ZTL_DATA_DIR ? moRong(process.env.ZTL_DATA_DIR) : null;
+  const thuMucDuLieu = process.env.ZTL_DATA_DIR ? expandPath(process.env.ZTL_DATA_DIR) : null;
   const duongDan = {
     db: thuMucDuLieu
       ? path.join(thuMucDuLieu, 'lichsu.db')
-      : moRong(ch?.duongDan?.db || '~/.zalo-tro-ly/lichsu.db'),
+      : expandPath(ch?.duongDan?.db || '~/.zalo-tro-ly/lichsu.db'),
     session: thuMucDuLieu
       ? path.join(thuMucDuLieu, 'session.json')
-      : moRong(ch?.duongDan?.session || '~/.zalo-tro-ly/session.json'),
+      : expandPath(ch?.duongDan?.session || '~/.zalo-tro-ly/session.json'),
     health: thuMucDuLieu
       ? path.join(thuMucDuLieu, 'health.json')
-      : moRong(ch?.duongDan?.health || '~/.zalo-tro-ly/health.json'),
+      : expandPath(ch?.duongDan?.health || '~/.zalo-tro-ly/health.json'),
   };
 
   // 🔴 DB nằm trong pack = vô hiệu hoá MỨC SIẾT CAO: phiên Claude có
   // --add-dir tới thư mục project sẽ đọc thẳng file DB, vòng qua toàn bộ
   // tool và không để lại dấu vết nguồn nào. Đây là lớp phòng thủ THẬT của
   // luật chống rò chéo, không phải trang trí ⇒ NÉM LỖI.
-  if (namTrongPack(duongDan.db, THU_MUC_PACK)) {
+  if (isInsidePack(duongDan.db, THU_MUC_PACK)) {
     throw new Error(
       `Cấu hình NGUY HIỂM: duongDan.db nằm TRONG thư mục pack:\n  ${duongDan.db}\n` +
         'Phiên Claude đọc thẳng được file này ⇒ vòng qua toàn bộ luật chống rò chéo. ' +
@@ -282,7 +282,7 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   // chéo, nhưng session.json chứa cookie Zalo nên nằm trong repo là rủi ro
   // lọt git (.gitignore đã che, nhưng đừng dựa vào một lớp duy nhất).
   for (const ten of ['session', 'health']) {
-    if (namTrongPack(duongDan[ten], THU_MUC_PACK)) {
+    if (isInsidePack(duongDan[ten], THU_MUC_PACK)) {
       _canhBao(
         `duongDan.${ten} nằm TRONG pack: ${duongDan[ten]} — nên để ngoài project ` +
           '(session.json chứa cookie Zalo).',

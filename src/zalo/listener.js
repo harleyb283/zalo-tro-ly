@@ -26,7 +26,7 @@
  * 2. LỖI TRONG HANDLER KHÔNG ĐƯỢC LÀM CHẾT TIẾN TRÌNH. Một tin dị dạng làm
  *    `normalize` ném lỗi mà không ai bắt thì EventEmitter đẩy nó thành
  *    unhandled exception → cả trợ lý chết vì MỘT tin. Nên mỗi handler bọc
- *    try/catch, phát `SU_KIEN.LOI` (đã qua `loiSach`) rồi đi tiếp.
+ *    try/catch, phát `SU_KIEN.LOI` (đã qua `cleanError`) rồi đi tiếp.
  *
  * ═══ ⚠️ MÂU THUẪN VỚI FACT CŨ — ĐÃ BÁO ROUTER ═══
  * Memory `ref_zca_js_su_kien_va_thu_hoi` ghi *"zca-js có ĐÚNG 4 listener"*.
@@ -39,7 +39,7 @@
  */
 
 import { SU_KIEN } from '../lib/hang_so.js';
-import { loiSach } from '../lib/redact.js';
+import { cleanError } from '../lib/redact.js';
 import {
   chuanHoaTinNhan,
   chuanHoaThuHoi,
@@ -116,7 +116,7 @@ function _boc(tenZca, tenNoiBo, chuanHoa, boPhat, boiCanh) {
  * giờ được phép làm chết đường chính.
  */
 function _phatLoi(boPhat, boiCanh, e) {
-  const loi = loiSach(`listener '${boiCanh}' xử lý sự kiện thất bại`, e);
+  const loi = cleanError(`listener '${boiCanh}' xử lý sự kiện thất bại`, e);
   try {
     boPhat.emit(SU_KIEN.LOI, loi);
   } catch {
@@ -155,7 +155,7 @@ function _layUidTroLy(api) {
     const s = String(v).trim();
     return s === '' || s === '0' ? null : s;
   } catch (e) {
-    _canhBao(`getOwnId() ném lỗi: ${loiSach('không đọc được uid trợ lý', e).message}`);
+    _canhBao(`getOwnId() ném lỗi: ${cleanError('không đọc được uid trợ lý', e).message}`);
     return null;
   }
 }
@@ -202,17 +202,17 @@ function _dungBoiCanh(api, hostUserIds) {
 export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
   const bo = api?.listener;
   if (!bo || typeof bo.on !== 'function' || typeof bo.off !== 'function') {
-    throw loiSach('api.listener không dùng được (thiếu .on/.off) — chưa đăng nhập Zalo?');
+    throw cleanError('api.listener không dùng được (thiếu .on/.off) — chưa đăng nhập Zalo?');
   }
   if (!boPhat || typeof boPhat.emit !== 'function') {
-    throw loiSach('boPhat phải là EventEmitter');
+    throw cleanError('boPhat phải là EventEmitter');
   }
 
   if (_dangGan) {
     if (_dangGan.api === api) {
       // Gắn hai lần lên CÙNG một api = mỗi tin vào DB hai lần. Ném cho to
       // tiếng ngay lúc khởi động, đừng để phát hiện qua dữ liệu trùng.
-      throw loiSach('batDauNghe() đã chạy rồi trên chính api này — gắn hai lần là ghi tin ĐÔI');
+      throw cleanError('batDauNghe() đã chạy rồi trên chính api này — gắn hai lần là ghi tin ĐÔI');
     }
     // api MỚI (watchdog vừa đăng nhập lại): gỡ dây cũ rồi mới nối dây mới.
     _canhBao('phát hiện api mới -> gỡ 4 listener của phiên cũ trước khi gắn lại');
@@ -245,7 +245,7 @@ export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
 
   if (tuyChon.tuBatDau === true) {
     if (typeof bo.start !== 'function') {
-      throw loiSach('tuBatDau=true nhưng api.listener.start() không tồn tại');
+      throw cleanError('tuBatDau=true nhưng api.listener.start() không tồn tại');
     }
     bo.start();
   } else {
@@ -278,7 +278,7 @@ export function dungNghe(api) {
     try {
       bo?.off?.(ten, fn);
     } catch (e) {
-      _canhBao(`gỡ listener '${ten}' thất bại: ${loiSach('', e).message}`);
+      _canhBao(`gỡ listener '${ten}' thất bại: ${cleanError('', e).message}`);
     }
   }
   _dangGan = null;

@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-import { moRong, baoDamThuMucCha, namTrongPack } from '../src/lib/duong_dan.js';
+import { expandPath, ensureParentDir, isInsidePack } from '../src/lib/paths.js';
 import { PHIEN_BAN_SCHEMA } from '../src/lib/hang_so.js';
 
 const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,22 +35,22 @@ function docThamSo(argv) {
 }
 
 function timDuongDanDb(chiDinh) {
-  if (chiDinh) return moRong(chiDinh);
+  if (chiDinh) return expandPath(chiDinh);
 
   if (process.env.ZTL_DATA_DIR) {
-    return path.join(moRong(process.env.ZTL_DATA_DIR), 'lichsu.db');
+    return path.join(expandPath(process.env.ZTL_DATA_DIR), 'lichsu.db');
   }
 
   const fileCauHinh = process.env.ZTL_CONFIG
-    ? moRong(process.env.ZTL_CONFIG)
+    ? expandPath(process.env.ZTL_CONFIG)
     : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
 
   if (fs.existsSync(fileCauHinh)) {
     const ch = JSON.parse(fs.readFileSync(fileCauHinh, 'utf8'));
-    if (ch?.duongDan?.db) return moRong(ch.duongDan.db);
+    if (ch?.duongDan?.db) return expandPath(ch.duongDan.db);
   }
 
-  return moRong('~/.zalo-tro-ly/lichsu.db');
+  return expandPath('~/.zalo-tro-ly/lichsu.db');
 }
 
 function main() {
@@ -58,7 +58,7 @@ function main() {
   const duongDanDb = timDuongDanDb(ts.db);
   const duongDanSchema = path.join(THU_MUC_PACK, 'schema.sql');
 
-  if (namTrongPack(duongDanDb, THU_MUC_PACK)) {
+  if (isInsidePack(duongDanDb, THU_MUC_PACK)) {
     process.stderr.write(
       '⚠️  CẢNH BÁO: DB đang nằm TRONG thư mục pack.\n' +
       '    Mức siết CAO yêu cầu đặt dữ liệu NGOÀI project (vd ~/.zalo-tro-ly/),\n' +
@@ -66,7 +66,7 @@ function main() {
     );
   }
 
-  baoDamThuMucCha(duongDanDb);
+  ensureParentDir(duongDanDb);
 
   const sql = fs.readFileSync(duongDanSchema, 'utf8');
   const db = new DatabaseSync(duongDanDb);

@@ -42,8 +42,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { docCauHinh, THOI_GIAN_MAC_DINH } from '../src/policy/access.js';
-import { moRong } from '../src/lib/duong_dan.js';
-import { ghiLogAnToan } from '../src/lib/redact.js';
+import { expandPath } from '../src/lib/paths.js';
+import { safeLogText } from '../src/lib/redact.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 import {
   docTrangThai, tuoiNhipTimMs, tuoiTrangThaiMs, moTaKhoangThoiGian, daemonDangChay,
@@ -274,9 +274,9 @@ export async function main(argv) {
     return MA.CAU_HINH;
   }
 
-  const duongDanHealth = moRong(
+  const duongDanHealth = expandPath(
     process.env.ZTL_DATA_DIR
-      ? path.join(moRong(process.env.ZTL_DATA_DIR), 'health.json')
+      ? path.join(expandPath(process.env.ZTL_DATA_DIR), 'health.json')
       : cauHinh.duongDan.health,
   );
 
@@ -325,7 +325,7 @@ export async function main(argv) {
         tieuDe: 'Trợ lý Zalo — cần xem',
       });
     } catch (e) {
-      err(`⚠️ không báo host được: ${ghiLogAnToan(e)}`);
+      err(`⚠️ không báo host được: ${safeLogText(e)}`);
     }
   }
 
@@ -339,7 +339,7 @@ if (laFileChinh) {
   main(process.argv)
     .then((ma) => { process.exitCode = ma; })
     .catch((e) => {
-      err(`⛔ ${e?.message ?? ghiLogAnToan(e)}`);
+      err(`⛔ ${e?.message ?? safeLogText(e)}`);
       process.exitCode = MA.LOI;
     });
 }

@@ -40,8 +40,8 @@ import fs from 'node:fs';
 
 import { Zalo, UpdateSettingsType } from 'zca-js';
 
-import { moRong, ghiFileBiMat } from '../lib/duong_dan.js';
-import { loiSach, ghiLogAnToan } from '../lib/redact.js';
+import { expandPath, writeSecretFile } from '../lib/paths.js';
+import { cleanError, safeLogText } from '../lib/redact.js';
 import { toId } from '../lib/ids.js';
 import { TRANG_THAI_SUC_KHOE } from '../lib/hang_so.js';
 
@@ -95,14 +95,14 @@ export function tuyChonZalo() {
  * @returns {Promise<object|null>} null = chưa có phiên hoặc phiên không dùng được
  */
 export async function docPhien(duongDanSession) {
-  const p = moRong(duongDanSession);
+  const p = expandPath(duongDanSession);
   if (!fs.existsSync(p)) return null;
 
   let tho;
   try {
     tho = JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch (e) {
-    throw loiSach(`File phiên hỏng, không phải JSON hợp lệ: ${p}`, e);
+    throw cleanError(`File phiên hỏng, không phải JSON hợp lệ: ${p}`, e);
   }
 
   // Thiếu bất kỳ mảnh nào trong ba mảnh này thì cookie là rác — coi như chưa
@@ -121,14 +121,14 @@ export async function docPhien(duongDanSession) {
 }
 
 /**
- * Ghi file phiên với quyền 0600 ĐẶT NGAY LÚC TẠO (qua ghiFileBiMat).
+ * Ghi file phiên với quyền 0600 ĐẶT NGAY LÚC TẠO (qua writeSecretFile).
  *
  * @param {string} duongDanSession
  * @param {{cookie: unknown[], imei: string, userAgent: string, language?: string, userId?: string|null, ten?: string|null}} duLieuPhien
  * @returns {Promise<void>}
  */
 export async function luuPhien(duongDanSession, duLieuPhien) {
-  const p = moRong(duongDanSession);
+  const p = expandPath(duongDanSession);
 
   if (!duLieuPhien?.cookie || !duLieuPhien?.imei || !duLieuPhien?.userAgent) {
     throw new Error('luuPhien(): thiếu cookie / imei / userAgent — từ chối ghi phiên khuyết');
@@ -154,7 +154,7 @@ export async function luuPhien(duongDanSession, duLieuPhien) {
     cookie: duLieuPhien.cookie,
   };
 
-  ghiFileBiMat(p, `${JSON.stringify(ban, null, 2)}\n`);
+  writeSecretFile(p, `${JSON.stringify(ban, null, 2)}\n`);
 
   const che = fs.statSync(p).mode & 0o777;
   if (che !== 0o600) {
@@ -174,7 +174,7 @@ export function layCookieHienThoi(api) {
     const s = jar?.toJSON?.();
     return Array.isArray(s?.cookies) && s.cookies.length ? s.cookies : null;
   } catch (e) {
-    log(`⚠️ không trích được cookie hiện thời: ${ghiLogAnToan(e)}`);
+    log(`⚠️ không trích được cookie hiện thời: ${safeLogText(e)}`);
     return null;
   }
 }
@@ -244,7 +244,7 @@ export function loiDangNhapThatBai(e) {
     // 🔴 KHÔNG bảo anh quét QR ở đây. Chưa có bằng chứng nào nói cookie chết,
     // mà quét QR nhầm thì ĐÁ VĂNG phiên đang khoẻ.
     return new LoiPhienZalo(
-      `${loiSach('Đăng nhập Zalo thất bại vì lỗi MẠNG/HẠ TẦNG', e).message}\n  ` +
+      `${cleanError('Đăng nhập Zalo thất bại vì lỗi MẠNG/HẠ TẦNG', e).message}\n  ` +
       'CHƯA KẾT LUẬN được cookie còn sống hay không — dấu hiệu là lỗi mạng, ' +
       'không phải lỗi xác thực.\n  ' +
       '⛔ ĐỪNG quét QR vì tin này: quét QR khi phiên còn khoẻ sẽ ĐÁ VĂNG phiên đó ' +
@@ -254,7 +254,7 @@ export function loiDangNhapThatBai(e) {
     );
   }
   return new LoiPhienZalo(
-    `${loiSach('Đăng nhập Zalo bằng cookie thất bại', e).message}\n  ${GIAI_THICH_COOKIE_CHET}`,
+    `${cleanError('Đăng nhập Zalo bằng cookie thất bại', e).message}\n  ${GIAI_THICH_COOKIE_CHET}`,
     TRANG_THAI_SUC_KHOE.CAN_QR,
   );
 }
@@ -293,7 +293,7 @@ export async function dangNhapBangCookie(cauHinh) {
     // đăng nhập", KHÔNG phải "cookie đã chết". Hai chuyện khác hẳn nhau: một
     // cái là chưa cài xong, cái kia là phiên đang chạy vừa hỏng.
     throw new LoiPhienZalo(
-      `CHƯA TỪNG ĐĂNG NHẬP trên máy này — không có file phiên ở ${moRong(duongDanSession)}.\n  ` +
+      `CHƯA TỪNG ĐĂNG NHẬP trên máy này — không có file phiên ở ${expandPath(duongDanSession)}.\n  ` +
       'Đây KHÔNG phải cookie hết hạn; chỉ là chưa cài xong.\n  ' +
       'Chạy TAY:  node bin/zalo-login.js  để quét QR lần đầu.',
       TRANG_THAI_SUC_KHOE.CAN_QR,
@@ -347,7 +347,7 @@ export async function dangNhapBangCookie(cauHinh) {
     }
   } catch (e) {
     // Làm mới cookie thất bại KHÔNG được làm hỏng phiên đang chạy tốt.
-    log(`⚠️ không làm mới được file phiên: ${ghiLogAnToan(e)}`);
+    log(`⚠️ không làm mới được file phiên: ${safeLogText(e)}`);
   }
 
   return api;
@@ -371,7 +371,7 @@ export async function dangNhapBangQr(tuyChon) {
   const { LoginQRCallbackEventType } = await import('zca-js');
 
   if (!tuyChon?.qrPath) throw new Error('dangNhapBangQr(): bắt buộc có qrPath');
-  const qrPath = moRong(tuyChon.qrPath);
+  const qrPath = expandPath(tuyChon.qrPath);
   const language = tuyChon.language || 'vi';
   const bao = tuyChon.khiCoSuKien ?? (() => {});
 
@@ -460,7 +460,7 @@ export async function keepAlive(api) {
     await api.keepAlive();
     return true;
   } catch (e) {
-    log(`⚠️ keepAlive thất bại: ${ghiLogAnToan(e)}`);
+    log(`⚠️ keepAlive thất bại: ${safeLogText(e)}`);
     return false;
   }
 }
@@ -498,7 +498,7 @@ export async function apDungAnTrangThai(api, bat) {
     } catch (e) {
       // Không ném ra ngoài: ẩn trạng thái thất bại thì trợ lý vẫn chạy được,
       // chỉ là bớt kín đáo. Nhưng PHẢI nói to để người dùng biết mà tự chỉnh.
-      log(`⚠️ KHÔNG ẩn được ${ten} — tài khoản có thể đang HIỆN trạng thái: ${ghiLogAnToan(e)}`);
+      log(`⚠️ KHÔNG ẩn được ${ten} — tài khoản có thể đang HIỆN trạng thái: ${safeLogText(e)}`);
     }
   }
 }
@@ -522,7 +522,7 @@ export async function layThongTinToi(api) {
     const tt = await api.fetchAccountInfo();
     ten = tt?.profile?.displayName || tt?.profile?.zaloName || '';
   } catch (e) {
-    log(`⚠️ không lấy được tên hiển thị: ${ghiLogAnToan(e)}`);
+    log(`⚠️ không lấy được tên hiển thị: ${safeLogText(e)}`);
   }
 
   return { userId, ten };
@@ -544,7 +544,7 @@ export async function layDanhSachNhom(api) {
     const ds = await api.getAllGroups();
     ids = Object.keys(ds?.gridVerMap ?? {});
   } catch (e) {
-    throw loiSach('Không lấy được danh sách nhóm', e);
+    throw cleanError('Không lấy được danh sách nhóm', e);
   }
   if (!ids.length) return [];
 
@@ -564,7 +564,7 @@ export async function layDanhSachNhom(api) {
     } catch (e) {
       // Một lô hỏng không được làm mất cả danh sách — vẫn trả ID để người
       // dùng còn chép được vào config, chỉ thiếu tên.
-      log(`⚠️ lô ${i / CO_LO + 1} không lấy được tên nhóm: ${ghiLogAnToan(e)}`);
+      log(`⚠️ lô ${i / CO_LO + 1} không lấy được tên nhóm: ${safeLogText(e)}`);
       for (const gid of lo) {
         const cid = toId(gid, 'session.layDanhSachNhom.groupId');
         if (cid) ra.push({ chatId: cid, ten: '' });

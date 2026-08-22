@@ -42,7 +42,7 @@
 
 import fs from 'node:fs';
 
-import { ghiLogAnToan, redact } from '../lib/redact.js';
+import { safeLogText, redact } from '../lib/redact.js';
 import { layHangDoiGuiKet } from '../store/write.js';
 
 /**
@@ -102,7 +102,7 @@ function _ghiSo(duongDan, dong) {
     fs.appendFileSync(duongDan, `${JSON.stringify(dong)}\n`, { mode: 0o600 });
     return true;
   } catch (e) {
-    _log(`không ghi được nhật ký lưới outbox: ${ghiLogAnToan(e)}`);
+    _log(`không ghi được nhật ký lưới outbox: ${safeLogText(e)}`);
     return false;
   }
 }
@@ -194,7 +194,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
       }
     } catch (e) {
       // Bảng chưa tồn tại (DB đời cũ) là ca HỢP LỆ, không phải lỗi đáng kêu to.
-      _log(`không đếm được outbox (bỏ qua mẫu số nhịp này): ${ghiLogAnToan(e)}`);
+      _log(`không đếm được outbox (bỏ qua mẫu số nhịp này): ${safeLogText(e)}`);
     }
 
     // ── GIAN ÂN: nhường daemon trọn một nhịp để đẩy lô tồn ───────────────
@@ -208,7 +208,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
       ds = layKet(p.db, nguongKet, bayGio) ?? [];
     } catch (e) {
       ra.loi += 1; tong.loi += 1;
-      _log(`không đọc được outbox kẹt (bỏ nhịp này): ${ghiLogAnToan(e)}`);
+      _log(`không đọc được outbox kẹt (bỏ nhịp này): ${safeLogText(e)}`);
       return ra;
     }
 
@@ -248,7 +248,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
       if (typeof p.baoHost === 'function') {
         // ⛔ Fire-and-forget: DM host hỏng thì tuyệt đối không được làm chết nhịp.
         Promise.resolve(p.baoHost(_dungTin(p.db, moiKet, nguongKet))).catch((e) => {
-          _log(`không DM được host về outbox kẹt: ${ghiLogAnToan(e)}`);
+          _log(`không DM được host về outbox kẹt: ${safeLogText(e)}`);
         });
       } else {
         _log('KHÔNG có đường DM host -> host sẽ không biết. Chỉ còn dòng log này.');

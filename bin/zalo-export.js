@@ -39,7 +39,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
-import { moRong } from '../src/lib/duong_dan.js';
+import { expandPath } from '../src/lib/paths.js';
 import { toId } from '../src/lib/ids.js';
 import { sietQuyen } from '../src/store/db.js';
 
@@ -186,22 +186,22 @@ function nhanLech(phut) {
  * @returns {{duongDan: string, nguon: string}}
  */
 export function timDuongDanDb(ts) {
-  if (ts.db) return { duongDan: moRong(String(ts.db)), nguon: '--db' };
-  if (process.env.ZTL_DB) return { duongDan: moRong(process.env.ZTL_DB), nguon: 'env ZTL_DB' };
+  if (ts.db) return { duongDan: expandPath(String(ts.db)), nguon: '--db' };
+  if (process.env.ZTL_DB) return { duongDan: expandPath(process.env.ZTL_DB), nguon: 'env ZTL_DB' };
   try {
     // Đọc config chỉ để LẤY ĐƯỜNG DẪN. Config hỏng/thiếu không được chặn việc
     // xem lại lịch sử — đây là công cụ đọc, không phải tiến trình chạy nền.
     const f = process.env.ZTL_CONFIG
-      ? moRong(process.env.ZTL_CONFIG)
+      ? expandPath(process.env.ZTL_CONFIG)
       : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
     if (fs.existsSync(f)) {
       const ch = JSON.parse(fs.readFileSync(f, 'utf8'));
-      if (ch?.duongDan?.db) return { duongDan: moRong(ch.duongDan.db), nguon: `config ${f}` };
+      if (ch?.duongDan?.db) return { duongDan: expandPath(ch.duongDan.db), nguon: `config ${f}` };
     }
   } catch (e) {
     process.stderr.write(`[export] không đọc được config (bỏ qua): ${e.message}\n`);
   }
-  return { duongDan: moRong(DB_MAC_DINH), nguon: 'mặc định' };
+  return { duongDan: expandPath(DB_MAC_DINH), nguon: 'mặc định' };
 }
 
 /**
@@ -571,7 +571,7 @@ export async function main(argv) {
 
 function ghiRa(md, ts, tomTat) {
   if (ts.ra) {
-    const f = moRong(String(ts.ra));
+    const f = expandPath(String(ts.ra));
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(f, md, 'utf8');
     // File này là tin nhắn CỦA NGƯỜI KHÁC ở dạng chữ trần — còn dễ đọc hơn cả

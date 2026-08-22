@@ -34,7 +34,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { baoDamThuMucCha, moRong } from '../lib/duong_dan.js';
+import { ensureParentDir, expandPath } from '../lib/paths.js';
 import {
   A0_BO_DO, A0_CHO, BIEN_THE_THAM_SO, GIOI_HAN_QUET, KET_LUAN_A0, NHOM_LOI_A0,
 } from '../lib/hang_so.js';
@@ -539,8 +539,8 @@ function _tongKet(ra) {
  */
 function _ghiRa(duongDanRa, ra) {
   try {
-    const f = moRong(duongDanRa);
-    baoDamThuMucCha(f);
+    const f = expandPath(duongDanRa);
+    ensureParentDir(f);
     fs.writeFileSync(f, JSON.stringify(ra, null, 2), { encoding: 'utf8', mode: 0o600 });
     try { fs.chmodSync(f, 0o600); } catch { /* nuốt */ }
     _log(`đã ghi ${f} — kết luận: ${ra.ket_luan} (so_goi_mang=${ra.so_goi_mang})`);
@@ -574,5 +574,5 @@ export function chonNhomThu(db) {
 
 /** Đường dẫn file kết quả, đặt cạnh DB. */
 export function duongDanKetQua(duongDanDb) {
-  return path.join(path.dirname(moRong(duongDanDb)), 'probe_a0.json');
+  return path.join(path.dirname(expandPath(duongDanDb)), 'probe_a0.json');
 }

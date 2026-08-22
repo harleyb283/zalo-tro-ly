@@ -187,10 +187,10 @@ test('B2 ★ quá trần -> cắt VÀ NÓI ĐÃ CẮT, không im lặng nuốt �
   const dai = 'x'.repeat(GIOI_HAN.DO_DAI_TIN_TOI_DA + 500);
   const kq = catAnToan(dai);
   assert.equal(kq.daCat, true);
-  assert.equal(kq.doDaiGoc, GIOI_HAN.DO_DAI_TIN_TOI_DA + 500);
+  assert.equal(kq.originalLength, GIOI_HAN.DO_DAI_TIN_TOI_DA + 500);
   assert.ok(kq.text.length <= GIOI_HAN.DO_DAI_TIN_TOI_DA, `dài ${kq.text.length}`);
   assert.match(kq.text, /cắt bớt/, 'cắt mà không báo là kiểu hỏng tệ nhất');
-  assert.match(kq.text, new RegExp(String(kq.doDaiGoc)), 'phải nói bản đầy đủ dài bao nhiêu');
+  assert.match(kq.text, new RegExp(String(kq.originalLength)), 'phải nói bản đầy đủ dài bao nhiêu');
 });
 
 test('B3 trần đúng bằng độ dài -> KHÔNG cắt (không lệch 1 ký tự)', () => {
@@ -258,7 +258,7 @@ test('C5 ★ ghiLai NÉM LỖI -> KHÔNG được ném ra ngoài (tin đã gửi
   assert.equal(api.goi.length, 1);
 });
 
-test('C6 lỗi gửi -> loiSach, KHÔNG rò cookie trong thông điệp', async () => {
+test('C6 lỗi gửi -> cleanError, KHÔNG rò cookie trong thông điệp', async () => {
   const api = apiGia(new Error('connect ECONNREFUSED; Cookie: zpsid=BI_MAT_123456'));
   await assert.rejects(() => guiVaoNhom(api, '111', 'x'), (e) => {
     assert.match(e.message, /Gửi tin vào 111 thất bại/);
@@ -424,8 +424,8 @@ test('E4 send.js KHÔNG import src/store (không có db handle, và mở DB th�
   assert.equal(/from\s+['"][^'"]*\/mcp\//.test(NGUON), false);
 });
 
-test('E5 mọi ID đi qua toId/toIdBatBuoc, không String(x) trần cho ID', () => {
-  assert.match(NGUON, /toIdBatBuoc\(/);
+test('E5 mọi ID đi qua toId/toIdRequired, không String(x) trần cho ID', () => {
+  assert.match(NGUON, /toIdRequired\(/);
   assert.match(NGUON, /toId\(kq\?\.message\?\.msgId/);
 });
 
@@ -598,10 +598,10 @@ test('I1 tin dài -> nhiều tin, gộp lại KHÔNG mất chữ nào', async ()
   assert.equal(api.goi.length, kq.soPhan, 'mỗi phần một lần gọi sendMessage');
   assert.equal(kq.daCat, false, 'chưa chạm trần 5 tin thì không được thiếu chữ');
 
-  // Bỏ tiền tố "n/m " rồi gộp lại. So sau khi BỎ HẾT khoảng trắng: `chiaTin`
+  // Bỏ tiền tố "n/m " rồi gộp lại. So sau khi BỎ HẾT khoảng trắng: `splitMessage`
   // trim từng phần nên khoảng trắng ở mối nối biến mất — đó là bình thường.
   // Cái phải chứng minh ở đây là KHÔNG MẤT KÝ TỰ NÀO; chuyện không cắt giữa
-  // từ đã có bộ test riêng của `chia_tin.js` lo.
+  // từ đã có bộ test riêng của `split_message.js` lo.
   const bo = (x) => x.replace(/\s+/g, '');
   const gop = api.goi.map((g) => g.noiDung.msg.replace(/^\d+\/\d+ /, '')).join('');
   assert.equal(bo(gop), bo(RAT_DAI), 'gộp lại phải ra đúng bản gốc — thiếu là mất chữ');

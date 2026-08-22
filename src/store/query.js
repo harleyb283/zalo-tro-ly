@@ -29,7 +29,7 @@
 import {
   DO_TIN_CAY, GIOI_HAN, NGUON_THU_HOI, TRANG_THAI_LICH, TRANG_THAI_TD,
 } from '../lib/hang_so.js';
-import { toId, toIdBatBuoc } from '../lib/ids.js';
+import { toId, toIdRequired } from '../lib/ids.js';
 import { dangKyHamSql } from './db.js';
 
 /** @typedef {import('node:sqlite').DatabaseSync} TDb */
@@ -601,7 +601,7 @@ let _daChotPhamVi = false;
  */
 export function datPhamVi(chatId) {
   const s = chatId === undefined || chatId === null ? '' : String(chatId).trim();
-  _phamViChatId = s === '' ? null : toIdBatBuoc(s, 'datPhamVi.chatId');
+  _phamViChatId = s === '' ? null : toIdRequired(s, 'datPhamVi.chatId');
   _daChotPhamVi = true;
   return _phamViChatId;
 }
@@ -710,7 +710,7 @@ function _uidTroLyHieuLuc(uid) {
 export function dsNguoiTrongNhom(db, chatId, uidTroLy) {
   // 🔴 TÊN NGƯỜI LÀ DỮ LIỆU RIÊNG. Danh sách thành viên một nhóm khác nói cho
   // pane này biết ai có mặt ở đó — rò y như nội dung tin. Phạm vi THẮNG.
-  const id = toIdBatBuoc(chotChatId(chatId) ?? chatId, 'dsNguoiTrongNhom.chatId');
+  const id = toIdRequired(chotChatId(chatId) ?? chatId, 'dsNguoiTrongNhom.chatId');
   const boQua = _uidTroLyHieuLuc(uidTroLy);
   const rows = db.prepare(
     `SELECT t.user_id AS uid, t.ten_luc_gui AS ten
@@ -828,7 +828,7 @@ export function layLoaiHoiThoai(db, chatId) {
  */
 export function layGhiNho(db, { chatId, soLuong } = {}) {
   // Phạm vi THẮNG — ghi nhớ của nhóm khác là dữ liệu của nhóm khác.
-  const c = toIdBatBuoc(chotChatId(chatId) ?? chatId, 'layGhiNho.chatId');
+  const c = toIdRequired(chotChatId(chatId) ?? chatId, 'layGhiNho.chatId');
   const n = Number.isFinite(Number(soLuong)) && Number(soLuong) > 0
     ? Math.min(Math.floor(Number(soLuong)), 200) : 20;
   const rows = db.prepare(

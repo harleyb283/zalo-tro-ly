@@ -34,14 +34,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { baoDamThuMucCha, moRong } from './lib/duong_dan.js';
+import { ensureParentDir, expandPath } from './lib/paths.js';
 import {
   CHE_DO, chotCheDo, GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, HANH_DONG_GATE,
   LOAI_HOI_THOAI, SU_KIEN,
   TRANG_THAI_GUI, TRANG_THAI_HANG_DOI, TRANG_THAI_SUC_KHOE,
 } from './lib/hang_so.js';
 import { toId } from './lib/ids.js';
-import { ghiLogAnToan } from './lib/redact.js';
+import { safeLogText } from './lib/redact.js';
 
 import { docCauHinh, duongDanCauHinh, layNhom, timHostTheoDm } from './policy/access.js';
 import { quyetDinh } from './policy/gate.js';
@@ -113,8 +113,8 @@ function log(msg) {
  * @returns {{nha: () => void, pid: number}}
  */
 export function giuKhoaPid(duongDan) {
-  const p = moRong(duongDan);
-  baoDamThuMucCha(p);
+  const p = expandPath(duongDan);
+  ensureParentDir(p);
 
   for (let lan = 0; lan < 2; lan += 1) {
     try {
@@ -192,7 +192,7 @@ export function ganXuLyTin(p) {
     try {
       xuLyMotTin(p, tin);
     } catch (e) {
-      log(`xử lý tin thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+      log(`xử lý tin thất bại (đã nuốt): ${safeLogText(e)}`);
     }
   });
 
@@ -206,7 +206,7 @@ export function ganXuLyTin(p) {
         log(`⚠️ thu hồi ${sk?.eventId} phải ghép bù bằng cli_msg_id — đường ghép CHÍNH đang hỏng`);
       }
     } catch (e) {
-      log(`ghi thu hồi thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+      log(`ghi thu hồi thất bại (đã nuốt): ${safeLogText(e)}`);
     }
   });
 
@@ -214,7 +214,7 @@ export function ganXuLyTin(p) {
     try {
       ghiReaction(db, r);
     } catch (e) {
-      log(`ghi reaction thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+      log(`ghi reaction thất bại (đã nuốt): ${safeLogText(e)}`);
     }
   });
 
@@ -222,7 +222,7 @@ export function ganXuLyTin(p) {
     try {
       ghiSuKienNhom(db, sk);
     } catch (e) {
-      log(`ghi sự kiện nhóm thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+      log(`ghi sự kiện nhóm thất bại (đã nuốt): ${safeLogText(e)}`);
     }
     // ═══ 🔴 TRỢ LÝ VỪA BỊ THÊM VÀO NHÓM MỚI -> TỰ CẤU HÌNH ═══
     // ⚠️ Chạy SAU khi đã ghi sự kiện: dù nhánh tự-cấu-hình có ném thì sự kiện
@@ -232,13 +232,13 @@ export function ganXuLyTin(p) {
     try {
       p.tuCauHinhNhomMoi?.(sk);
     } catch (e) {
-      log(`tự cấu hình nhóm mới thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+      log(`tự cấu hình nhóm mới thất bại (đã nuốt): ${safeLogText(e)}`);
     }
   });
 
   // `SU_KIEN.LOI` = 'loi' chứ không phải 'error' — EventEmitter NÉM khi
   // emit('error') mà không ai nghe. Vẫn phải có người nghe cho tử tế.
-  boPhat.on(SU_KIEN.LOI, (e) => log(`listener báo lỗi: ${ghiLogAnToan(e)}`));
+  boPhat.on(SU_KIEN.LOI, (e) => log(`listener báo lỗi: ${safeLogText(e)}`));
 
   // Không có handler nào cho `cauHinh` ở đây — nó đi theo `p` vào xuLyMotTin.
   void cauHinh;
@@ -289,7 +289,7 @@ export function xuLyMotTin(p, tin) {
   } catch (e) {
     // Ghi hỏng thì vẫn phải chạy tiếp xuống gate: mất một dòng lịch sử còn
     // hơn mất luôn khả năng trả lời anh.
-    log(`GHI DB THẤT BẠI cho tin ${tin?.msgId} (vẫn đi tiếp): ${ghiLogAnToan(e)}`);
+    log(`GHI DB THẤT BẠI cho tin ${tin?.msgId} (vẫn đi tiếp): ${safeLogText(e)}`);
   }
 
   // ── ② GATE ────────────────────────────────────────────────────────
@@ -305,7 +305,7 @@ export function xuLyMotTin(p, tin) {
       const viec = timViecMoCua2(db, chatId, tin.userId);
       if (viec) boiCanhCua2 = { idViecMoCua: viec.id, noiDungViec: viec.noiDung };
     } catch (e) {
-      log(`cửa 2: không tra được lời nhắc (COI NHƯ ĐÓNG): ${ghiLogAnToan(e)}`);
+      log(`cửa 2: không tra được lời nhắc (COI NHƯ ĐÓNG): ${safeLogText(e)}`);
     }
   }
   const kq = quyetDinh(tin, cauHinh, boiCanhCua2);
@@ -339,7 +339,7 @@ export function xuLyMotTin(p, tin) {
       idViecMoCua: kq.payload?.idViecMoCua ?? null,
     });
   } catch (e) {
-    log(`không mở được hàng đợi cho ${requestId} (bỏ lượt này): ${ghiLogAnToan(e)}`);
+    log(`không mở được hàng đợi cho ${requestId} (bỏ lượt này): ${safeLogText(e)}`);
     return;
   }
 
@@ -364,7 +364,7 @@ export function xuLyMotTin(p, tin) {
   // mọi chatId" cho tiện — DM của host là ca ⛔ không được chạm tới.
   if (p.soMoPhien && nhom) {
     p.soMoPhien.baoDam(chatId, { tenNhom: nhom.ten ?? null, lyDo: 'tin-moi' })
-      .catch((e) => log(`mở phiên cho ${chatId} lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+      .catch((e) => log(`mở phiên cho ${chatId} lỗi (đã nuốt): ${safeLogText(e)}`));
   }
 
   if (!p.guiThongBao) {
@@ -400,7 +400,7 @@ export function xuLyMotTin(p, tin) {
       if (ok) capNhatHangDoi(db, requestId, TRANG_THAI_HANG_DOI.DA_DAY);
       else log(`notify ${requestId} chưa đẩy được -> giữ 'cho', đẩy bù sau`);
     })
-    .catch((e) => log(`notify ${requestId} ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+    .catch((e) => log(`notify ${requestId} ném lỗi (đã nuốt): ${safeLogText(e)}`));
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -553,7 +553,7 @@ export function taoVongLayViec(p) {
         soLoi += 1;
         // ⚠️ Nuốt CÓ GHI SỔ. Nuốt im là vòng vẫn chạy mà không làm được gì, và
         // nhìn từ ngoài giống hệt "không có việc nào" — hỏng câm.
-        p.log(`[client] nhịp lấy việc lỗi (vòng VẪN chạy): ${ghiLogAnToan(e)}`);
+        p.log(`[client] nhịp lấy việc lỗi (vòng VẪN chạy): ${safeLogText(e)}`);
       })
       .finally(() => { dangChay = false; });
   }, nhip);
@@ -585,7 +585,7 @@ export function taoSoDoTre(duongDan, tran = 5000) {
     duongDan,
     ghi(banGhi) {
       try {
-        baoDamThuMucCha(duongDan);
+        ensureParentDir(duongDan);
         fs.appendFileSync(duongDan, `${JSON.stringify({ ...banGhi, ts: new Date().toISOString() })}\n`, { mode: 0o600 });
         dem += 1;
         if (dem % 500 === 0) {
@@ -795,7 +795,7 @@ async function chayClient(co, log, cauHinh) {
 
   // Sổ đo độ trễ nằm cạnh file DB — cùng thư mục, cùng mức siết quyền.
   const soDoTre = taoSoDoTre(
-    path.join(path.dirname(moRong(cauHinh.duongDan.db)), 'do_tre_lay_viec.jsonl'),
+    path.join(path.dirname(expandPath(cauHinh.duongDan.db)), 'do_tre_lay_viec.jsonl'),
   );
 
   let channel = null;
@@ -884,7 +884,7 @@ async function chayClient(co, log, cauHinh) {
       // Lượt ĐẦU: `gomDaDay` mặc định BẬT — đúng lúc mọi dòng `da_day` /
       // `dang_xu_ly` đều mồ côi (phiên nhận chúng đã không còn).
       motNhipLayViec({ gomDaDay: true })
-        .catch((e) => log(`[client] đẩy bù hàng đợi thất bại: ${ghiLogAnToan(e)}`));
+        .catch((e) => log(`[client] đẩy bù hàng đợi thất bại: ${safeLogText(e)}`));
       // ═══ 🔴 v9 — RỒI MỚI BẬT VÒNG POLL ═══
       // ⛔ Trước v9 KHÔNG có dòng này, và đó là lỗi CHẶN CỨNG: client rút hàng
       // đợi ĐÚNG MỘT LẦN rồi `await new Promise(() => {})` ngồi im mãi ⇒ ở chế
@@ -913,7 +913,7 @@ async function chayClient(co, log, cauHinh) {
           gomDaDay: true,
           tuoiMoCoiMs: ORPHAN_AGE_MS,
           choPhepDay: (r) => soVot.choPhep(r),
-        }).catch((e) => log(`[client] lưới vớt lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+        }).catch((e) => log(`[client] lưới vớt lỗi (đã nuốt): ${safeLogText(e)}`));
 
         // ② VỚT DÒNG VÔ CHỦ — CHỈ pane toàn quyền, và CHỈ khi đã rất cũ.
         // 🔴 HAI NGƯỠNG KHÁC NHAU LÀ CÓ CHỦ Ý. Dùng chung một ngưỡng thì pane
@@ -926,7 +926,7 @@ async function chayClient(co, log, cauHinh) {
             tuoiMoCoiMs: UNCLAIMED_AGE_MS,
             chatIdHoi: null,
             choPhepDay: (r) => soVot.choPhep(r),
-          }).catch((e) => log(`[client] vớt dòng vô chủ lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+          }).catch((e) => log(`[client] vớt dòng vô chủ lỗi (đã nuốt): ${safeLogText(e)}`));
         }
       }, RESCUE_TICK_MS);
       henVot.unref?.();
@@ -986,7 +986,7 @@ export async function rutOutbox(p) {
   try {
     ds = layHangDoiGuiCho(p.db, p.soLuong ?? 20);
   } catch (e) {
-    p.log(`[daemon] không đọc được hàng đợi gửi: ${ghiLogAnToan(e)}`);
+    p.log(`[daemon] không đọc được hàng đợi gửi: ${safeLogText(e)}`);
     return ra;
   }
 
@@ -996,7 +996,7 @@ export async function rutOutbox(p) {
     try {
       nhanDuoc = nhanViecGui(p.db, d.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
     } catch (e) {
-      p.log(`[daemon] nhận việc gửi ${d.id} lỗi: ${ghiLogAnToan(e)}`);
+      p.log(`[daemon] nhận việc gửi ${d.id} lỗi: ${safeLogText(e)}`);
     }
     if (!nhanDuoc) continue;
 
@@ -1011,9 +1011,9 @@ export async function rutOutbox(p) {
     } catch (e) {
       ra.loi += 1;
       try {
-        ghiKetQuaGuiRa(p.db, d.id, { lyDo: ghiLogAnToan(e) });
+        ghiKetQuaGuiRa(p.db, d.id, { lyDo: safeLogText(e) });
       } catch (e2) {
-        p.log(`[daemon] không ghi được kết quả gửi ${d.id}: ${ghiLogAnToan(e2)}`);
+        p.log(`[daemon] không ghi được kết quả gửi ${d.id}: ${safeLogText(e2)}`);
       }
     }
   }
@@ -1088,7 +1088,7 @@ export async function main(argv = process.argv) {
     // GỌI, ⛔ không chụp giá trị lúc dựng hàm.
     const ghiLaiTinTroLy = (t) => {
       try { ghiTin(db, t, { doTroLyTao: true }); } catch (e) {
-        log(`ghi lại tin trợ lý thất bại (đã nuốt): ${ghiLogAnToan(e)}`);
+        log(`ghi lại tin trợ lý thất bại (đã nuốt): ${safeLogText(e)}`);
       }
     };
     const baoHostDaemon = (thongDiep, them = {}) => baoHost(cauHinh, thongDiep, {
@@ -1121,7 +1121,7 @@ export async function main(argv = process.argv) {
       try {
         ghiTrangThai(cauHinh.duongDan.health, { trangThai: ma, lyDo: String(e?.message ?? e) });
       } catch (e2) {
-        log(`không ghi được health: ${ghiLogAnToan(e2)}`);
+        log(`không ghi được health: ${safeLogText(e2)}`);
       }
       // boTang1: không có api thì không DM Zalo được — đừng thử rồi báo hỏng.
       await baoHost(
@@ -1145,7 +1145,7 @@ export async function main(argv = process.argv) {
 
     // ⑤ ẩn trạng thái
     await apDungAnTrangThai(api, cauHinh.anTrangThai).catch((e) =>
-      log(`ẩn trạng thái thất bại (đi tiếp): ${ghiLogAnToan(e)}`),
+      log(`ẩn trạng thái thất bại (đi tiếp): ${safeLogText(e)}`),
     );
 
     // ⑨-chuẩn bị: kênh MCP dựng TRƯỚC listener để tin đầu tiên đã có chỗ đẩy.
@@ -1189,7 +1189,7 @@ export async function main(argv = process.argv) {
             tenHoiThoai,
             // 🔴 A7 — câu hỏi quá hạn phải ĐƯỢC BÁO, không chỉ ghi sổ rồi thôi.
             baoHetHan: (loiNhan) => baoHostDaemon(loiNhan),
-          }).catch((e) => log(`đẩy bù hàng đợi thất bại: ${ghiLogAnToan(e)}`));
+          }).catch((e) => log(`đẩy bù hàng đợi thất bại: ${safeLogText(e)}`));
         },
       });
 
@@ -1214,7 +1214,7 @@ export async function main(argv = process.argv) {
           tuoiMoCoiMs: ORPHAN_AGE_MS,
           choPhepDay: (r) => soVotDaemon.choPhep(r),
           baoHetHan: (loiNhan) => baoHostDaemon(loiNhan),
-        }).catch((e) => log(`lưới vớt lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+        }).catch((e) => log(`lưới vớt lỗi (đã nuốt): ${safeLogText(e)}`));
       }, RESCUE_TICK_MS));
       log(`lưới vớt BẬT: mỗi ${RESCUE_TICK_MS / 1000}s, vớt dòng quá ${ORPHAN_AGE_MS / 1000}s`);
     }
@@ -1270,7 +1270,7 @@ export async function main(argv = process.argv) {
       // sẵn pane là tốn một phiên Claude cho việc ⛔ không ai cho phép làm.
       if (n.traLoiKhiTag && soMoPhien) {
         soMoPhien.baoDam(n.chatId, { tenNhom: n.ten, lyDo: 'nhom-moi' })
-          .catch((e) => log(`mở pane cho nhóm mới ${n.chatId} lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+          .catch((e) => log(`mở pane cho nhóm mới ${n.chatId} lỗi (đã nuốt): ${safeLogText(e)}`));
       }
 
       baoHostDaemon(newGroupHostMessage(n), { tieuDe: 'Trợ lý Zalo vào nhóm mới' }).catch(() => {});
@@ -1314,7 +1314,7 @@ export async function main(argv = process.argv) {
         try {
           ghiTrangThai(cauHinh.duongDan.health, tt);
         } catch (e) {
-          log(`ghi health thất bại: ${ghiLogAnToan(e)}`);
+          log(`ghi health thất bại: ${safeLogText(e)}`);
         }
       },
       // ⚠️ Watchdog TRUYỀN `(maCuoi, toanLoiMang)` — bản cũ ở đây bỏ qua cả hai
@@ -1375,7 +1375,7 @@ export async function main(argv = process.argv) {
           chayA0({
             api, db, chatId: nhomThu,
             duongDanRa: duongDanKetQua(cauHinh.duongDan.db),
-          }).catch((e) => log(`A0 ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+          }).catch((e) => log(`A0 ném lỗi (đã nuốt): ${safeLogText(e)}`));
         }
       }
     }
@@ -1392,7 +1392,7 @@ export async function main(argv = process.argv) {
             quetMotLuot({
               db, api,
               baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
-            }).catch((e) => log(`quét đối chiếu lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+            }).catch((e) => log(`quét đối chiếu lỗi (đã nuốt): ${safeLogText(e)}`));
           }, GIOI_HAN_QUET.CHU_KY_QUET_MS),
         );
       } else {
@@ -1412,7 +1412,7 @@ export async function main(argv = process.argv) {
         const uidTroLy = toId(api?.getOwnId?.(), 'index.uidTroLy');
         const ghiLaiTin = (t) => {
           try { ghiTin(db, t, { doTroLyTao: true }); } catch (e) {
-            log(`ghi lại tin nhắc thất bại: ${ghiLogAnToan(e)}`);
+            log(`ghi lại tin nhắc thất bại: ${safeLogText(e)}`);
           }
         };
         // ═══ 🔴 B2 — BỘ ĐẾM PHẢI CÓ ĐƯỜNG RA ═══
@@ -1438,7 +1438,7 @@ export async function main(argv = process.argv) {
               ghiLai: ghiLaiTin,
             })
               .then((ra) => demLoiGui('lịch một lần', ra))
-              .catch((e) => log(`bộ chạy lịch lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+              .catch((e) => log(`bộ chạy lịch lỗi (đã nuốt): ${safeLogText(e)}`));
 
             // v4 — lời nhắc THEO ĐUỔI. Cùng nhịp, nhưng đường riêng: lịch một
             // lần hỏng thì lời nhắc theo đuổi vẫn chạy và ngược lại.
@@ -1472,17 +1472,17 @@ export async function main(argv = process.argv) {
               dmHostChatId: dmHostChinh(cauHinh),
             })
               .then((ra) => demLoiGui('nhắc theo đuổi', ra))
-              .catch((e) => log(`bộ chạy lời nhắc theo đuổi lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+              .catch((e) => log(`bộ chạy lời nhắc theo đuổi lỗi (đã nuốt): ${safeLogText(e)}`));
           }, NHIP_MS),
         );
         log(`bộ chạy lịch hẹn: BẬT, nhịp ${Math.round(NHIP_MS / 1000)} giây`);
 
         // Sổ nhắc dễ đọc — SQL vẫn là GỐC, file chỉ để anh liếc. Sinh lại mỗi
         // 5 phút và ngay lúc khởi động, KHÔNG có đường đọc ngược từ file vào DB.
-        const soNhac = path.join(path.dirname(moRong(cauHinh.duongDan.db)), 'so_nhac.md');
+        const soNhac = path.join(path.dirname(expandPath(cauHinh.duongDan.db)), 'so_nhac.md');
         const veSo = () => {
           try { sinhSoNhac(db, soNhac); } catch (e) {
-            log(`sinh sổ nhắc thất bại (bỏ qua): ${ghiLogAnToan(e)}`);
+            log(`sinh sổ nhắc thất bại (bỏ qua): ${safeLogText(e)}`);
           }
         };
         veSo();
@@ -1521,7 +1521,7 @@ export async function main(argv = process.argv) {
               ? guiDmHost(api, chatId, text, tuyChon)
               : guiVaoNhom(api, chatId, text, tuyChon);
           },
-        }).catch((e) => log(`[daemon] rút outbox lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+        }).catch((e) => log(`[daemon] rút outbox lỗi (đã nuốt): ${safeLogText(e)}`));
       }, 2000));
       log('[daemon] bật vòng rút outbox (2 giây/nhịp)');
     }

@@ -45,9 +45,9 @@
 import { TextStyle, ThreadType } from 'zca-js';
 
 import { GIOI_HAN, MSG_TYPE } from '../lib/hang_so.js';
-import { chiaTin, doDai } from '../lib/chia_tin.js';
-import { toId, toIdBatBuoc } from '../lib/ids.js';
-import { ghiLogAnToan, loiSach } from '../lib/redact.js';
+import { splitMessage, charLength } from '../lib/split_message.js';
+import { toId, toIdRequired } from '../lib/ids.js';
+import { safeLogText, cleanError } from '../lib/redact.js';
 
 /** @typedef {import('../types.d.ts').TinChuanHoa} TinChuanHoa */
 
@@ -89,16 +89,16 @@ function _nfc(s) {
  *
  * @param {string} text
  * @param {number} [tran]
- * @returns {{text: string, daCat: boolean, doDaiGoc: number}}
+ * @returns {{text: string, daCat: boolean, originalLength: number}}
  */
 export function catAnToan(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
   const s = _nfc(text);
   const goc = _doDai(s);
-  if (goc <= tran) return { text: s, daCat: false, doDaiGoc: goc };
+  if (goc <= tran) return { text: s, daCat: false, originalLength: goc };
 
   const duoi = `\n…[cắt bớt, bản đầy đủ dài ${goc} ký tự]`;
   const chua = Math.max(0, tran - _doDai(duoi));
-  return { text: s.slice(0, chua) + duoi, daCat: true, doDaiGoc: goc };
+  return { text: s.slice(0, chua) + duoi, daCat: true, originalLength: goc };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -556,9 +556,9 @@ function _xepHang() {
  * @returns {Promise<{msgId: string|null, daCat: boolean}>}
  */
 async function _gui(api, chatId, text, loaiThread, tuyChon = {}) {
-  const id = toIdBatBuoc(chatId, 'send.chatId');
+  const id = toIdRequired(chatId, 'send.chatId');
   if (!api?.sendMessage) {
-    throw loiSach('Chưa có phiên Zalo (api.sendMessage không tồn tại) — chưa gửi được gì.');
+    throw cleanError('Chưa có phiên Zalo (api.sendMessage không tồn tại) — chưa gửi được gì.');
   }
 
   const anh = tuyChon.anh ?? null;
@@ -569,7 +569,7 @@ async function _gui(api, chatId, text, loaiThread, tuyChon = {}) {
   // theo JS nhưng rỗng theo mắt người. Bộ test bắt được đúng ca `'   \n  '`
   // lọt qua nhánh `!msg`.
   if (!msg.trim() && !anh) {
-    throw loiSach('Từ chối gửi tin RỖNG — Zalo cũng sẽ từ chối, và tin rỗng chỉ gây nhiễu.');
+    throw cleanError('Từ chối gửi tin RỖNG — Zalo cũng sẽ từ chối, và tin rỗng chỉ gây nhiễu.');
   }
 
   /** @type {any} */
@@ -592,12 +592,12 @@ async function _gui(api, chatId, text, loaiThread, tuyChon = {}) {
   try {
     kq = await api.sendMessage(noiDung, id, loaiThread);
   } catch (e) {
-    // loiSach: KHÔNG kèm `cause` — stack của axios/undici kéo theo header
+    // cleanError: KHÔNG kèm `cause` — stack của axios/undici kéo theo header
     // Cookie của phiên Zalo.
     // Truyền `e` làm tham số THỨ HAI chứ không nội suy `e.message` vào chuỗi:
-    // loiSach() chạy _cheChuoi() trên tham số đó. Nội suy thẳng là mất lớp che,
+    // cleanError() chạy _cheChuoi() trên tham số đó. Nội suy thẳng là mất lớp che,
     // mà thông điệp lỗi mạng của axios/undici có thể mang theo header Cookie.
-    throw loiSach(`Gửi tin vào ${id} thất bại`, e);
+    throw cleanError(`Gửi tin vào ${id} thất bại`, e);
   }
 
   // 🔴 SendMessageResult.msgId là NUMBER trong .d.ts của zca-js. ID Zalo vượt
@@ -664,7 +664,7 @@ function _ghiLai(tuyChon, { chatId, msgId, noiDung, coAnh, tsZalo, uidTroLy = nu
       }),
     );
   } catch (e) {
-    _canhBao(`ghiLai() ném lỗi (${ghiLogAnToan(e)}) -> BỎ QUA, tin đã gửi thành công rồi.`);
+    _canhBao(`ghiLai() ném lỗi (${safeLogText(e)}) -> BỎ QUA, tin đã gửi thành công rồi.`);
   }
 }
 
@@ -710,7 +710,7 @@ export async function guiDmHost(api, dmChatId, text, tuyChon = {}) {
  * @returns {Promise<{msgId: string|null, daCat: boolean}>}
  */
 export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {}) {
-  if (!nguonAnh) throw loiSach('guiAnh() thiếu nguồn ảnh.');
+  if (!nguonAnh) throw cleanError('guiAnh() thiếu nguồn ảnh.');
   return _gui(api, chatId, chuThich, tuyChon.laDm ? ThreadType.User : ThreadType.Group, {
     ...tuyChon,
     anh: nguonAnh,
@@ -725,20 +725,20 @@ export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {})
  * Gửi một đoạn dài bằng cách CHIA ra nhiều tin và gửi lần lượt.
  *
  * 🔴 KHÁC HẲN `catAnToan()` — đừng lẫn, hai hàm ngược nhau về bản chất:
- *      chiaTin()   = CHIA  -> giữ ĐỦ nội dung, tốn nhiều tin
+ *      splitMessage()   = CHIA  -> giữ ĐỦ nội dung, tốn nhiều tin
  *      catAnToan() = CẮT   -> MẤT đuôi, chỉ ghi chú "đã cắt"
  *    ⛔ TUYỆT ĐỐI KHÔNG cắt trước rồi mới chia: cắt xong thì đuôi đã mất, mà
  *    người đọc vẫn thấy "1/3, 2/3, 3/3" nên tưởng đã nhận đủ. Hỏng CÂM.
  *
  * ⚠️ `_gui()` bên trong vẫn gọi `catAnToan()`, và đó KHÔNG phải cắt chồng:
- *    mọi phần do `chiaTin()` sinh ra đều ≤ trần, nên `catAnToan()` trả về
+ *    mọi phần do `splitMessage()` sinh ra đều ≤ trần, nên `catAnToan()` trả về
  *    nguyên văn (`daCat = false`). Nó ở đó làm LƯỚI AN TOÀN cho trường hợp
- *    `chiaTin` lỡ nhả ra một phần quá dài. Có bài test chứng minh no-op.
+ *    `splitMessage` lỡ nhả ra một phần quá dài. Có bài test chứng minh no-op.
  *
  * 🔴 THROTTLE KHÔNG phải trang trí: mỗi phần đi qua `_xepHang()`, nơi cưỡng
  *    chế giãn cách `THROTTLE.minKhoangCachMs` (1.200ms) và trần tin/phút.
  *    Tài khoản mới bắn dồn dễ bị gắn cờ spam (khoá 24–48h); trần 5 tin của
- *    `chiaTin` cũng sinh ra vì lý do đó — đừng nới.
+ *    `splitMessage` cũng sinh ra vì lý do đó — đừng nới.
  *
  *    ⚠️ ĐÍNH CHÍNH một hiểu nhầm dễ mắc (phép thử đột biến vạch ra): giãn
  *    cách KHÔNG đến từ vòng lặp `await` này. `_xepHang()` tự nối chuỗi
@@ -757,9 +757,9 @@ export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {})
  *   hẳn `daCat` của `catAnToan()` (vượt trần độ dài một tin).
  */
 export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
-  const kq = chiaTin(text, { tran: tuyChon.tran, soTinToiDa: tuyChon.soTinToiDa });
+  const kq = splitMessage(text, { tran: tuyChon.tran, soTinToiDa: tuyChon.soTinToiDa });
   if (kq.soPhan === 0) {
-    throw loiSach('Từ chối gửi tin RỖNG — Zalo cũng sẽ từ chối, và tin rỗng chỉ gây nhiễu.');
+    throw cleanError('Từ chối gửi tin RỖNG — Zalo cũng sẽ từ chối, và tin rỗng chỉ gây nhiễu.');
   }
 
   const loai = tuyChon.laDm ? ThreadType.User : ThreadType.Group;
@@ -770,16 +770,16 @@ export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
     // eslint-disable-next-line no-await-in-loop
     const r = await _gui(api, chatId, phan, loai, tuyChon);
     if (r.daCat) {
-      // Không thể xảy ra nếu `chiaTin` đúng — nhưng nếu xảy ra thì đó là
+      // Không thể xảy ra nếu `splitMessage` đúng — nhưng nếu xảy ra thì đó là
       // MẤT CHỮ, phải kêu chứ không nuốt.
-      _canhBao(`phần ${msgIds.length + 1}/${kq.soPhan} vẫn bị catAnToan() cắt -> chiaTin() nhả ra phần quá trần`);
+      _canhBao(`phần ${msgIds.length + 1}/${kq.soPhan} vẫn bị catAnToan() cắt -> splitMessage() nhả ra phần quá trần`);
     }
     if (r.msgId) msgIds.push(r.msgId);
   }
 
   if (kq.daCat) {
     _canhBao(
-      `nội dung ${kq.doDaiGoc} ký tự vượt trần ${kq.soPhan} tin -> ĐÃ THIẾU phần cuối. `
+      `nội dung ${kq.originalLength} ký tự vượt trần ${kq.soPhan} tin -> ĐÃ THIẾU phần cuối. `
       + 'Trần số tin có để tránh gắn cờ spam; muốn đủ thì dùng kênh phụ.',
     );
   }
@@ -789,5 +789,5 @@ export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
 
 /** Tin này có phải gửi nhiều phần không (dùng để quyết định có cần kênh phụ). */
 export function canChiaNho(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
-  return doDai(String(text ?? '').trim()) > tran;
+  return charLength(String(text ?? '').trim()) > tran;
 }

@@ -26,7 +26,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { toId, toIdBatBuoc } from '../lib/ids.js';
+import { toId, toIdRequired } from '../lib/ids.js';
 import {
   LOAI_GHI_NHO, MSG_TYPE_CO_NOI_DUNG, SU_KIEN_CONG_GHI, TRANG_THAI_DUYET,
   TRANG_THAI_HANG_DOI, TRANG_THAI_LICH, TRANG_THAI_TD, TRANG_THAI_GUI,
@@ -102,8 +102,8 @@ export function ghiTin(db, tin, tuyChon) {
   }
 
   const kq = db.prepare(SQL_GHI_TIN).run({
-    chat_id: toIdBatBuoc(tin.chatId, 'tin.chatId'),
-    msg_id: toIdBatBuoc(tin.msgId, 'tin.msgId'),
+    chat_id: toIdRequired(tin.chatId, 'tin.chatId'),
+    msg_id: toIdRequired(tin.msgId, 'tin.msgId'),
     cli_msg_id: toId(tin.cliMsgId, 'tin.cliMsgId'),
     user_id: toId(tin.userId, 'tin.userId'),
     ten_luc_gui: _hoac(tin.tenLucGui),
@@ -141,8 +141,8 @@ export function ghiTin(db, tin, tuyChon) {
       `UPDATE tin_nhan SET do_tro_ly_tao = 1, ten_luc_gui = NULL
         WHERE chat_id = $chat_id AND msg_id = $msg_id`,
     ).run({
-      chat_id: toIdBatBuoc(tin.chatId, 'tin.chatId'),
-      msg_id: toIdBatBuoc(tin.msgId, 'tin.msgId'),
+      chat_id: toIdRequired(tin.chatId, 'tin.chatId'),
+      msg_id: toIdRequired(tin.msgId, 'tin.msgId'),
     });
   }
   return Number(kq.changes) === 1;
@@ -199,8 +199,8 @@ VALUES
  * @returns {{khopDuoc: boolean, ghepBang: 'msg_id'|'cli_msg_id'|null}}
  */
 export function danhDauThuHoi(db, sk) {
-  const chatId = toIdBatBuoc(sk.chatId, 'thuHoi.chatId');
-  const msgIdDich = toIdBatBuoc(sk.msgIdDich, 'thuHoi.msgIdDich');
+  const chatId = toIdRequired(sk.chatId, 'thuHoi.chatId');
+  const msgIdDich = toIdRequired(sk.msgIdDich, 'thuHoi.msgIdDich');
   const cliDich = toId(sk.cliMsgIdDich, 'thuHoi.cliMsgIdDich');
   const boi = toId(sk.nguoiThuHoi, 'thuHoi.nguoiThuHoi');
   const luc = _soHoacNull(sk.tsZalo);
@@ -242,7 +242,7 @@ export function danhDauThuHoi(db, sk) {
     }
 
     db.prepare(SQL_GHI_SU_KIEN_THU_HOI).run({
-      event_id: toIdBatBuoc(sk.eventId, 'thuHoi.eventId'),
+      event_id: toIdRequired(sk.eventId, 'thuHoi.eventId'),
       chat_id: chatId,
       msg_id_dich: msgIdDich,
       cli_msg_id_dich: cliDich,
@@ -278,7 +278,7 @@ export function ghiSuKienNhom(db, sk) {
     `INSERT INTO su_kien_nhom (chat_id, loai, du_lieu, ts_zalo, ts_ghi)
      VALUES ($chat_id, $loai, $du_lieu, $ts_zalo, $ts_ghi)`,
   ).run({
-    chat_id: toIdBatBuoc(sk.chatId, 'suKienNhom.chatId'),
+    chat_id: toIdRequired(sk.chatId, 'suKienNhom.chatId'),
     loai: String(sk.loai ?? 'UNKNOWN'),
     du_lieu: _hoac(sk.duLieu),
     ts_zalo: _soHoacNull(sk.tsZalo),
@@ -305,7 +305,7 @@ export function ghiReaction(db, r) {
     `INSERT INTO reaction (chat_id, msg_id_dich, user_id, bieu_tuong, ts_zalo, ts_ghi, khop_duoc)
      VALUES ($chat_id, $msg_id_dich, $user_id, $bieu_tuong, $ts_zalo, $ts_ghi, $khop_duoc)`,
   ).run({
-    chat_id: toIdBatBuoc(r.chatId, 'reaction.chatId'),
+    chat_id: toIdRequired(r.chatId, 'reaction.chatId'),
     msg_id_dich: dich,
     user_id: toId(r.userId, 'reaction.userId'),
     bieu_tuong: _hoac(r.bieuTuong),
@@ -343,7 +343,7 @@ export function upsertHoiThoai(db, ht) {
        duoc_nghe     = excluded.duoc_nghe,
        lan_cuoi_thay = excluded.lan_cuoi_thay`,
   ).run({
-    chat_id: toIdBatBuoc(ht.chatId, 'hoiThoai.chatId'),
+    chat_id: toIdRequired(ht.chatId, 'hoiThoai.chatId'),
     loai: String(ht.loai ?? 'UNKNOWN'),
     ten: _hoac(ht.ten),
     duoc_nghe: _co(ht.duocNghe),
@@ -365,7 +365,7 @@ export function upsertNguoi(db, ng) {
        la_host      = excluded.la_host,
        cap_nhat     = excluded.cap_nhat`,
   ).run({
-    user_id: toIdBatBuoc(ng.userId, 'nguoi.userId'),
+    user_id: toIdRequired(ng.userId, 'nguoi.userId'),
     ten_hien_thi: _hoac(ng.tenHienThi),
     la_host: _co(ng.laHost),
     cap_nhat: _bayGio(),
@@ -392,9 +392,9 @@ export function taoHangDoi(db, muc) {
              $id_viec_mo_cua)`,
   ).run({
     request_id: String(muc.requestId),
-    chat_id_hoi: toIdBatBuoc(muc.chatIdHoi, 'hangDoi.chatIdHoi'),
-    msg_id: toIdBatBuoc(muc.msgId, 'hangDoi.msgId'),
-    user_id: toIdBatBuoc(muc.userId, 'hangDoi.userId'),
+    chat_id_hoi: toIdRequired(muc.chatIdHoi, 'hangDoi.chatIdHoi'),
+    msg_id: toIdRequired(muc.msgId, 'hangDoi.msgId'),
+    user_id: toIdRequired(muc.userId, 'hangDoi.userId'),
     noi_dung: String(muc.noiDung ?? ''),
     ts_tao: muc.tsTao || _bayGio(),
     trang_thai: TRANG_THAI_HANG_DOI.CHO,
@@ -601,7 +601,7 @@ export function ghiNhatKyTruyVan(db, banGhi) {
     // không phải "không rõ").
     client_id: banGhi.clientId ? String(banGhi.clientId) : null,
     request_id: String(banGhi.requestId),
-    chat_id_hoi: toIdBatBuoc(banGhi.chatIdHoi, 'nhatKy.chatIdHoi'),
+    chat_id_hoi: toIdRequired(banGhi.chatIdHoi, 'nhatKy.chatIdHoi'),
     nguon: JSON.stringify(nguon),
     co_cheo: _co(banGhi.coCheo),
     huong: _hoac(banGhi.huongTraLoi),
@@ -651,7 +651,7 @@ export function taoGhiNho(db, p) {
     khiNao = Math.floor(n);
   }
 
-  const ai = Array.isArray(p?.aiLienQuan) ? p.aiLienQuan.map((v) => toIdBatBuoc(v, 'ghiNho.aiLienQuan[]')) : [];
+  const ai = Array.isArray(p?.aiLienQuan) ? p.aiLienQuan.map((v) => toIdRequired(v, 'ghiNho.aiLienQuan[]')) : [];
   const id = p?.id ? String(p.id) : randomUUID();
   const ts = _bayGio();
 
@@ -665,9 +665,9 @@ export function taoGhiNho(db, p) {
              $nguon_nguoi, $nguon_nguyen_van)`,
   ).run({
     id,
-    chat_id: toIdBatBuoc(p?.chatId, 'ghiNho.chatId'),
+    chat_id: toIdRequired(p?.chatId, 'ghiNho.chatId'),
     request_id: toId(p?.requestId ?? null, 'ghiNho.requestId'),
-    nguoi_ghi: toIdBatBuoc(p?.nguoiGhi, 'ghiNho.nguoiGhi'),
+    nguoi_ghi: toIdRequired(p?.nguoiGhi, 'ghiNho.nguoiGhi'),
     loai,
     noi_dung: noiDung,
     nguyen_van: nguyenVan,
@@ -710,7 +710,7 @@ export function xinDuyet(db, p) {
      VALUES ($id, $chat, $rid, $nguoi, $nv, $viec, $ly, $tt, $ts)`,
   ).run({
     id,
-    chat: toIdBatBuoc(p?.chatIdXin, 'xinDuyet.chatIdXin'),
+    chat: toIdRequired(p?.chatIdXin, 'xinDuyet.chatIdXin'),
     rid: p?.requestId ? String(p.requestId) : null,
     nguoi: toId(p?.nguoiNoi ?? null, 'xinDuyet.nguoiNoi'),
     nv: String(p?.nguyenVan ?? '').trim() || null,
@@ -746,7 +746,7 @@ export function ghiVetHanhDong(db, p) {
      VALUES ($ts, $chat, $rid, $ten, $dt, $ai, $cau, $bao)`,
   ).run({
     ts: _bayGio(),
-    chat: toIdBatBuoc(p?.chatId, 'ghiVetHanhDong.chatId'),
+    chat: toIdRequired(p?.chatId, 'ghiVetHanhDong.chatId'),
     rid: p?.requestId ? String(p.requestId) : null,
     ten,
     dt: p?.doiTuong == null ? null : String(p.doiTuong),
@@ -1035,7 +1035,7 @@ export function xepHangGui(db, p) {
   if (!text.trim()) throw new Error('xepHangGui.text rỗng — Zalo cũng từ chối tin trống.');
 
   const tag = Array.isArray(p?.tagUserIds)
-    ? p.tagUserIds.map((v) => toIdBatBuoc(v, 'xepHangGui.tagUserIds[]')) : [];
+    ? p.tagUserIds.map((v) => toIdRequired(v, 'xepHangGui.tagUserIds[]')) : [];
   const id = p?.id ? String(p.id) : randomUUID();
   const ts = _bayGio();
 
@@ -1047,7 +1047,7 @@ export function xepHangGui(db, p) {
   ).run({
     id,
     rid: String(p?.requestId ?? ''),
-    chat: toIdBatBuoc(p?.chatIdDich, 'xepHangGui.chatIdDich'),
+    chat: toIdRequired(p?.chatIdDich, 'xepHangGui.chatIdDich'),
     text,
     tag: tag.length ? JSON.stringify(tag) : null,
     tt: TRANG_THAI_GUI.CHO,

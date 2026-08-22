@@ -56,7 +56,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { loiSach } from '../lib/redact.js';
+import { cleanError } from '../lib/redact.js';
 
 /** @typedef {import('../types.d.ts').ThongBaoChannel} ThongBaoChannel */
 
@@ -133,7 +133,7 @@ function _boiCanhTraLoi(phuThuoc, payload) {
     const ham = phuThuoc?.layBoiCanhTraLoi;
     return typeof ham === 'function' ? (ham(String(payload.requestId)) ?? null) : null;
   } catch (e) {
-    _log(loiSach('không lấy được bối cảnh reply (đã nuốt)', e).message);
+    _log(cleanError('không lấy được bối cảnh reply (đã nuốt)', e).message);
     return null;
   }
 }
@@ -305,10 +305,10 @@ function _traLoiChuoi(t) {
 
 export function taoChannel(phuThuoc) {
   if (!phuThuoc?.tenServer || !phuThuoc?.phienBan) {
-    throw loiSach('taoChannel cần tenServer + phienBan');
+    throw cleanError('taoChannel cần tenServer + phienBan');
   }
   if (typeof phuThuoc.dangKyTool !== 'function') {
-    throw loiSach('taoChannel cần dangKyTool(server) — không có tool thì Claude không gọi lại được');
+    throw cleanError('taoChannel cần dangKyTool(server) — không có tool thì Claude không gọi lại được');
   }
 
   const server = new Server(
@@ -338,7 +338,7 @@ export function taoChannel(phuThuoc) {
     } catch (e) {
       // Việc của G8 (đẩy bù hàng đợi 'cho'). Hỏng thì ghi log, KHÔNG được
       // làm chết phiên MCP vừa mới bắt tay xong.
-      _log(loiSach('khiSanSang() của caller ném lỗi', e).message);
+      _log(cleanError('khiSanSang() của caller ném lỗi', e).message);
     }
   };
 
@@ -416,7 +416,7 @@ export function taoChannel(phuThuoc) {
     } catch (e) {
       // 'Not connected', client vừa chết, transport đang đóng… — tất cả đều
       // KHÔNG được nổi lên trên. Hàng đợi trên đĩa là lưới an toàn.
-      _log(loiSach(`guiThongBao ${payload.requestId} thất bại (đã nuốt)`, e).message);
+      _log(cleanError(`guiThongBao ${payload.requestId} thất bại (đã nuốt)`, e).message);
       return false;
     }
   }
@@ -430,7 +430,7 @@ export function taoChannel(phuThuoc) {
     try {
       await server.close();
     } catch (e) {
-      _log(loiSach('đóng server MCP thất bại (đã nuốt)', e).message);
+      _log(cleanError('đóng server MCP thất bại (đã nuốt)', e).message);
     } finally {
       _daNoi = false;
       _daSanSang = false;
@@ -513,7 +513,7 @@ export async function dayHangDoiCho(p) {
       tuoiMoCoiMs: p.tuoiMoCoiMs ?? 0,
     }) ?? [];
   } catch (e) {
-    _log(loiSach('không đọc được hàng đợi (đã nuốt)', e).message);
+    _log(cleanError('không đọc được hàng đợi (đã nuốt)', e).message);
     return ra;
   }
 
@@ -535,7 +535,7 @@ export async function dayHangDoiCho(p) {
         + 'Anh hỏi lại nếu vẫn cần ạ.',
       );
     } catch (e) {
-      _log(loiSach('không báo được host về câu hỏi quá hạn', e).message);
+      _log(cleanError('không báo được host về câu hỏi quá hạn', e).message);
     }
   }
   for (const r of ds) {
@@ -566,7 +566,7 @@ export async function dayHangDoiCho(p) {
       try {
         daCam = p.nhanViec(p.db, rid, String(r.trang_thai), 'dang_xu_ly');
       } catch (e) {
-        _log(loiSach(`nhận việc ${rid} lỗi`, e).message);
+        _log(cleanError(`nhận việc ${rid} lỗi`, e).message);
       }
       if (!daCam) continue;   // bên khác cầm rồi
     }
@@ -578,7 +578,7 @@ export async function dayHangDoiCho(p) {
       const moc = Date.parse(String(r.ts_tao));
       if (Number.isFinite(moc)) {
         try { p.ghiDoTre({ requestId: rid, treMs: Date.now() - moc, chiNghe: Number(r.chi_nghe) === 1 }); }
-        catch (e) { _log(loiSach('không ghi được độ trễ', e).message); }
+        catch (e) { _log(cleanError('không ghi được độ trễ', e).message); }
       }
     }
 
@@ -594,7 +594,7 @@ export async function dayHangDoiCho(p) {
         chiNghe: Number(r.chi_nghe) === 1,
       });
     } catch (e) {
-      _log(loiSach(`đẩy ${rid} ném lỗi`, e).message);
+      _log(cleanError(`đẩy ${rid} ném lỗi`, e).message);
     }
     if (!ok) {
       ra.bo += 1;
@@ -607,7 +607,7 @@ export async function dayHangDoiCho(p) {
       // đó vừa đổi nó vì lý do khác.
       if (daCam) {
         try { p.capNhatHangDoi(p.db, rid, 'cho'); }
-        catch (e) { _log(loiSach(`không trả lại được việc ${rid}`, e).message); }
+        catch (e) { _log(cleanError(`không trả lại được việc ${rid}`, e).message); }
       }
       continue;
     }
@@ -615,7 +615,7 @@ export async function dayHangDoiCho(p) {
       p.capNhatHangDoi(p.db, rid, 'da_day');
       ra.day += 1;
     } catch (e) {
-      _log(loiSach(`đẩy được ${rid} nhưng không cập nhật được hàng đợi`, e).message);
+      _log(cleanError(`đẩy được ${rid} nhưng không cập nhật được hàng đợi`, e).message);
     }
   }
   return ra;

@@ -27,17 +27,17 @@ let _demCanhBao = 0;
  * Thay bộ xử lý cảnh báo (dùng cho test hoặc để nối vào log tập trung).
  * @param {(canhBao: {loai: string, giaTri: string, boiCanh: string}) => void} fn
  */
-export function datXuLyCanhBao(fn) {
+export function setWarningHandler(fn) {
   _xuLyCanhBao = fn;
 }
 
 /** Số lần đã cảnh báo kể từ lúc nạp module (dùng để nghiệm thu/đo). */
-export function demCanhBao() {
+export function warningCount() {
   return _demCanhBao;
 }
 
 /** Đặt lại bộ đếm cảnh báo (chỉ dùng trong test). */
-export function datLaiDemCanhBao() {
+export function resetWarningCount() {
   _demCanhBao = 0;
 }
 
@@ -107,7 +107,7 @@ export function toId(v, boiCanh = 'khong-ro') {
  * @param {string} ten  tên trường, để thông báo lỗi đọc được
  * @returns {string}
  */
-export function toIdBatBuoc(v, ten) {
+export function toIdRequired(v, ten) {
   const id = toId(v, ten);
   if (id === null) {
     throw new Error(`Thiếu ID bắt buộc: ${ten} (nhận được ${typeof v}: ${String(v)})`);
@@ -124,8 +124,8 @@ export function toIdBatBuoc(v, ten) {
  * @param {unknown} b
  * @returns {boolean}
  */
-export function cungId(a, b) {
-  const x = toId(a, 'cungId.a');
-  const y = toId(b, 'cungId.b');
+export function sameId(a, b) {
+  const x = toId(a, 'sameId.a');
+  const y = toId(b, 'sameId.b');
   return x !== null && y !== null && x === y;
 }

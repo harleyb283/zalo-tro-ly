@@ -31,12 +31,12 @@
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-import { baoDamThuMucCha, moRong } from '../lib/duong_dan.js';
+import { ensureParentDir, expandPath } from '../lib/paths.js';
 
 import {
   GIOI_HAN_LICH, LY_DO_DONG, NHAC_THEO_DUOI, TRANG_THAI_LICH, TRANG_THAI_TD,
 } from '../lib/hang_so.js';
-import { toIdBatBuoc } from '../lib/ids.js';
+import { toIdRequired } from '../lib/ids.js';
 
 function _log(msg) {
   process.stderr.write(`[lich/theo_duoi] ${msg}\n`);
@@ -292,7 +292,7 @@ export function taoNhacTheoDuoi(db, p) {
              $tt, $ma, 0, $ts, $ts, 1, $ttd, $ck, $gn, $bcn, 0, $pt, $ckp, $tran)`,
   ).run({
     id,
-    dich: toIdBatBuoc(p.chatIdDich, 'nhac.chatIdDich'),
+    dich: toIdRequired(p.chatIdDich, 'nhac.chatIdDich'),
     loai: p.loaiDich === 'DM' ? 'DM' : 'GROUP',
     nd: String(p.noiDung),
     tag: p.tagUserIds?.length ? JSON.stringify(p.tagUserIds.map(String)) : null,
@@ -300,8 +300,8 @@ export function taoNhacTheoDuoi(db, p) {
     mg: muiGio,
     goc: String(p.dienGiaiGoc),
     xn: String(p.dienGiaiXacNhan),
-    nguoi: toIdBatBuoc(p.nguoiDat, 'nhac.nguoiDat'),
-    dat: toIdBatBuoc(p.chatIdDat, 'nhac.chatIdDat'),
+    nguoi: toIdRequired(p.nguoiDat, 'nhac.nguoiDat'),
+    dat: toIdRequired(p.chatIdDat, 'nhac.chatIdDat'),
     tt: TRANG_THAI_LICH.CHO_XAC_NHAN,
     ttd: TRANG_THAI_TD.DANG_THEO_DUOI,
     ma: p.ma,
@@ -973,8 +973,8 @@ export function sinhSoNhac(db, duongDan, t = {}) {
   }
 
   try {
-    const f = moRong(duongDan);
-    baoDamThuMucCha(f);
+    const f = expandPath(duongDan);
+    ensureParentDir(f);
     const tam = `${f}.tmp`;
     fs.writeFileSync(tam, dong.join('\n'), { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tam, f);

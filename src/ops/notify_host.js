@@ -39,7 +39,7 @@
 
 import { spawn } from 'node:child_process';
 
-import { ghiLogAnToan, redact } from '../lib/redact.js';
+import { safeLogText, redact } from '../lib/redact.js';
 import { layDmHost, danhSachHostUserId } from '../policy/access.js';
 
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
@@ -101,7 +101,7 @@ export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
       con = spawn('sh', ['-c', lenh], { stdio: ['pipe', 'ignore', 'pipe'] });
     } catch (e) {
       clearTimeout(hen);
-      return giai({ thanhCong: false, ma: null, lyDo: ghiLogAnToan(e) });
+      return giai({ thanhCong: false, ma: null, lyDo: safeLogText(e) });
     }
 
     let loi = '';
@@ -111,7 +111,7 @@ export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
       if (xong) return;
       xong = true;
       clearTimeout(hen);
-      giai({ thanhCong: false, ma: null, lyDo: ghiLogAnToan(e) });
+      giai({ thanhCong: false, ma: null, lyDo: safeLogText(e) });
     });
 
     con.on('close', (ma) => {
@@ -126,7 +126,7 @@ export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
       con.stdin.write(JSON.stringify(duLieu));
       con.stdin.end();
     } catch (e) {
-      log(`⚠️ không bơm được JSON vào stdin của notifyCommand: ${ghiLogAnToan(e)}`);
+      log(`⚠️ không bơm được JSON vào stdin của notifyCommand: ${safeLogText(e)}`);
     }
   });
 }
@@ -308,8 +308,8 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
       } catch (e) {
         // Rất có thể chính là ca cookie chết — nên mới phải báo động.
         // Ghi lại rồi ĐI TIẾP xuống tầng 2, không dừng.
-        chiTiet.push(`tầng 1 hỏng: ${ghiLogAnToan(e)}`);
-        log(`⚠️ tầng 1 (DM Zalo) hỏng -> xuống tầng 2: ${ghiLogAnToan(e)}`);
+        chiTiet.push(`tầng 1 hỏng: ${safeLogText(e)}`);
+        log(`⚠️ tầng 1 (DM Zalo) hỏng -> xuống tầng 2: ${safeLogText(e)}`);
       }
     }
   } else {
@@ -343,8 +343,8 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
         chiTiet.push('tầng 1b: đã XẾP HÀNG DM để daemon gửi');
         return { tang: 1, thanhCong: true, chiTiet };
       } catch (e) {
-        chiTiet.push(`tầng 1b hỏng: ${ghiLogAnToan(e)}`);
-        log(`⚠️ tầng 1b (xếp hàng DM) hỏng -> xuống tầng 2: ${ghiLogAnToan(e)}`);
+        chiTiet.push(`tầng 1b hỏng: ${safeLogText(e)}`);
+        log(`⚠️ tầng 1b (xếp hàng DM) hỏng -> xuống tầng 2: ${safeLogText(e)}`);
       }
     }
   }

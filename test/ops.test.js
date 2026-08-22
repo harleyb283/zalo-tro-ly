@@ -544,7 +544,7 @@ test('D5 hosts rỗng / thiếu dmChatId -> báo rõ cách sửa', () => {
 
 test('🔴 D5b catAnToan trả OBJECT chứ không phải chuỗi — và remind KHÔNG cắt hai lần', async () => {
   // Bug thật, bắt được bằng chạy CLI chứ unit test không thấy: `catAnToan()`
-  // trả `{text, daCat, doDaiGoc}`, dùng như chuỗi thì `.slice` không tồn tại
+  // trả `{text, daCat, originalLength}`, dùng như chuỗi thì `.slice` không tồn tại
   // và script chết đúng ở bước cuối.
   const { catAnToan } = await import('../src/zalo/send.js');
   const r = catAnToan('abc', 100);

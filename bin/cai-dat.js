@@ -25,7 +25,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline/promises';
 
-import { moRong } from '../src/lib/duong_dan.js';
+import { expandPath } from '../src/lib/paths.js';
 import { dangChayTest } from '../src/ops/notify_host.js';
 import { checkEnvironment, buildConfig, parseGroupChoice } from '../src/ops/setup.js';
 import {
@@ -34,9 +34,9 @@ import {
 } from '../src/zalo/session.js';
 
 const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const THU_MUC_DL = moRong(process.env.ZTL_DATA_DIR || '~/.zalo-tro-ly');
+const THU_MUC_DL = expandPath(process.env.ZTL_DATA_DIR || '~/.zalo-tro-ly');
 const F_CONFIG = process.env.ZTL_CONFIG
-  ? moRong(process.env.ZTL_CONFIG)
+  ? expandPath(process.env.ZTL_CONFIG)
   : path.join(THU_MUC_DL, 'assistant.config.json');
 const F_SESSION = path.join(THU_MUC_DL, 'session.json');
 const F_MAU = path.join(THU_MUC_PACK, 'config', 'assistant.config.example.json');

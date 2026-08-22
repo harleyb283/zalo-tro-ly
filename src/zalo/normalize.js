@@ -70,7 +70,7 @@
  */
 
 import { MSG_TYPE, LOAI_HOI_THOAI } from '../lib/hang_so.js';
-import { toId, toIdBatBuoc, cungId } from '../lib/ids.js';
+import { toId, toIdRequired, sameId } from '../lib/ids.js';
 
 /** @typedef {import('../types.d.ts').TinChuanHoa} TinChuanHoa */
 /** @typedef {import('../types.d.ts').SuKienThuHoi} SuKienThuHoi */
@@ -462,8 +462,8 @@ export function chuanHoaTinNhan(tho, boiCanh) {
   const contentRaw = _kemMentions(rawGoc, msgTypeGoc, d.mentions);
 
   return {
-    chatId: toIdBatBuoc(tho?.threadId, 'message.threadId'),
-    msgId: toIdBatBuoc(d.msgId, 'message.msgId'),
+    chatId: toIdRequired(tho?.threadId, 'message.threadId'),
+    msgId: toIdRequired(d.msgId, 'message.msgId'),
     cliMsgId: toId(d.cliMsgId, 'message.cliMsgId'),
     userId: toId(d.uidFrom, 'message.uidFrom'),
     tenLucGui: _chuoiHoacNull(d.dName),
@@ -626,7 +626,7 @@ export function coTagHost(tho, hostUserIds, uidTroLy) {
 
   // Đường ĐÚNG theo hợp đồng: "tin này có tag TRỢ LÝ không".
   const idTroLy = toId(uidTroLy, 'coTagHost.uidTroLy');
-  if (idTroLy !== null) return ds.some((m) => cungId(m?.uid, idTroLy));
+  if (idTroLy !== null) return ds.some((m) => sameId(m?.uid, idTroLy));
 
   // Không ai truyền uid trợ lý ⇒ KHÔNG thể trả lời đúng câu hỏi đó. Lùi về
   // nghĩa đen của tên hàm (có tag host không) — luôn false ở ca thật, tức
@@ -635,7 +635,7 @@ export function coTagHost(tho, hostUserIds, uidTroLy) {
   // trợ lý không bao giờ nói. Đúng kiểu hỏng đã giấu bug `webchat` 10 dòng.
   _keuThieuUidTroLy();
   if (!Array.isArray(hostUserIds) || hostUserIds.length === 0) return false;
-  return ds.some((m) => hostUserIds.some((h) => cungId(m?.uid, h)));
+  return ds.some((m) => hostUserIds.some((h) => sameId(m?.uid, h)));
 }
 
 /**
@@ -666,10 +666,10 @@ export function chuanHoaThuHoi(tho) {
 
   return {
     // 🔴 BẪY 1: đây là ID của CHÍNH SỰ KIỆN thu hồi, KHÔNG phải tin bị thu hồi.
-    eventId: toIdBatBuoc(d.msgId, 'undo.msgId(=id sự kiện)'),
-    chatId: toIdBatBuoc(tho?.threadId, 'undo.threadId'),
+    eventId: toIdRequired(d.msgId, 'undo.msgId(=id sự kiện)'),
+    chatId: toIdRequired(tho?.threadId, 'undo.threadId'),
     // 🔴 Tin BỊ thu hồi nằm ở đây. Number ⇒ toId() ép về TEXT (bẫy 2 + 3).
-    msgIdDich: toIdBatBuoc(c.globalMsgId, 'undo.content.globalMsgId'),
+    msgIdDich: toIdRequired(c.globalMsgId, 'undo.content.globalMsgId'),
     cliMsgIdDich: toId(c.cliMsgId, 'undo.content.cliMsgId'),
     nguoiThuHoi: toId(d.uidFrom, 'undo.uidFrom'),
     tsZalo: _docTsBatBuoc(d.ts, 'undo'),
@@ -695,7 +695,7 @@ export function chuanHoaReaction(tho) {
   const idDich = toId(dich?.gMsgID, 'reaction.rMsg.gMsgID');
 
   return {
-    chatId: toIdBatBuoc(tho?.threadId, 'reaction.threadId'),
+    chatId: toIdRequired(tho?.threadId, 'reaction.threadId'),
     msgIdDich: idDich === null || idDich === '0' ? null : idDich,
     userId: toId(d.uidFrom, 'reaction.uidFrom'),
     // Reactions.NONE = '' nghĩa là GỠ cảm xúc — giữ nguyên '' để phân biệt
@@ -719,7 +719,7 @@ export function chuanHoaSuKienNhom(tho) {
 
   return {
     // threadId có thể vắng ở vài nhánh group_event ⇒ lùi về data.groupId.
-    chatId: toIdBatBuoc(tho?.threadId ?? d.groupId, 'group_event.threadId'),
+    chatId: toIdRequired(tho?.threadId ?? d.groupId, 'group_event.threadId'),
     loai: loaiGoc ? loaiGoc.toUpperCase() : 'UNKNOWN',
     duLieu: _chuoiHoaGon({ _loaiGoc: loaiGoc, _act: _chuoiHoacNull(tho?.act), ...d }),
     tsZalo: docTs(d.time ?? d.ts),
@@ -758,7 +758,7 @@ export function loaiHoiThoai(threadId, cauHinh, goiY) {
   if (id === null) return LOAI_HOI_THOAI.UNKNOWN;
 
   const ds = cauHinh?.groups;
-  if (Array.isArray(ds) && ds.some((g) => cungId(g?.chatId, id))) {
+  if (Array.isArray(ds) && ds.some((g) => sameId(g?.chatId, id))) {
     return LOAI_HOI_THOAI.GROUP;
   }
   return LOAI_HOI_THOAI.UNKNOWN;

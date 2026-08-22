@@ -1,5 +1,5 @@
 /**
- * Nghiệm thu `src/lib/chia_tin.js` + 2 khoá config mới (`kenhPhu`, `tichHop`).
+ * Nghiệm thu `src/lib/split_message.js` + 2 khoá config mới (`kenhPhu`, `tichHop`).
  * Chạy: node --test
  */
 
@@ -8,10 +8,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { chiaTin, timChoCat, doDai, SO_TIN_TOI_DA } from '../src/lib/chia_tin.js';
+import { splitMessage, findSplitPoint, charLength, MAX_PARTS } from '../src/lib/split_message.js';
 import { kiemCauHinh, KENH_PHU_HOP_LE } from '../src/policy/access.js';
 
-const nhoHon = (phan, tran) => phan.every((p) => doDai(p) <= tran);
+const nhoHon = (phan, tran) => phan.every((p) => charLength(p) <= tran);
 
 function cauHinhGia(ghiDe = {}) {
   return {
@@ -27,19 +27,19 @@ function cauHinhGia(ghiDe = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// A. chiaTin
+// A. splitMessage
 // ═══════════════════════════════════════════════════════════════════════
 
 test('A1 ngắn hơn trần -> 1 tin, KHÔNG đánh số', () => {
-  const r = chiaTin('xin chao anh', { tran: 100 });
+  const r = splitMessage('xin chao anh', { tran: 100 });
   assert.deepEqual(r.phan, ['xin chao anh']);
   assert.equal(r.soPhan, 1);
   assert.equal(r.daCat, false);
 });
 
 test('A2 rỗng -> không tin nào (đừng gửi tin trống vào nhóm)', () => {
-  assert.deepEqual(chiaTin('   ').phan, []);
-  assert.deepEqual(chiaTin(null).phan, []);
+  assert.deepEqual(splitMessage('   ').phan, []);
+  assert.deepEqual(splitMessage(null).phan, []);
 });
 
 test('🔴 A3 CHIA chứ không CẮT — ghép lại phải ĐỦ chữ', () => {
@@ -47,7 +47,7 @@ test('🔴 A3 CHIA chứ không CẮT — ghép lại phải ĐỦ chữ', () =>
   const goc = doan.join('\n\n');
   // soTinToiDa cao để bài này đo đúng thứ nó định đo — TÍNH TOÀN VẸN khi chia.
   // Để mặc định 5 thì bài đỏ vì chạm trần số tin, tức là đo nhầm sang chuyện khác.
-  const r = chiaTin(goc, { tran: 300, soTinToiDa: 50 });
+  const r = splitMessage(goc, { tran: 300, soTinToiDa: 50 });
 
   assert.ok(r.soPhan > 1, `phải chia, đang ${r.soPhan}`);
   assert.equal(r.daCat, false, 'chưa chạm trần số tin thì không được mất chữ');
@@ -61,16 +61,16 @@ test('🔴 A3 CHIA chứ không CẮT — ghép lại phải ĐỦ chữ', () =>
 });
 
 test('🔴 A4 tiền tố "i/n " nằm TRONG ngân sách, không làm tin vượt trần', () => {
-  const r = chiaTin('x'.repeat(2000), { tran: 120 });
+  const r = splitMessage('x'.repeat(2000), { tran: 120 });
   assert.ok(r.soPhan > 1);
   for (const p of r.phan) {
     assert.match(p, /^\d+\/\d+ /, 'phải có tiền tố');
-    assert.ok(doDai(p) <= 120, `tin dài ${doDai(p)} > trần 120: ${p.slice(0, 40)}`);
+    assert.ok(charLength(p) <= 120, `tin dài ${charLength(p)} > trần 120: ${p.slice(0, 40)}`);
   }
 });
 
 test('A5 đánh số đúng dạng 1/n … n/n', () => {
-  const r = chiaTin('Cau mot. '.repeat(120), { tran: 200 });
+  const r = splitMessage('Cau mot. '.repeat(120), { tran: 200 });
   assert.equal(r.phan[0].startsWith('1/'), true);
   assert.match(r.phan[r.phan.length - 1], new RegExp(`^${r.soPhan}/${r.soPhan} `));
 });
@@ -78,8 +78,8 @@ test('A5 đánh số đúng dạng 1/n … n/n', () => {
 test('🔴 A6 cắt theo RANH GIỚI ĐOẠN, không cụt giữa từ', () => {
   const goc = ['Doan A ket thuc o day.', 'Doan B bat dau.'].join('\n\n')
     + '\n\n' + 'Doan C dai '.repeat(30);
-  const r = chiaTin(goc, { tran: 150, danhSo: false, soTinToiDa: 50 });
-  // ⚠️ Kỳ vọng ĐÚNG không phải "tin 1 = đoạn A". `timChoCat` cố ý lấy ranh giới
+  const r = splitMessage(goc, { tran: 150, danhSo: false, soTinToiDa: 50 });
+  // ⚠️ Kỳ vọng ĐÚNG không phải "tin 1 = đoạn A". `findSplitPoint` cố ý lấy ranh giới
   // đoạn CUỐI CÙNG còn lọt trong cửa sổ — nhồi đầy tin rồi mới xuống dòng mới.
   // Bắt nó dừng ở đoạn đầu tiên là ép chia thành nhiều tin vụn, ngược hẳn mục
   // tiêu (mỗi tin thêm là thêm 1,2 giây throttle và thêm rủi ro cờ spam).
@@ -94,17 +94,17 @@ test('🔴 A6 cắt theo RANH GIỚI ĐOẠN, không cụt giữa từ', () => {
     'có tin bị cắt giữa từ (hoặc rơi mất chữ)');
 });
 
-test('A7 timChoCat: ưu tiên đoạn > dòng > câu > từ > cắt cứng', () => {
-  assert.equal(timChoCat('abc', 10), 3, 'ngắn hơn trần thì lấy hết');
+test('A7 findSplitPoint: ưu tiên đoạn > dòng > câu > từ > cắt cứng', () => {
+  assert.equal(findSplitPoint('abc', 10), 3, 'ngắn hơn trần thì lấy hết');
   // Không có chỗ đẹp nào ở nửa sau -> cắt cứng đúng trần.
-  assert.equal(timChoCat('a'.repeat(50), 20), 20);
+  assert.equal(findSplitPoint('a'.repeat(50), 20), 20);
   // Có dấu cách ở nửa sau -> cắt ở đó, giữ luôn dấu cách.
   const s = `${'a'.repeat(12)} ${'b'.repeat(30)}`;
-  assert.equal(timChoCat(s, 20), 13);
+  assert.equal(findSplitPoint(s, 20), 13);
 });
 
 test('🔴 A8 chạm TRẦN SỐ TIN -> daCat=true và NÓI RÕ còn bao nhiêu', () => {
-  const r = chiaTin('y'.repeat(100_000), { tran: 200, soTinToiDa: 3 });
+  const r = splitMessage('y'.repeat(100_000), { tran: 200, soTinToiDa: 3 });
   assert.equal(r.soPhan, 3);
   assert.equal(r.daCat, true, 'phải tự khai là chưa gửi đủ');
   assert.match(r.phan[2], /còn \d+ ký tự nữa/,
@@ -112,15 +112,15 @@ test('🔴 A8 chạm TRẦN SỐ TIN -> daCat=true và NÓI RÕ còn bao nhiêu'
 });
 
 test('A9 trần số tin mặc định là 5 (chống bắn dồn bị gắn cờ spam)', () => {
-  assert.equal(SO_TIN_TOI_DA, 5);
-  assert.ok(chiaTin('z'.repeat(100_000), { tran: 500 }).soPhan <= 5);
+  assert.equal(MAX_PARTS, 5);
+  assert.ok(splitMessage('z'.repeat(100_000), { tran: 500 }).soPhan <= 5);
 });
 
 test('🔴 A10 đếm theo ĐIỂM MÃ, emoji không làm chia sớm gấp đôi', () => {
   const emoji = '😀';
   assert.equal(emoji.length, 2, 'JS đếm 2 đơn vị UTF-16');
-  assert.equal(doDai(emoji), 1, 'nhưng người dùng thấy 1 ký tự');
-  const r = chiaTin(emoji.repeat(80), { tran: 100, danhSo: false });
+  assert.equal(charLength(emoji), 1, 'nhưng người dùng thấy 1 ký tự');
+  const r = splitMessage(emoji.repeat(80), { tran: 100, danhSo: false });
   assert.equal(r.soPhan, 1, 'đếm bằng .length thì bài này sẽ ra 2 tin');
 });
 
@@ -128,7 +128,7 @@ test('A11 KHÔNG cắt chồng với catAnToan — hai hàm khác việc', async
   const { catAnToan } = await import('../src/zalo/send.js');
   const dai = 'w'.repeat(9000);
   assert.equal(catAnToan(dai, 4000).daCat, true, 'catAnToan = CẮT, mất đuôi');
-  assert.equal(chiaTin(dai, { tran: 4000 }).daCat, false, 'chiaTin = CHIA, giữ đủ');
+  assert.equal(splitMessage(dai, { tran: 4000 }).daCat, false, 'splitMessage = CHIA, giữ đủ');
 });
 
 // ═══════════════════════════════════════════════════════════════════════

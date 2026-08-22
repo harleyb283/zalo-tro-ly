@@ -88,7 +88,7 @@ export interface TinChuanHoa {
  * Ghép nhầm ⇒ UPDATE không khớp dòng nào, KHÔNG có lỗi nào được ném ra.
  *
  * 🔴 BẪY SỐ 2 — LỆCH KIỂU: TMessage.msgId là string, TUndoContent.globalMsgId
- * là number. So sánh thẳng KHÔNG khớp. Bắt buộc đi qua toId()/cungId().
+ * là number. So sánh thẳng KHÔNG khớp. Bắt buộc đi qua toId()/sameId().
  */
 export interface SuKienThuHoi {
   /** TUndo.msgId — ID của sự kiện, dùng làm PRIMARY KEY để chống trùng. */

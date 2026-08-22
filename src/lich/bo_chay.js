@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { CHE_DO, GIOI_HAN_LICH, TRANG_THAI_HANG_DOI } from '../lib/hang_so.js';
-import { ghiLogAnToan } from '../lib/redact.js';
+import { safeLogText } from '../lib/redact.js';
 import { baoDamTag } from '../zalo/send.js';
 
 import { taoBoCanhOutbox } from './canh_outbox.js';
@@ -164,7 +164,7 @@ async function _chayLuoiOutbox(p, bayGio) {
         : null,
     });
   } catch (e) {
-    _log(`lưới canh outbox ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`);
+    _log(`lưới canh outbox ném lỗi (đã nuốt): ${safeLogText(e)}`);
     return null;
   }
 }
@@ -197,7 +197,7 @@ function _dongPhienModelBiGianh(db, idNhac) {
     }
     return ds.length;
   } catch (e) {
-    _log(`không đóng được phiên model của lời nhắc ${idNhac}: ${ghiLogAnToan(e)}`);
+    _log(`không đóng được phiên model của lời nhắc ${idNhac}: ${safeLogText(e)}`);
     return 0;
   }
 }
@@ -293,7 +293,7 @@ async function _baoHetLuot(p, d, cho) {
       { uidTroLy: p.uidTroLy ?? null, ghiLai: p.ghiLai, laDm: true },
     );
   } catch (e) {
-    _log(`không báo được host chuyện hết lượt (${d.id}): ${ghiLogAnToan(e)}`);
+    _log(`không báo được host chuyện hết lượt (${d.id}): ${safeLogText(e)}`);
   }
 }
 
@@ -318,7 +318,7 @@ export async function chayMotNhip(p) {
   try {
     ds = layLichDenHan(p.db, bayGio);
   } catch (e) {
-    _log(`không đọc được lịch tới hạn: ${ghiLogAnToan(e)}`);
+    _log(`không đọc được lịch tới hạn: ${safeLogText(e)}`);
     return ra;
   }
   if (!ds.length) return ra;
@@ -343,12 +343,12 @@ export async function chayMotNhip(p) {
         if (p.dmHostChatId && p.guiDmHost) {
           await p.guiDmHost(p.api, p.dmHostChatId, loiNhan, {
             ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
-          }).catch((e) => _log(`không DM được host về lịch quá hạn: ${ghiLogAnToan(e)}`));
+          }).catch((e) => _log(`không DM được host về lịch quá hạn: ${safeLogText(e)}`));
         } else {
           _log(`lịch ${l.id} quá hạn nhưng KHÔNG có DM host để báo — chỉ ghi log`);
         }
       } catch (e) {
-        _log(`xử lý lịch quá hạn ${l.id} thất bại: ${ghiLogAnToan(e)}`);
+        _log(`xử lý lịch quá hạn ${l.id} thất bại: ${safeLogText(e)}`);
       }
       continue;
     }
@@ -397,7 +397,7 @@ export async function chayMotNhip(p) {
       // Host đọc `xem_lich` thấy trạng thái `loi` và tự quyết.
       ghiKetQuaGui(p.db, l.id, { loi: String(e?.message ?? e) });
       ra.loi += 1;
-      _log(`gửi lịch ${l.id} thất bại: ${ghiLogAnToan(e)}`);
+      _log(`gửi lịch ${l.id} thất bại: ${safeLogText(e)}`);
     }
   }
   return ra;
@@ -440,7 +440,7 @@ export async function chayNhipTheoDuoi(p) {
   try {
     ds = layNhacDenHan(p.db, bayGio);
   } catch (e) {
-    _log(`không đọc được lời nhắc tới hạn: ${ghiLogAnToan(e)}`);
+    _log(`không đọc được lời nhắc tới hạn: ${safeLogText(e)}`);
     return ra;
   }
 
@@ -469,7 +469,7 @@ export async function chayNhipTheoDuoi(p) {
       } else ra.loi += 1;
     }
   } catch (e) {
-    _log(`quét lượt treo chờ model thất bại: ${ghiLogAnToan(e)}`);
+    _log(`quét lượt treo chờ model thất bại: ${safeLogText(e)}`);
   }
 
   for (const d of ds) {
@@ -606,7 +606,7 @@ export async function chayNhipTheoDuoi(p) {
         ra.giaoModel += 1;
         continue;
       } catch (e) {
-        _log(`giao model viết câu nhắc ${d.id} hỏng (${ghiLogAnToan(e)}) -> dùng câu dự phòng`);
+        _log(`giao model viết câu nhắc ${d.id} hỏng (${safeLogText(e)}) -> dùng câu dự phòng`);
       }
     }
 
@@ -636,7 +636,7 @@ function _tenPhuTrach(p, d) {
     const ten = ds.find((n) => String(n.uid) === uid)?.ten ?? null;
     return ten ? { uid, ten: String(ten) } : { uid, ten: null };
   } catch (e) {
-    _log(`không tra được tên người phụ trách của ${d.id}: ${ghiLogAnToan(e)}`);
+    _log(`không tra được tên người phụ trách của ${d.id}: ${safeLogText(e)}`);
     return { uid, ten: null };
   }
 }
@@ -738,7 +738,7 @@ async function _guiNhac(p, d, bayGioMs) {
       .run({ m: kq?.msgId ? String(kq.msgId) : null, id: d.id });
     return true;
   } catch (e) {
-    _log(`gửi lời nhắc ${d.id} thất bại: ${ghiLogAnToan(e)}`);
+    _log(`gửi lời nhắc ${d.id} thất bại: ${safeLogText(e)}`);
     return false;
   }
 }

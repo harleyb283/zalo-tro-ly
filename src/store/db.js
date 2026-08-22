@@ -6,7 +6,7 @@
  * gói nào, không native addon.
  *
  * RÀNG BUỘC ĐÃ CHỐT Ở G0, GIỮ NGUYÊN:
- *  · Đường dẫn PHẢI đi qua moRong() — Node KHÔNG nở dấu `~`, đưa thẳng
+ *  · Đường dẫn PHẢI đi qua expandPath() — Node KHÔNG nở dấu `~`, đưa thẳng
  *    "~/.zalo-tro-ly/lichsu.db" vào fs sẽ tạo thư mục tên "~" NGAY TRONG
  *    REPO, không báo lỗi, và mức siết CAO bị vô hiệu hoá âm thầm.
  *  · schema.sql là hợp đồng — NẠP file đó, KHÔNG chép CREATE TABLE vào code.
@@ -30,7 +30,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 
-import { baoDamThuMucCha, moRong } from '../lib/duong_dan.js';
+import { ensureParentDir, expandPath } from '../lib/paths.js';
 import { PHIEN_BAN_SCHEMA } from '../lib/hang_so.js';
 
 /** @typedef {import('node:sqlite').DatabaseSync} TDb */
@@ -41,7 +41,7 @@ export const DUONG_DAN_SCHEMA = path.resolve(THU_MUC_NAY, '..', '..', 'schema.sq
 
 /**
  * Tên đặc biệt của SQLite cho DB nằm hoàn toàn trong RAM. Cố ý cho qua
- * `moRong()` — nếu không, ':memory:' bị resolve thành `<cwd>/:memory:` và
+ * `expandPath()` — nếu không, ':memory:' bị resolve thành `<cwd>/:memory:` và
  * test lại đi tạo file rác trong repo.
  */
 const RAM = ':memory:';
@@ -116,13 +116,13 @@ export function sietQuyen(duongDanTuyetDoi) {
  * ⚠️ Mặc định `migrate: true` ⇒ **đường một-tiến-trình hôm nay không đổi một
  * hành vi nào**. Đây là điều kiện Router đặt ra cho cả ba bước.
  *
- * @param {string} duongDanDb đã hoặc chưa qua moRong() — hàm tự gọi cho chắc
+ * @param {string} duongDanDb đã hoặc chưa qua expandPath() — hàm tự gọi cho chắc
  * @param {{migrate?: boolean}} [tuyChon]
  * @returns {TDb}
  */
 export function moDb(duongDanDb, tuyChon = {}) {
-  const p = duongDanDb === RAM ? RAM : moRong(duongDanDb);
-  if (p !== RAM) baoDamThuMucCha(p);
+  const p = duongDanDb === RAM ? RAM : expandPath(duongDanDb);
+  if (p !== RAM) ensureParentDir(p);
 
   const db = new DatabaseSync(p);
 

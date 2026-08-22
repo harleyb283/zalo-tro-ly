@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * HỢP ĐỒNG G0 — giải đường dẫn. MỌI gói BẮT BUỘC dùng `moRong()` trước khi
+ * HỢP ĐỒNG G0 — giải đường dẫn. MỌI gói BẮT BUỘC dùng `expandPath()` trước khi
  * đưa một đường dẫn từ config/env vào `fs.*` hay `new DatabaseSync(...)`.
  *
  * 🔴 BẪY IM LẶNG: Node **KHÔNG** nở dấu `~`. Đó là việc của shell.
@@ -25,9 +25,9 @@ import fs from 'node:fs';
  * @param {string} [goc]  gốc để giải đường dẫn tương đối; mặc định process.cwd()
  * @returns {string}
  */
-export function moRong(p, goc) {
+export function expandPath(p, goc) {
   if (typeof p !== 'string' || p.trim() === '') {
-    throw new Error('moRong(): đường dẫn rỗng hoặc không phải chuỗi');
+    throw new Error('expandPath(): đường dẫn rỗng hoặc không phải chuỗi');
   }
   let s = p.trim();
 
@@ -37,7 +37,7 @@ export function moRong(p, goc) {
     s = path.join(os.homedir(), s.slice(2));
   } else if (s.startsWith('~')) {
     // `~user/...` — Node không giải được. Từ chối thẳng thay vì đoán.
-    throw new Error(`moRong(): không hỗ trợ dạng "~user", sửa config thành đường dẫn đầy đủ: ${p}`);
+    throw new Error(`expandPath(): không hỗ trợ dạng "~user", sửa config thành đường dẫn đầy đủ: ${p}`);
   }
 
   return path.resolve(goc ?? process.cwd(), s);
@@ -52,7 +52,7 @@ export function moRong(p, goc) {
  * @param {string} thuMucPack
  * @returns {boolean}
  */
-export function namTrongPack(duongDanTuyetDoi, thuMucPack) {
+export function isInsidePack(duongDanTuyetDoi, thuMucPack) {
   const a = path.resolve(duongDanTuyetDoi);
   const b = path.resolve(thuMucPack);
   const rel = path.relative(b, a);
@@ -63,10 +63,10 @@ export function namTrongPack(duongDanTuyetDoi, thuMucPack) {
  * Tạo thư mục cha của một file nếu chưa có, với quyền 0700.
  * Dùng trước khi ghi lichsu.db / session.json / health.json.
  *
- * @param {string} duongDanFile  đã qua moRong()
+ * @param {string} duongDanFile  đã qua expandPath()
  * @returns {string} thư mục cha
  */
-export function baoDamThuMucCha(duongDanFile) {
+export function ensureParentDir(duongDanFile) {
   const cha = path.dirname(duongDanFile);
   fs.mkdirSync(cha, { recursive: true, mode: 0o700 });
   return cha;
@@ -83,11 +83,11 @@ export function baoDamThuMucCha(duongDanFile) {
  * ⚠️ `mode` chỉ áp khi file được TẠO MỚI. File đã tồn tại thì giữ quyền cũ
  *    ⇒ hàm này chmod bù SAU khi ghi, chỉ cho trường hợp file có sẵn.
  *
- * @param {string} duongDan  đã qua moRong()
+ * @param {string} duongDan  đã qua expandPath()
  * @param {string} noiDung
  */
-export function ghiFileBiMat(duongDan, noiDung) {
-  baoDamThuMucCha(duongDan);
+export function writeSecretFile(duongDan, noiDung) {
+  ensureParentDir(duongDan);
   const daCo = fs.existsSync(duongDan);
   const fd = fs.openSync(duongDan, 'w', 0o600);
   try {

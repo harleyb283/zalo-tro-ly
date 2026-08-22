@@ -105,8 +105,8 @@ function dungTool(ghiDe = {}) {
     }),
     baoHost: ghiDe.baoHost,
     guiNhieuPhan: ghiDe.guiNhieuPhan ?? (async (_api, chatId, text) => {
-      const { chiaTin } = await import('../src/lib/chia_tin.js');
-      const kq = chiaTin(text);
+      const { splitMessage } = await import('../src/lib/split_message.js');
+      const kq = splitMessage(text);
       for (const ph of kq.phan) daGui.nhom.push({ chatId, text: ph, phan: true });
       return { msgId: 'gui-nhieu-1', msgIds: ['gui-nhieu-1'], soPhan: kq.soPhan, daCat: kq.daCat };
     }),

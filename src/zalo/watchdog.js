@@ -49,7 +49,7 @@ import {
   GIOI_HAN,
   TRANG_THAI_SUC_KHOE,
 } from '../lib/hang_so.js';
-import { ghiLogAnToan } from '../lib/redact.js';
+import { safeLogText } from '../lib/redact.js';
 import { lanCuoiNhanSuKien } from './listener.js';
 import { phanLoaiLoiDangNhap } from './session.js';
 
@@ -107,7 +107,7 @@ export function docTrangThaiWs(api) {
     // ở CONNECTING thì Tầng 2 (im lặng) sẽ bắt.
     return { song: null, lyDo: 'readyState=CONNECTING (đang nối, chưa kết luận)' };
   } catch (e) {
-    return { song: null, lyDo: `đọc trạng thái ws ném lỗi: ${ghiLogAnToan(e)}` };
+    return { song: null, lyDo: `đọc trạng thái ws ném lỗi: ${safeLogText(e)}` };
   }
 }
 
@@ -193,7 +193,7 @@ export function taoWatchdog(phuThuoc) {
     } catch (e) {
       // Ghi health hỏng KHÔNG được làm chết watchdog — watchdog là thứ cuối
       // cùng còn đứng khi mọi thứ khác đã hỏng.
-      _log(`ghiSucKhoe ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`);
+      _log(`ghiSucKhoe ném lỗi (đã nuốt): ${safeLogText(e)}`);
     }
   };
 
@@ -211,7 +211,7 @@ export function taoWatchdog(phuThuoc) {
         soNghiNgo = 0;
         mocBatDau = Date.now();
       }],
-      ['error', (e) => _log(`sự kiện "error" từ listener: ${ghiLogAnToan(e)}`)],
+      ['error', (e) => _log(`sự kiện "error" từ listener: ${safeLogText(e)}`)],
     ];
     for (const [ten, fn] of cap) {
       try {
@@ -267,7 +267,7 @@ export function taoWatchdog(phuThuoc) {
         } catch (e) {
           loiCuoi = e;
           if (phanLoaiLoiDangNhap(e) === 'TAM_THOI') soLanTamThoi += 1;
-          _log(`nối lại lần ${i + 1} thất bại: ${ghiLogAnToan(e)}`);
+          _log(`nối lại lần ${i + 1} thất bại: ${safeLogText(e)}`);
         }
       }
       // 🔴 5 lần hỏng KHÔNG tự động nghĩa là "cookie chết". Mất mạng 15 phút
@@ -284,7 +284,7 @@ export function taoWatchdog(phuThuoc) {
             '— quét khi phiên còn sống sẽ đá văng chính nó. Kiểm mạng trước.'
           : `thử nối lại ${soLanToiDa} lần đều hỏng — cookie có thể đã chết. ` +
             'Chạy TAY: node bin/zalo-login.js để quét QR lại.' +
-            (loiCuoi ? ` (lỗi cuối: ${ghiLogAnToan(loiCuoi)})` : ''),
+            (loiCuoi ? ` (lỗi cuối: ${safeLogText(loiCuoi)})` : ''),
         soLanToiDa,
       );
       try {
@@ -296,7 +296,7 @@ export function taoWatchdog(phuThuoc) {
         // 🔴 `src/index.js` là file của gói khác — đã báo Router để sửa 1 dòng.
         await phuThuoc.khiHetCach?.(maCuoi, toanLoiMang);
       } catch (e) {
-        _log(`khiHetCach ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`);
+        _log(`khiHetCach ném lỗi (đã nuốt): ${safeLogText(e)}`);
       }
     } finally {
       dangNoiLai = false;
@@ -341,7 +341,7 @@ export function taoWatchdog(phuThuoc) {
     try {
       keepAliveOk = phuThuoc.kiemKeepAlive ? await phuThuoc.kiemKeepAlive() : null;
     } catch (e) {
-      _log(`kiemKeepAlive ném lỗi: ${ghiLogAnToan(e)}`);
+      _log(`kiemKeepAlive ném lỗi: ${safeLogText(e)}`);
       keepAliveOk = false;
     }
 
@@ -368,7 +368,7 @@ export function taoWatchdog(phuThuoc) {
       mocBatDau = Date.now();
       ganDayCongKhai();
       hen = setInterval(() => {
-        motNhip().catch((e) => _log(`nhịp watchdog ném lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+        motNhip().catch((e) => _log(`nhịp watchdog ném lỗi (đã nuốt): ${safeLogText(e)}`));
       }, chuKyMs);
       _log(`bật watchdog: chu kỳ ${chuKyMs}ms, ngưỡng im lặng ${imLangMs}ms`);
     },

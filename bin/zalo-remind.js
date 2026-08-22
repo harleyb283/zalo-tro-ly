@@ -46,8 +46,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { docCauHinh, layDmHost, danhSachHostUserId, layNhom } from '../src/policy/access.js';
-import { moRong } from '../src/lib/duong_dan.js';
-import { ghiLogAnToan } from '../src/lib/redact.js';
+import { expandPath } from '../src/lib/paths.js';
+import { safeLogText } from '../src/lib/redact.js';
 import { GIOI_HAN } from '../src/lib/hang_so.js';
 import { dangNhapBangCookie, LoiPhienZalo } from '../src/zalo/session.js';
 import { daemonDangChay } from '../src/ops/health.js';
@@ -126,7 +126,7 @@ export function layNoiDung(t) {
   }
   let s = t.text;
   if (t.tuFile) {
-    const p = moRong(t.tuFile);
+    const p = expandPath(t.tuFile);
     if (!fs.existsSync(p)) throw new Error(`Không thấy file nội dung: ${p}`);
     s = fs.readFileSync(p, 'utf8');
   }
@@ -201,7 +201,7 @@ export async function main(argv) {
     return MA.THAM_SO;
   }
 
-  // ⚠️ `catAnToan()` trả về OBJECT `{text, daCat, doDaiGoc}`, KHÔNG phải chuỗi.
+  // ⚠️ `catAnToan()` trả về OBJECT `{text, daCat, originalLength}`, KHÔNG phải chuỗi.
   //    Dùng nhầm như chuỗi thì `.slice` không tồn tại và script chết ở đúng
   //    bước cuối — bản unit test không bắt được vì nó không đi qua main().
   // ⚠️ Ở đây CHỈ dùng để XEM TRƯỚC. Bước gửi thật (`guiDmHost`/`guiVaoNhom`
@@ -216,7 +216,7 @@ export async function main(argv) {
     out(`  gửi tới : ${dich.loai === 'dm' ? 'DM host' : 'nhóm'} ${dich.nhan} (${dich.chatId})`);
     out(`  độ dài  : ${noiDung.length} ký tự${xemTruoc.daCat ? ' → sẽ bị CẮT bớt' : ''}`);
     out(`  nội dung: ${xemTruoc.text.slice(0, 200)}${xemTruoc.text.length > 200 ? '…' : ''}`);
-    const ps = moRong(cauHinh.duongDan.session);
+    const ps = expandPath(cauHinh.duongDan.session);
     const coPhien = fs.existsSync(ps);
     // ⚠️ "Không có FILE phiên" nghĩa là CHƯA TỪNG ĐĂNG NHẬP trên máy này —
     // KHÔNG phải "cookie đã chết". Câu chữ phải tách hai ca đó ra, vì lời
@@ -269,7 +269,7 @@ export async function main(argv) {
       // phiên còn sống thì đá văng chính phiên đó.
       return e.maSucKhoe === TRANG_THAI_SUC_KHOE.CAN_QR ? MA.CAN_QR : MA.LOI;
     }
-    err(`⛔ Không đăng nhập được: ${ghiLogAnToan(e)}`);
+    err(`⛔ Không đăng nhập được: ${safeLogText(e)}`);
     return MA.LOI;
   }
 
@@ -286,7 +286,7 @@ export async function main(argv) {
   } catch (e) {
     // Gửi hỏng thì PHẢI kêu: cron chỉ đọc được mã thoát, im lặng ở đây nghĩa là
     // lời nhắc bốc hơi mà không ai hay.
-    err(`⛔ Gửi thất bại: ${ghiLogAnToan(e)}`);
+    err(`⛔ Gửi thất bại: ${safeLogText(e)}`);
     return MA.LOI;
   }
 }
@@ -298,7 +298,7 @@ if (laFileChinh) {
   main(process.argv)
     .then((ma) => { process.exitCode = ma; })
     .catch((e) => {
-      err(`⛔ ${e?.message ?? ghiLogAnToan(e)}`);
+      err(`⛔ ${e?.message ?? safeLogText(e)}`);
       process.exitCode = MA.LOI;
     });
 }

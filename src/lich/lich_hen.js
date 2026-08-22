@@ -28,7 +28,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { GIOI_HAN_LICH, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH } from '../lib/hang_so.js';
-import { toId, toIdBatBuoc } from '../lib/ids.js';
+import { toId, toIdRequired } from '../lib/ids.js';
 
 function _log(msg) {
   process.stderr.write(`[lich/lich_hen] ${msg}\n`);
@@ -146,7 +146,7 @@ export function taoLich(db, p) {
              $tt, $ma, 0, $ts, $ts)`,
   ).run({
     id,
-    dich: toIdBatBuoc(p.chatIdDich, 'lich.chatIdDich'),
+    dich: toIdRequired(p.chatIdDich, 'lich.chatIdDich'),
     loai: p.loaiDich === 'DM' ? 'DM' : 'GROUP',
     nd: String(p.noiDung),
     tag: p.tagUserIds?.length ? JSON.stringify(p.tagUserIds.map(String)) : null,
@@ -154,8 +154,8 @@ export function taoLich(db, p) {
     mg: String(p.muiGio ?? GIOI_HAN_LICH.MUI_GIO_MAC_DINH),
     goc: String(p.dienGiaiGoc),
     xn: String(p.dienGiaiXacNhan),
-    nguoi: toIdBatBuoc(p.nguoiDat, 'lich.nguoiDat'),
-    dat: toIdBatBuoc(p.chatIdDat, 'lich.chatIdDat'),
+    nguoi: toIdRequired(p.nguoiDat, 'lich.nguoiDat'),
+    dat: toIdRequired(p.chatIdDat, 'lich.chatIdDat'),
     tt: TRANG_THAI_LICH.CHO_XAC_NHAN,
     ma,
     ts: new Date().toISOString(),
@@ -207,7 +207,7 @@ export function xemLich(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) 
   const dk = [];
   const b = { n: Math.max(1, Math.min(200, Number(soLuong) || 50)) };
   if (trangThai) { dk.push('trang_thai = $tt'); b.tt = String(trangThai); }
-  if (chatId) { dk.push('chat_id_dich = $c'); b.c = toIdBatBuoc(chatId, 'xemLich.chatId'); }
+  if (chatId) { dk.push('chat_id_dich = $c'); b.c = toIdRequired(chatId, 'xemLich.chatId'); }
   if (nguoiDat) { dk.push('nguoi_dat = $u'); b.u = String(nguoiDat); }
   return db
     .prepare(
