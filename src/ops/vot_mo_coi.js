@@ -34,8 +34,34 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
-/** 3 phút — bằng đúng nhịp `giao_lai` của lưới cũ đã mất. */
-export const TUOI_MO_COI_MS = 180_000;
+/**
+ * Bao lâu thì coi một dòng `da_day` là MỒ CÔI.
+ *
+ * 🔴 12 PHÚT, ⛔ KHÔNG PHẢI 3. Bản đầu để 3 phút (bằng lưới `giao_lai` cũ) và
+ *    ⛔ ĐÃ GÂY LỖI THẬT ngày 22/08/2026: anh hỏi trong nhóm Haceco lúc 10:53,
+ *    pane của nhóm đang soạn câu trả lời — một việc bình thường mất vài phút —
+ *    thì tới phút thứ 3 lưới vớt kết luận "mồ côi" và đẩy câu đó sang pane
+ *    THỨ HAI. Hai pane cùng làm một câu; pane gốc trả lời lúc 10:56:37.
+ *
+ * 🔴 GỐC CỦA SAI LẦM: `da_day` mang HAI nghĩa — "đã đẩy, ⛔ không ai nhận" và
+ *    "đã đẩy, đang có người soạn dở". Trạng thái ⛔ không phân biệt được hai ca
+ *    đó, nên thứ duy nhất phân biệt được là THỜI GIAN. Ngưỡng phải cao hơn hẳn
+ *    một lượt model bình thường, ⛔ không phải bằng nó.
+ *
+ * ⚠️ Vẫn thấp hơn nhiều `queueTtlMs` (mặc định 30 phút) ⇒ còn kịp vớt trước
+ *    khi câu hỏi hết hạn. Đó là ràng buộc thật, có bài test canh.
+ */
+export const TUOI_MO_COI_MS = 12 * 60_000;
+
+/**
+ * Bao lâu thì coi dòng đó là VÔ CHỦ — ⛔ không pane nào nhận nữa — để pane
+ * toàn quyền nhặt hộ, kể cả dòng ⛔ không thuộc tuyến của nó.
+ *
+ * 🔴 PHẢI LỚN HƠN `TUOI_MO_COI_MS`: cho pane CHỦ của nhóm đó một cơ hội nữa
+ * trước khi người ngoài nhảy vào. Bằng nhau là hai pane cùng lao vào một lúc —
+ * đúng lỗi 22/08 nhưng ở quy mô rộng hơn.
+ */
+export const TUOI_VO_CHU_MS = 24 * 60_000;
 
 /** Mỗi phút quét một lần. Rẻ: một câu SELECT có index. */
 export const NHIP_VOT_MS = 60_000;

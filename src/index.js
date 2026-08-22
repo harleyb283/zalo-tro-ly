@@ -71,7 +71,9 @@ import { baoHost } from './ops/notify_host.js';
 import { taoSoMoPhien } from './ops/mo_phien.js';
 import { taoBoNapNong } from './ops/nap_nong.js';
 import { cauBaoHost, quyetDinhNhomMoi, themNhomVaoConfig } from './ops/nhom_moi.js';
-import { NHIP_VOT_MS, TRAN_VOT, TUOI_MO_COI_MS, taoSoVot } from './ops/vot_mo_coi.js';
+import {
+  NHIP_VOT_MS, TRAN_VOT, TUOI_MO_COI_MS, TUOI_VO_CHU_MS, taoSoVot,
+} from './ops/vot_mo_coi.js';
 
 /** @typedef {import('./types.d.ts').CauHinh} CauHinh */
 /** @typedef {import('./types.d.ts').TinChuanHoa} TinChuanHoa */
@@ -906,12 +908,26 @@ async function chayClient(co, log, cauHinh) {
       // vào một nhóm thì ⛔ KHÔNG được đè khoá — nó vớt đúng nhóm mình thôi,
       // vì nó đọc được đúng nhóm mình.
       henVot = setInterval(() => {
+        // ① VỚT ĐÚNG TUYẾN CỦA MÌNH — dòng của chính chỗ mình phụ trách.
         motNhipLayViec({
           gomDaDay: true,
           tuoiMoCoiMs: TUOI_MO_COI_MS,
           choPhepDay: (r) => soVot.choPhep(r),
-          ...(toanBo ? { chatIdHoi: null } : {}),
         }).catch((e) => log(`[client] lưới vớt lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+
+        // ② VỚT DÒNG VÔ CHỦ — CHỈ pane toàn quyền, và CHỈ khi đã rất cũ.
+        // 🔴 HAI NGƯỠNG KHÁC NHAU LÀ CÓ CHỦ Ý. Dùng chung một ngưỡng thì pane
+        // toàn quyền nhảy vào ĐÚNG LÚC pane chủ được phép thử lại ⇒ hai pane
+        // cùng làm một câu. Ngưỡng ② cao hơn = nhường pane chủ trước, người
+        // ngoài chỉ nhặt khi rõ ràng ⛔ không còn ai.
+        if (toanBo) {
+          motNhipLayViec({
+            gomDaDay: true,
+            tuoiMoCoiMs: TUOI_VO_CHU_MS,
+            chatIdHoi: null,
+            choPhepDay: (r) => soVot.choPhep(r),
+          }).catch((e) => log(`[client] vớt dòng vô chủ lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
+        }
       }, NHIP_VOT_MS);
       henVot.unref?.();
       log(`[client] lưới vớt BẬT: mỗi ${NHIP_VOT_MS / 1000}s, vớt dòng quá `
