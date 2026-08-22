@@ -28,21 +28,21 @@
  * hoặc đã có lưới vớt lo) — chặn vì nó là chặn oan, và chặn oan thì lần sau
  * ⛔ không ai tin cái chốt này nữa.
  */
-export const CUA_SO_MS = 10 * 60_000;
+export const RECENT_WINDOW_MS = 10 * 60_000;
 
 /**
  * @param {{dong?: any[], stopHookActive?: boolean, bayGio?: number, cuaSoMs?: number}} p
  * @returns {{soCau: number, ds: Array<{requestId: string, luc: string, trich: string}>}|null}
  *          `null` = CHO kết thúc lượt.
  */
-export function quyetDinhChan(p = {}) {
+export function decideBlock(p = {}) {
   // 🔴 Đã chặn một lần rồi mà model vẫn kết thúc ⇒ THÔI. Chặn tiếp là vòng lặp
   // vô hạn: hook chặn -> model chạy -> hook chặn… Cửa thoát này bắt buộc phải
   // có, kể cả khi nó có nghĩa là thỉnh thoảng lọt một lượt.
   if (p.stopHookActive) return null;
 
   const bayGio = Number.isFinite(p.bayGio) ? Number(p.bayGio) : Date.now();
-  const cuaSo = Number.isFinite(p.cuaSoMs) ? Number(p.cuaSoMs) : CUA_SO_MS;
+  const cuaSo = Number.isFinite(p.cuaSoMs) ? Number(p.cuaSoMs) : RECENT_WINDOW_MS;
 
   const con = (p.dong ?? []).filter((r) => {
     const moc = Date.parse(String(r?.ts_tao ?? ''));
@@ -67,9 +67,9 @@ export function quyetDinhChan(p = {}) {
  * Câu nói cho model. Phải nêu ĐÍCH DANH tool cần gọi và request_id — model vừa
  * quên một lần, nhắc chung chung ("nhớ trả lời nhé") là mời nó quên lần nữa.
  *
- * @param {NonNullable<ReturnType<typeof quyetDinhChan>>} kq
+ * @param {NonNullable<ReturnType<typeof decideBlock>>} kq
  */
-export function cauChan(kq) {
+export function blockMessage(kq) {
   const dong = kq.ds.map((d) => `  · ${d.luc} [${d.requestId}] "${d.trich}"`
     + `${d.chiNghe ? '  (lượt CHỈ NGHE -> gọi bo_qua)' : ''}`).join('\n');
 

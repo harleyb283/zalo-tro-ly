@@ -544,7 +544,7 @@ export async function dayHangDoiCho(p) {
     // ═══ 🔴 v11 — TRẦN SỐ LẦN VỚT, KIỂM **TRƯỚC** CAS ═══
     // Kiểm sau CAS thì dòng bị bỏ qua đã nằm ở `dang_xu_ly` — trạng thái ⛔
     // không ai quét ⇒ tự tay tạo ra đúng loại dòng mồ côi mà lưới này sinh ra
-    // để dọn. Xem `ops/vot_mo_coi.js`.
+    // để dọn. Xem `ops/rescue_orphans.js`.
     if (typeof p.choPhepDay === 'function' && !p.choPhepDay(r)) continue;
 
     // ═══════════════════════════════════════════════════════════════════

@@ -20,8 +20,8 @@
  *    ⇒ Giữa hai lần bắt tay, ⛔ KHÔNG có lớp nào cứu. Đó là lỗ hổng, không phải
  *      thiết kế.
  *
- * ★ LƯỚI NÀY: mỗi `NHIP_VOT_MS`, quét dòng `da_day`/`dang_xu_ly` đã quá
- *   `TUOI_MO_COI_MS` mà chưa ai trả lời -> ĐẨY LẠI. Quá `TRAN_VOT` lần vẫn im
+ * ★ LƯỚI NÀY: mỗi `RESCUE_TICK_MS`, quét dòng `da_day`/`dang_xu_ly` đã quá
+ *   `ORPHAN_AGE_MS` mà chưa ai trả lời -> ĐẨY LẠI. Quá `MAX_RESCUE_ATTEMPTS` lần vẫn im
  *   thì BÁO HOST ngay, ⛔ không đợi hết 30 phút.
  *
  * ⚠️ ⛔ KHÔNG SỢ TRẢ LỜI HAI LẦN: `tra_loi` đã chặn sẵn ở tầng tool — câu đã
@@ -51,23 +51,23 @@
  * ⚠️ Vẫn thấp hơn nhiều `queueTtlMs` (mặc định 30 phút) ⇒ còn kịp vớt trước
  *    khi câu hỏi hết hạn. Đó là ràng buộc thật, có bài test canh.
  */
-export const TUOI_MO_COI_MS = 12 * 60_000;
+export const ORPHAN_AGE_MS = 12 * 60_000;
 
 /**
  * Bao lâu thì coi dòng đó là VÔ CHỦ — ⛔ không pane nào nhận nữa — để pane
  * toàn quyền nhặt hộ, kể cả dòng ⛔ không thuộc tuyến của nó.
  *
- * 🔴 PHẢI LỚN HƠN `TUOI_MO_COI_MS`: cho pane CHỦ của nhóm đó một cơ hội nữa
+ * 🔴 PHẢI LỚN HƠN `ORPHAN_AGE_MS`: cho pane CHỦ của nhóm đó một cơ hội nữa
  * trước khi người ngoài nhảy vào. Bằng nhau là hai pane cùng lao vào một lúc —
  * đúng lỗi 22/08 nhưng ở quy mô rộng hơn.
  */
-export const TUOI_VO_CHU_MS = 24 * 60_000;
+export const UNCLAIMED_AGE_MS = 24 * 60_000;
 
 /** Mỗi phút quét một lần. Rẻ: một câu SELECT có index. */
-export const NHIP_VOT_MS = 60_000;
+export const RESCUE_TICK_MS = 60_000;
 
 /** Đẩy lại tối đa 2 lần rồi báo host — đẩy mãi là vòng lặp câm. */
-export const TRAN_VOT = 2;
+export const MAX_RESCUE_ATTEMPTS = 2;
 
 const _log = (s) => process.stderr.write(`[vot] ${s}\n`);
 
@@ -76,8 +76,8 @@ const _log = (s) => process.stderr.write(`[vot] ${s}\n`);
  *
  * @param {{tran?: number, log?: (s: string) => void, baoHost?: (s: string) => any}} [p]
  */
-export function taoSoVot(p = {}) {
-  const tran = Number.isFinite(Number(p.tran)) && Number(p.tran) > 0 ? Number(p.tran) : TRAN_VOT;
+export function createRescueLedger(p = {}) {
+  const tran = Number.isFinite(Number(p.tran)) && Number(p.tran) > 0 ? Number(p.tran) : MAX_RESCUE_ATTEMPTS;
   const log = typeof p.log === 'function' ? p.log : _log;
   const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;
 

@@ -14,7 +14,7 @@
  *    đó. Máy chủ Zalo đẩy sự kiện của MỌI nhóm tài khoản đang ở trong — kể cả
  *    nhóm anh cố ý ⛔ không cho trợ lý nghe.
  *
- *     node --test test/nhom_moi.test.js
+ *     node --test test/new_group.test.js
  * ═══════════════════════════════════════════════════════════════════════
  */
 import test from 'node:test';
@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { cauBaoHost, coId, quyetDinhNhomMoi, themNhomVaoConfig } from '../src/ops/nhom_moi.js';
+import { newGroupHostMessage, coId, decideNewGroup, addGroupToConfig } from '../src/ops/new_group.js';
 
 const HOST = '9993000000000000001';
 const TRO_LY = '9993000000000000002';
@@ -52,7 +52,7 @@ const skThem = (nguoiThem, chatId = NHOM_MOI, ai = TRO_LY) => ({
 // ═══════════════════════════════════════════════════════════════════════
 
 test('A1 ★★★ HOST thêm -> bật ĐỦ (ghi lịch sử + trả lời khi tag)', () => {
-  const n = quyetDinhNhomMoi({ sk: skThem(HOST), cauHinh: CAU_HINH, uidTroLy: TRO_LY });
+  const n = decideNewGroup({ sk: skThem(HOST), cauHinh: CAU_HINH, uidTroLy: TRO_LY });
   assert.ok(n, 'phải nhận ra là nhóm mới');
   assert.equal(n.doHostThem, true);
   assert.equal(n.ghiLichSu, true);
@@ -61,7 +61,7 @@ test('A1 ★★★ HOST thêm -> bật ĐỦ (ghi lịch sử + trả lời khi 
 });
 
 test('A2 ★★★ NGƯỜI LẠ thêm -> CHỈ NGHE, ⛔ không ghi, ⛔ không nói', () => {
-  const n = quyetDinhNhomMoi({ sk: skThem(NGUOI_LA), cauHinh: CAU_HINH, uidTroLy: TRO_LY });
+  const n = decideNewGroup({ sk: skThem(NGUOI_LA), cauHinh: CAU_HINH, uidTroLy: TRO_LY });
   assert.ok(n);
   assert.equal(n.doHostThem, false);
   assert.equal(n.ghiLichSu, false, '🔴 ghi tin người khác khi chưa ai cho phép là ⛔ không rút lại được');
@@ -74,7 +74,7 @@ test('A3 ★★★ ⛔ KHÔNG rõ ai thêm -> coi như KHÔNG PHẢI host', () =
     loai: 'JOIN',
     duLieu: JSON.stringify({ updateMembers: [{ id: TRO_LY }] }),   // ⛔ không có sourceId
   };
-  const n = quyetDinhNhomMoi({ sk, cauHinh: CAU_HINH, uidTroLy: TRO_LY });
+  const n = decideNewGroup({ sk, cauHinh: CAU_HINH, uidTroLy: TRO_LY });
   assert.ok(n);
   assert.equal(n.doHostThem, false, 'thiếu thông tin thì phải nghiêng về phía AN TOÀN');
   assert.equal(n.ghiLichSu, false);
@@ -87,7 +87,7 @@ test('A3 ★★★ ⛔ KHÔNG rõ ai thêm -> coi như KHÔNG PHẢI host', () =
 test('B1 ★★★ người KHÁC được thêm vào nhóm lạ -> ⛔ KHÔNG tự thêm nhóm đó', () => {
   // Đây là ca nguy hiểm nhất: Zalo đẩy sự kiện của mọi nhóm tài khoản đang ở
   // trong. Nhận nhầm = lặng lẽ bật nghe một nhóm anh cố ý ⛔ không cho nghe.
-  const n = quyetDinhNhomMoi({
+  const n = decideNewGroup({
     sk: skThem(HOST, NHOM_MOI, NGUOI_LA),   // người được thêm ⛔ KHÔNG phải trợ lý
     cauHinh: CAU_HINH,
     uidTroLy: TRO_LY,
@@ -97,7 +97,7 @@ test('B1 ★★★ người KHÁC được thêm vào nhóm lạ -> ⛔ KHÔNG t
 
 test('B2 ★ nhóm ĐÃ có trong config -> ⛔ không làm gì', () => {
   assert.equal(
-    quyetDinhNhomMoi({ sk: skThem(HOST, NHOM_CU), cauHinh: CAU_HINH, uidTroLy: TRO_LY }),
+    decideNewGroup({ sk: skThem(HOST, NHOM_CU), cauHinh: CAU_HINH, uidTroLy: TRO_LY }),
     null,
   );
 });
@@ -105,12 +105,12 @@ test('B2 ★ nhóm ĐÃ có trong config -> ⛔ không làm gì', () => {
 test('B3 ★ loại sự kiện khác (rời nhóm, đổi tên…) -> ⛔ không làm gì', () => {
   for (const loai of ['LEAVE', 'REMOVE_MEMBER', 'UPDATE_SETTING', 'UNKNOWN']) {
     const sk = { ...skThem(HOST), loai };
-    assert.equal(quyetDinhNhomMoi({ sk, cauHinh: CAU_HINH, uidTroLy: TRO_LY }), null, loai);
+    assert.equal(decideNewGroup({ sk, cauHinh: CAU_HINH, uidTroLy: TRO_LY }), null, loai);
   }
 });
 
 test('B4 ★★★ ⛔ không biết uid của chính mình -> ⛔ KHÔNG đoán', () => {
-  assert.equal(quyetDinhNhomMoi({ sk: skThem(HOST), cauHinh: CAU_HINH, uidTroLy: null }), null);
+  assert.equal(decideNewGroup({ sk: skThem(HOST), cauHinh: CAU_HINH, uidTroLy: null }), null);
 });
 
 test('B5 ★ khuôn dữ liệu lạ vẫn tìm ra được id (quét sâu)', () => {
@@ -144,7 +144,7 @@ test('C1 ★★★ thêm nhóm mà ⛔ KHÔNG đụng khoá nào khác', () => {
     tichHop: { moPhienLenh: 'lệnh của anh' },
   });
 
-  const kq = themNhomVaoConfig(f, {
+  const kq = addGroupToConfig(f, {
     chatId: NHOM_MOI, ten: 'Nhóm Kế toán', ghiLichSu: false, traLoiKhiTag: false,
   });
   assert.equal(kq.daThem, true);
@@ -163,14 +163,14 @@ test('C1 ★★★ thêm nhóm mà ⛔ KHÔNG đụng khoá nào khác', () => {
 test('C2 ★ gọi hai lần -> ⛔ KHÔNG thêm trùng', () => {
   const f = fileTam({ hosts: CAU_HINH.hosts, groups: [], cauTrungTinh: 'x' });
   const n = { chatId: NHOM_MOI, ten: 'A', ghiLichSu: true, traLoiKhiTag: true };
-  assert.equal(themNhomVaoConfig(f, n).daThem, true);
-  assert.equal(themNhomVaoConfig(f, n).daThem, false);
+  assert.equal(addGroupToConfig(f, n).daThem, true);
+  assert.equal(addGroupToConfig(f, n).daThem, false);
   assert.equal(JSON.parse(fs.readFileSync(f, 'utf8')).groups.length, 1);
 });
 
 test('C3 ★ file ghi ra phải là JSON đọc lại được (ghi tạm rồi đổi tên)', () => {
   const f = fileTam({ hosts: CAU_HINH.hosts, groups: [], cauTrungTinh: 'x' });
-  themNhomVaoConfig(f, { chatId: NHOM_MOI, ten: 'A', ghiLichSu: true, traLoiKhiTag: true });
+  addGroupToConfig(f, { chatId: NHOM_MOI, ten: 'A', ghiLichSu: true, traLoiKhiTag: true });
   assert.doesNotThrow(() => JSON.parse(fs.readFileSync(f, 'utf8')));
   const conSot = fs.readdirSync(path.dirname(f)).filter((x) => x.includes('.tam-'));
   assert.deepEqual(conSot, [], '⛔ không được để lại file tạm');
@@ -181,14 +181,14 @@ test('C3 ★ file ghi ra phải là JSON đọc lại được (ghi tạm rồi 
 // ═══════════════════════════════════════════════════════════════════════
 
 test('D1 ★ người lạ thêm -> câu báo phải nói RÕ là cần anh quyết', () => {
-  const s = cauBaoHost({ chatId: NHOM_MOI, ten: 'Nhóm lạ', nguoiThem: NGUOI_LA, doHostThem: false });
+  const s = newGroupHostMessage({ chatId: NHOM_MOI, ten: 'Nhóm lạ', nguoiThem: NGUOI_LA, doHostThem: false });
   assert.match(s, /CHỈ NGHE/);
   assert.match(s, /không phải anh/i);
   assert.ok(s.includes(NGUOI_LA), 'phải nêu ai đã thêm');
 });
 
 test('D2 ★ host tự thêm -> câu báo gọn, ⛔ không hỏi lại', () => {
-  const s = cauBaoHost({ chatId: NHOM_MOI, ten: 'Nhóm KT', nguoiThem: HOST, doHostThem: true });
+  const s = newGroupHostMessage({ chatId: NHOM_MOI, ten: 'Nhóm KT', nguoiThem: HOST, doHostThem: true });
   assert.match(s, /đã tự cấu hình xong/);
   assert.ok(!/CHỈ NGHE/.test(s));
 });
@@ -205,7 +205,7 @@ test('E1 ★★★ daemon PHẢI gọi tuCauHinhNhomMoi khi có sự kiện nhó
     '🔴 nhánh sự kiện nhóm phải gọi tới hàm tự cấu hình');
   assert.match(than, /ganXuLyTin\(\{[\s\S]{0,300}?tuCauHinhNhomMoi,/,
     '🔴 daemon phải NỐI hàm đó vào — thiếu dây thì luật "tự cấu hình" ⛔ không tồn tại');
-  assert.match(than, /themNhomVaoConfig\(duongDanConfig, n\)/,
+  assert.match(than, /addGroupToConfig\(duongDanConfig, n\)/,
     'phải ghi vào ĐÚNG file config mà bộ nạp nóng đang soi');
 });
 
@@ -228,5 +228,5 @@ test('E2 ★★★ CHỈ daemon ghi config — client ⛔ KHÔNG được đụn
   // đang chạy; cho nó quyền ghi là mời tai nạn.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
   const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function rutOutbox'));
-  assert.ok(!/themNhomVaoConfig/.test(kh), '⛔ client ⛔ không được gọi hàm ghi config');
+  assert.ok(!/addGroupToConfig/.test(kh), '⛔ client ⛔ không được gọi hàm ghi config');
 });

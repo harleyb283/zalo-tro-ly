@@ -69,11 +69,11 @@ import { taoWatchdog } from './zalo/watchdog.js';
 import { ghiTrangThai } from './ops/health.js';
 import { baoHost } from './ops/notify_host.js';
 import { taoSoMoPhien } from './ops/mo_phien.js';
-import { taoBoNapNong } from './ops/nap_nong.js';
-import { cauBaoHost, quyetDinhNhomMoi, themNhomVaoConfig } from './ops/nhom_moi.js';
+import { createHotReloader } from './ops/hot_reload.js';
+import { newGroupHostMessage, decideNewGroup, addGroupToConfig } from './ops/new_group.js';
 import {
-  NHIP_VOT_MS, TRAN_VOT, TUOI_MO_COI_MS, TUOI_VO_CHU_MS, taoSoVot,
-} from './ops/vot_mo_coi.js';
+  RESCUE_TICK_MS, MAX_RESCUE_ATTEMPTS, ORPHAN_AGE_MS, UNCLAIMED_AGE_MS, createRescueLedger,
+} from './ops/rescue_orphans.js';
 
 /** @typedef {import('./types.d.ts').CauHinh} CauHinh */
 /** @typedef {import('./types.d.ts').TinChuanHoa} TinChuanHoa */
@@ -813,7 +813,7 @@ async function chayClient(co, log, cauHinh) {
   });
 
   // Sổ đếm số lần đã vớt cho từng câu.
-  const soVot = taoSoVot({
+  const soVot = createRescueLedger({
     log: (s) => log(`[client][vớt] ${s}`),
     baoHost: (s) => { baoHostClient(s).catch(() => {}); },
   });
@@ -899,7 +899,7 @@ async function chayClient(co, log, cauHinh) {
       log(`[client] vòng lấy việc BẬT, nhịp ${vong.nhipMs}ms`);
 
       // ═══ 🔴 v11 — LƯỚI VỚT CÂU HỎI MỒ CÔI ═══
-      // Xem `ops/vot_mo_coi.js` để biết ba câu hỏi thật đã chết ở `da_day`
+      // Xem `ops/rescue_orphans.js` để biết ba câu hỏi thật đã chết ở `da_day`
       // ngày 21/08/2026 và vì sao ⛔ KHÔNG lớp nào cứu chúng.
       //
       // 🔴 `chatIdHoi: null` CHỈ dành cho pane khai `toan_bo`: sau 3 phút mà
@@ -911,7 +911,7 @@ async function chayClient(co, log, cauHinh) {
         // ① VỚT ĐÚNG TUYẾN CỦA MÌNH — dòng của chính chỗ mình phụ trách.
         motNhipLayViec({
           gomDaDay: true,
-          tuoiMoCoiMs: TUOI_MO_COI_MS,
+          tuoiMoCoiMs: ORPHAN_AGE_MS,
           choPhepDay: (r) => soVot.choPhep(r),
         }).catch((e) => log(`[client] lưới vớt lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
 
@@ -923,15 +923,15 @@ async function chayClient(co, log, cauHinh) {
         if (toanBo) {
           motNhipLayViec({
             gomDaDay: true,
-            tuoiMoCoiMs: TUOI_VO_CHU_MS,
+            tuoiMoCoiMs: UNCLAIMED_AGE_MS,
             chatIdHoi: null,
             choPhepDay: (r) => soVot.choPhep(r),
           }).catch((e) => log(`[client] vớt dòng vô chủ lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
         }
-      }, NHIP_VOT_MS);
+      }, RESCUE_TICK_MS);
       henVot.unref?.();
-      log(`[client] lưới vớt BẬT: mỗi ${NHIP_VOT_MS / 1000}s, vớt dòng quá `
-        + `${TUOI_MO_COI_MS / 1000}s, tối đa ${TRAN_VOT} lần rồi báo host`);
+      log(`[client] lưới vớt BẬT: mỗi ${RESCUE_TICK_MS / 1000}s, vớt dòng quá `
+        + `${ORPHAN_AGE_MS / 1000}s, tối đa ${MAX_RESCUE_ATTEMPTS} lần rồi báo host`);
     },
   });
 
@@ -943,7 +943,7 @@ async function chayClient(co, log, cauHinh) {
   // phải nạp cả hai.
   // ⚠️ Client ⛔ KHÔNG có `api` ⇒ ⛔ không tự nhắn Zalo (xem `baoHetHan` ở trên);
   // báo động của nó đi log, để daemon là bên DM host.
-  const napNongClient = taoBoNapNong({
+  const napNongClient = createHotReloader({
     duongDan: duongDanCauHinh(co.config),
     dich: cauHinh,
     docCauHinh,
@@ -1197,8 +1197,8 @@ export async function main(argv = process.argv) {
       // Ở đây tin đi thẳng qua `guiThongBao` (fire-and-forget), và `ok === true`
       // chỉ nghĩa là ĐÃ ĐẨY — ⛔ không nghĩa là ĐÃ TỚI. Phiên Claude chưa bắt
       // tay xong thì tin rơi vào khoảng trống y hệt chế độ tách, và dòng nằm
-      // lại `da_day` cho tới lần bắt tay sau. Xem `ops/vot_mo_coi.js`.
-      const soVotDaemon = taoSoVot({
+      // lại `da_day` cho tới lần bắt tay sau. Xem `ops/rescue_orphans.js`.
+      const soVotDaemon = createRescueLedger({
         log: (s) => log(`[vớt] ${s}`),
         baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
       });
@@ -1211,12 +1211,12 @@ export async function main(argv = process.argv) {
           capNhatHangDoi,
           tenHoiThoai,
           gomDaDay: true,
-          tuoiMoCoiMs: TUOI_MO_COI_MS,
+          tuoiMoCoiMs: ORPHAN_AGE_MS,
           choPhepDay: (r) => soVotDaemon.choPhep(r),
           baoHetHan: (loiNhan) => baoHostDaemon(loiNhan),
         }).catch((e) => log(`lưới vớt lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
-      }, NHIP_VOT_MS));
-      log(`lưới vớt BẬT: mỗi ${NHIP_VOT_MS / 1000}s, vớt dòng quá ${TUOI_MO_COI_MS / 1000}s`);
+      }, RESCUE_TICK_MS));
+      log(`lưới vớt BẬT: mỗi ${RESCUE_TICK_MS / 1000}s, vớt dòng quá ${ORPHAN_AGE_MS / 1000}s`);
     }
 
     // ═══ 🔴 v10.2 — SỔ MỞ PHIÊN (panel-mỗi-nhóm) ═══
@@ -1239,20 +1239,20 @@ export async function main(argv = process.argv) {
     }
 
     // ═══ 🔴 TỰ CẤU HÌNH KHI BỊ THÊM VÀO NHÓM MỚI ═══
-    // Luật anh chốt 21/08/2026. Cửa chặn "ai thêm" nằm trong `ops/nhom_moi.js`
+    // Luật anh chốt 21/08/2026. Cửa chặn "ai thêm" nằm trong `ops/new_group.js`
     // — đọc khối đầu file đó trước khi sửa gì ở đây.
     // ⚠️ CHỈ daemon làm việc này: nó là bên duy nhất thấy `group_event`, và
     // hai tiến trình cùng ghi một file config là hỏng file.
     const duongDanConfig = duongDanCauHinh(co.config);
     const tuCauHinhNhomMoi = (sk) => {
-      const n = quyetDinhNhomMoi({
+      const n = decideNewGroup({
         sk,
         cauHinh,
         uidTroLy: toId(api?.getOwnId?.(), 'index.uidTroLy'),
       });
       if (!n) return;
 
-      const kq = themNhomVaoConfig(duongDanConfig, n);
+      const kq = addGroupToConfig(duongDanConfig, n);
       if (!kq.daThem) { log(`nhóm mới ${n.chatId}: ${kq.lyDo}`); return; }
 
       // ⚠️ ⛔ KHÔNG tự sửa `cauHinh` trong RAM ở đây: bộ NẠP NÓNG đang soi file
@@ -1273,7 +1273,7 @@ export async function main(argv = process.argv) {
           .catch((e) => log(`mở pane cho nhóm mới ${n.chatId} lỗi (đã nuốt): ${ghiLogAnToan(e)}`));
       }
 
-      baoHostDaemon(cauBaoHost(n), { tieuDe: 'Trợ lý Zalo vào nhóm mới' }).catch(() => {});
+      baoHostDaemon(newGroupHostMessage(n), { tieuDe: 'Trợ lý Zalo vào nhóm mới' }).catch(() => {});
     };
 
     // ⑥ gắn 4 listener
@@ -1340,9 +1340,9 @@ export async function main(argv = process.argv) {
     // ═══ ⑧b NẠP NÓNG CẤU HÌNH ═══
     // 🔴 Thêm một nhóm vào config mà phải restart thì restart giết luôn phiên
     // Zalo đang khoẻ + sổ mở-phiên trong RAM + mọi câu hỏi đang bay. Xem khối
-    // đầu `ops/nap_nong.js` để biết trường nào nạp nóng được và VÌ SAO trường
+    // đầu `ops/hot_reload.js` để biết trường nào nạp nóng được và VÌ SAO trường
     // còn lại thì ⛔ không.
-    napNong = taoBoNapNong({
+    napNong = createHotReloader({
       duongDan: duongDanCauHinh(co.config),
       dich: cauHinh,
       docCauHinh,

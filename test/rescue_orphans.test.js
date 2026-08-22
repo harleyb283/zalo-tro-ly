@@ -22,7 +22,7 @@
  *    `da_day` cả ⇒ dòng nằm im vô hạn. Bài A/C canh lưới mới.
  *
  * KHÔNG mạng, KHÔNG Zalo.
- *     node --test test/vot_mo_coi.test.js
+ *     node --test test/rescue_orphans.test.js
  * ═══════════════════════════════════════════════════════════════════════
  */
 import test from 'node:test';
@@ -32,8 +32,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  NHIP_VOT_MS, TRAN_VOT, TUOI_MO_COI_MS, TUOI_VO_CHU_MS, taoSoVot,
-} from '../src/ops/vot_mo_coi.js';
+  RESCUE_TICK_MS, MAX_RESCUE_ATTEMPTS, ORPHAN_AGE_MS, UNCLAIMED_AGE_MS, createRescueLedger,
+} from '../src/ops/rescue_orphans.js';
 import { dayHangDoiCho } from '../src/mcp/channel.js';
 import { baoHost } from '../src/ops/notify_host.js';
 import { moDb, dongDb } from '../src/store/db.js';
@@ -62,19 +62,19 @@ function ghiDong(db, { rid, chatId = '111', tsTao, trangThai = 'cho', noiDung = 
 // ═══════════════════════════════════════════════════════════════════════
 
 test('A1 dòng `cho` LUÔN được đẩy và ⛔ không bị đếm', () => {
-  const so = taoSoVot({ log: () => {} });
+  const so = createRescueLedger({ log: () => {} });
   for (let i = 0; i < 10; i += 1) {
     assert.equal(so.choPhep({ request_id: 'r1', trang_thai: 'cho' }), true);
   }
   assert.equal(so.soDong(), 0, 'đường đi chính ⛔ không được dính trần');
 });
 
-test('A2 ★ vớt tối đa TRAN_VOT lần rồi TỪ CHỐI + báo host ĐÚNG một lần', () => {
+test('A2 ★ vớt tối đa MAX_RESCUE_ATTEMPTS lần rồi TỪ CHỐI + báo host ĐÚNG một lần', () => {
   const bao = [];
-  const so = taoSoVot({ log: () => {}, baoHost: (s) => bao.push(s) });
+  const so = createRescueLedger({ log: () => {}, baoHost: (s) => bao.push(s) });
   const r = { request_id: 'r2', trang_thai: 'da_day', ts_tao: '2026-08-21T13:42:17.482Z', noi_dung: 'Xong thì báo a nhé' };
 
-  for (let i = 0; i < TRAN_VOT; i += 1) assert.equal(so.choPhep(r), true, `lần ${i + 1} phải cho vớt`);
+  for (let i = 0; i < MAX_RESCUE_ATTEMPTS; i += 1) assert.equal(so.choPhep(r), true, `lần ${i + 1} phải cho vớt`);
   assert.equal(so.choPhep(r), false, 'quá trần thì TỪ CHỐI');
   assert.equal(so.choPhep(r), false);
   assert.equal(so.choPhep(r), false);
@@ -85,7 +85,7 @@ test('A2 ★ vớt tối đa TRAN_VOT lần rồi TỪ CHỐI + báo host ĐÚNG
 });
 
 test('A3 `quen()` xoá khỏi sổ để nó ⛔ không phình vô hạn', () => {
-  const so = taoSoVot({ log: () => {} });
+  const so = createRescueLedger({ log: () => {} });
   so.choPhep({ request_id: 'r3', trang_thai: 'da_day' });
   assert.equal(so.soDong(), 1);
   so.quen('r3');
@@ -97,22 +97,22 @@ test('A4 ★★★ hằng số phải nằm đúng thứ tự — đây là ch�
   // nên lưới vớt kết luận "mồ côi" trong khi pane kia đang soạn dở, rồi đẩy
   // câu đó sang pane thứ hai. Ba ràng buộc dưới đây giữ cho chuyện đó ⛔ không
   // tái diễn — và giữ luôn cả trật tự "pane chủ được ưu tiên trước".
-  assert.ok(TUOI_MO_COI_MS >= 10 * 60_000,
+  assert.ok(ORPHAN_AGE_MS >= 10 * 60_000,
     '🔴 ngưỡng mồ côi phải CAO HƠN HẲN một lượt model, ⛔ không phải bằng nó');
-  assert.ok(TUOI_VO_CHU_MS > TUOI_MO_COI_MS,
+  assert.ok(UNCLAIMED_AGE_MS > ORPHAN_AGE_MS,
     '🔴 pane chủ phải được thử lại TRƯỚC khi pane toàn quyền nhảy vào');
-  assert.ok(TUOI_VO_CHU_MS < 30 * 60_000,
+  assert.ok(UNCLAIMED_AGE_MS < 30 * 60_000,
     '🔴 phải kịp vớt TRƯỚC khi câu hỏi hết hạn (queueTtlMs mặc định 30 phút)');
-  assert.ok(NHIP_VOT_MS <= 60_000, 'quét ít nhất mỗi phút');
-  assert.ok(TRAN_VOT >= 1 && TRAN_VOT <= 3);
+  assert.ok(RESCUE_TICK_MS <= 60_000, 'quét ít nhất mỗi phút');
+  assert.ok(MAX_RESCUE_ATTEMPTS >= 1 && MAX_RESCUE_ATTEMPTS <= 3);
 });
 
 test('A5 ★★ pane toàn quyền dùng NGƯỠNG RIÊNG, cao hơn, cho dòng vô chủ', () => {
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
   const than = idx.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.match(than, /tuoiMoCoiMs: TUOI_MO_COI_MS,[\s\S]{0,120}?choPhepDay/,
+  assert.match(than, /tuoiMoCoiMs: ORPHAN_AGE_MS,[\s\S]{0,120}?choPhepDay/,
     'nhịp ① vớt đúng tuyến của mình');
-  assert.match(than, /if \(toanBo\) \{[\s\S]{0,220}?tuoiMoCoiMs: TUOI_VO_CHU_MS,[\s\S]{0,80}?chatIdHoi: null/,
+  assert.match(than, /if \(toanBo\) \{[\s\S]{0,220}?tuoiMoCoiMs: UNCLAIMED_AGE_MS,[\s\S]{0,80}?chatIdHoi: null/,
     '🔴 nhịp ② (vô chủ) phải dùng ngưỡng CAO HƠN, ⛔ không dùng chung ngưỡng ①');
 });
 
@@ -130,13 +130,13 @@ test('B1 ★★★ dayHangDoiCho PHẢI chuyển `chatIdHoi` xuống layHangDoiC
     capNhatHangDoi: () => true,
     chatIdHoi: '9993000000000000007',
     treToiThieuMs: 37_000,
-    tuoiMoCoiMs: TUOI_MO_COI_MS,
+    tuoiMoCoiMs: ORPHAN_AGE_MS,
   });
 
   assert.equal(thayTuyChon.chatIdHoi, '9993000000000000007',
     'khoá định tuyến pane BỊ NUỐT ⇒ pane nhóm A giành câu hỏi của nhóm B');
   assert.equal(thayTuyChon.treToiThieuMs, 37_000, 'ngưỡng dự phòng bị nuốt');
-  assert.equal(thayTuyChon.tuoiMoCoiMs, TUOI_MO_COI_MS, 'tuổi mồ côi bị nuốt');
+  assert.equal(thayTuyChon.tuoiMoCoiMs, ORPHAN_AGE_MS, 'tuổi mồ côi bị nuốt');
 });
 
 test('B2 ★ vắng tham số ⇒ giữ nguyên hành vi cũ (⛔ không tự lọc)', async () => {
@@ -181,10 +181,10 @@ test('B3 ★ `choPhepDay` phải chặn TRƯỚC khi CAS nhận việc', async (
 test("C1 ★★★ dòng `da_day` QUÁ ngưỡng mồ côi -> ĐƯỢC vớt", () => {
   const db = dbTam();
   try {
-    const cu = new Date(Date.now() - TUOI_MO_COI_MS - 60_000).toISOString();
+    const cu = new Date(Date.now() - ORPHAN_AGE_MS - 60_000).toISOString();
     ghiDong(db, { rid: 'cu', tsTao: cu, trangThai: 'da_day', noiDung: 'Alo xong chưa' });
 
-    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: TUOI_MO_COI_MS });
+    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: ORPHAN_AGE_MS });
     assert.deepEqual(ds.map((r) => r.request_id), ['cu']);
   } finally { dongDb(db); }
 });
@@ -198,7 +198,7 @@ test("C2 ★★★ dòng `da_day` còn MỚI -> ⛔ KHÔNG vớt (Claude đang s
       trangThai: 'da_day',
     });
 
-    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: TUOI_MO_COI_MS });
+    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: ORPHAN_AGE_MS });
     assert.deepEqual(ds, [], 'vớt câu đang xử lý dở = đẩy lại chính nó');
   } finally { dongDb(db); }
 });
@@ -208,7 +208,7 @@ test('C3 ★ dòng `cho` ⛔ KHÔNG bị bắt chờ theo tuổi mồ côi', () 
   try {
     ghiDong(db, { rid: 'moi-cho', tsTao: new Date().toISOString(), trangThai: 'cho' });
 
-    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: TUOI_MO_COI_MS });
+    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: ORPHAN_AGE_MS });
     assert.deepEqual(ds.map((r) => r.request_id), ['moi-cho'],
       'câu hỏi mới ⛔ KHÔNG được chậm 3 phút — nó chưa từng được đẩy cho ai');
   } finally { dongDb(db); }
@@ -219,10 +219,10 @@ test('C4 ★ `dang_xu_ly` cũng là dòng mồ côi (client chết giữa chừn
   try {
     ghiDong(db, {
       rid: 'ket',
-      tsTao: new Date(Date.now() - TUOI_MO_COI_MS * 2).toISOString(),
+      tsTao: new Date(Date.now() - ORPHAN_AGE_MS * 2).toISOString(),
       trangThai: 'dang_xu_ly',
     });
-    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: TUOI_MO_COI_MS });
+    const ds = layHangDoiCho(db, 30 * 60_000, { gomDaDay: true, tuoiMoCoiMs: ORPHAN_AGE_MS });
     assert.deepEqual(ds.map((r) => r.request_id), ['ket']);
   } finally { dongDb(db); }
 });
@@ -230,12 +230,12 @@ test('C4 ★ `dang_xu_ly` cũng là dòng mồ côi (client chết giữa chừn
 test('C5 ★ khoá định tuyến: chỉ lấy dòng của ĐÚNG hội thoại mình', () => {
   const db = dbTam();
   try {
-    const cu = new Date(Date.now() - TUOI_MO_COI_MS - 60_000).toISOString();
+    const cu = new Date(Date.now() - ORPHAN_AGE_MS - 60_000).toISOString();
     ghiDong(db, { rid: 'dm', chatId: '900', tsTao: cu, trangThai: 'da_day' });
     ghiDong(db, { rid: 'nhom', chatId: '111', tsTao: cu, trangThai: 'da_day' });
 
     const ds = layHangDoiCho(db, 30 * 60_000, {
-      gomDaDay: true, tuoiMoCoiMs: TUOI_MO_COI_MS, chatIdHoi: '900',
+      gomDaDay: true, tuoiMoCoiMs: ORPHAN_AGE_MS, chatIdHoi: '900',
     });
     assert.deepEqual(ds.map((r) => r.request_id), ['dm'],
       'pane khoá vào DM ⛔ KHÔNG được nhặt dòng của nhóm');
@@ -342,7 +342,7 @@ test('E2 ★★★ daemon báo host qua một cửa DUY NHẤT có kèm `ghiLai`
 test('C6 ★ CAS `nhanViec` chỉ thắng MỘT lần — hai lưới vớt ⛔ không đẩy đôi', () => {
   const db = dbTam();
   try {
-    const cu = new Date(Date.now() - TUOI_MO_COI_MS - 60_000).toISOString();
+    const cu = new Date(Date.now() - ORPHAN_AGE_MS - 60_000).toISOString();
     ghiDong(db, { rid: 'dua', tsTao: cu, trangThai: 'da_day' });
 
     assert.equal(nhanViec(db, 'dua', 'da_day', 'dang_xu_ly'), true, 'bên thứ nhất thắng');

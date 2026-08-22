@@ -16,7 +16,7 @@
  *   ④ ⛔ Không báo host khi ⛔ không có gì đổi — cảnh báo phiền là cảnh báo bị bỏ qua.
  *
  * KHÔNG mạng, KHÔNG Zalo, KHÔNG DB.
- *     node --test test/nap_nong.test.js
+ *     node --test test/hot_reload.test.js
  * ═══════════════════════════════════════════════════════════════════════
  */
 import test from 'node:test';
@@ -26,13 +26,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  TRUONG_KHOA_CUNG,
-  TRUONG_NAP_NONG,
-  apDungNapNong,
-  moTaThayDoi,
-  soSanhNhom,
-  taoBoNapNong,
-} from '../src/ops/nap_nong.js';
+  RESTART_REQUIRED_FIELDS,
+  HOT_RELOADABLE_FIELDS,
+  applyHotReload,
+  describeChanges,
+  diffGroups,
+  createHotReloader,
+} from '../src/ops/hot_reload.js';
 import { docCauHinh, duongDanCauHinh } from '../src/policy/access.js';
 
 /** Cấu hình tối thiểu ĐỦ QUA validate của access.js. */
@@ -51,11 +51,11 @@ function thuMucTam() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// A · soSanhNhom
+// A · diffGroups
 // ═══════════════════════════════════════════════════════════════════════
 
 test('A1 thêm/bỏ/đổi nhóm được nhận ra đúng', () => {
-  const kq = soSanhNhom(
+  const kq = diffGroups(
     [
       { chatId: '1', ten: 'A', ghiLichSu: true, traLoiKhiTag: true },
       { chatId: '2', ten: 'B', ghiLichSu: true, traLoiKhiTag: true },
@@ -73,12 +73,12 @@ test('A1 thêm/bỏ/đổi nhóm được nhận ra đúng', () => {
 test('A2 ĐỔI THỨ TỰ trong config KHÔNG phải là thay đổi', () => {
   const a = { chatId: '1', ten: 'A', ghiLichSu: true, traLoiKhiTag: true };
   const b = { chatId: '2', ten: 'B', ghiLichSu: true, traLoiKhiTag: true };
-  const kq = soSanhNhom([a, b], [b, a]);
+  const kq = diffGroups([a, b], [b, a]);
   assert.equal(kq.them.length + kq.bo.length + kq.doi.length, 0);
 });
 
 test('A3 đổi cờ ghiLichSu bị bắt — đây là cờ quyết định có ghi tin người khác hay không', () => {
-  const kq = soSanhNhom(
+  const kq = diffGroups(
     [{ chatId: '1', ten: 'A', ghiLichSu: true, traLoiKhiTag: true }],
     [{ chatId: '1', ten: 'A', ghiLichSu: false, traLoiKhiTag: true }],
   );
@@ -87,7 +87,7 @@ test('A3 đổi cờ ghiLichSu bị bắt — đây là cờ quyết định có
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B · apDungNapNong — ① áp TẠI CHỖ, ② khoá cứng
+// B · applyHotReload — ① áp TẠI CHỖ, ② khoá cứng
 // ═══════════════════════════════════════════════════════════════════════
 
 test('B1 ★ áp TẠI CHỖ: object đang chạy giữ nguyên identity', () => {
@@ -98,7 +98,7 @@ test('B1 ★ áp TẠI CHỖ: object đang chạy giữ nguyên identity', () =>
     { chatId: '222', ten: 'Nhóm B', ghiLichSu: true, traLoiKhiTag: true },
   ]);
 
-  apDungNapNong(dangChay, moi);
+  applyHotReload(dangChay, moi);
 
   assert.equal(omBoi, dangChay, 'phải là CÙNG một object');
   assert.equal(omBoi.groups.length, 2, 'closure cũ phải thấy nhóm mới');
@@ -110,38 +110,38 @@ test('B2 ★ hosts đổi thì KHÔNG áp, nhưng PHẢI khai là khoá cứng',
   const moi = cauHinhMau();
   moi.hosts = [{ userId: '999', ten: 'Người lạ', dmChatId: '999' }];
 
-  const kq = apDungNapNong(dangChay, moi);
+  const kq = applyHotReload(dangChay, moi);
 
   assert.deepEqual(dangChay.hosts, [{ userId: '900', ten: 'Host', dmChatId: '900' }],
     'hosts đang chạy PHẢI y nguyên — listener đã chụp danh sách này lúc gắn');
   assert.ok(kq.khoaCungDoi.includes('hosts'));
-  assert.ok(moTaThayDoi(kq).includes('khởi động lại'));
+  assert.ok(describeChanges(kq).includes('khởi động lại'));
 });
 
 test('B3 khoá cứng và nạp nóng KHÔNG được giẫm chân nhau', () => {
-  for (const t of TRUONG_NAP_NONG) {
-    assert.ok(!TRUONG_KHOA_CUNG.includes(t), `${t} nằm ở CẢ HAI danh sách`);
+  for (const t of HOT_RELOADABLE_FIELDS) {
+    assert.ok(!RESTART_REQUIRED_FIELDS.includes(t), `${t} nằm ở CẢ HAI danh sách`);
   }
 });
 
-test('B4 không có gì đổi ⇒ moTaThayDoi trả null (⛔ không làm phiền host)', () => {
+test('B4 không có gì đổi ⇒ describeChanges trả null (⛔ không làm phiền host)', () => {
   const dangChay = cauHinhMau();
-  const kq = apDungNapNong(dangChay, cauHinhMau());
+  const kq = applyHotReload(dangChay, cauHinhMau());
   assert.deepEqual(kq.thayDoi, []);
-  assert.equal(moTaThayDoi(kq), null);
+  assert.equal(describeChanges(kq), null);
 });
 
 test('B5 đổi cauTrungTinh được nạp nóng', () => {
   const dangChay = cauHinhMau();
   const moi = cauHinhMau();
   moi.cauTrungTinh = 'Em báo riêng anh rồi.';
-  const kq = apDungNapNong(dangChay, moi);
+  const kq = applyHotReload(dangChay, moi);
   assert.equal(dangChay.cauTrungTinh, 'Em báo riêng anh rồi.');
   assert.ok(kq.thayDoi.includes('cauTrungTinh'));
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// C · taoBoNapNong — vòng đời thật, có chạm đĩa
+// C · createHotReloader — vòng đời thật, có chạm đĩa
 // ═══════════════════════════════════════════════════════════════════════
 
 test('C1 ★ sửa file ⇒ nhóm mới có hiệu lực mà KHÔNG restart', () => {
@@ -153,7 +153,7 @@ test('C1 ★ sửa file ⇒ nhóm mới có hiệu lực mà KHÔNG restart', ()
   assert.equal(dangChay.groups.length, 1);
 
   const bao = [];
-  const bo = taoBoNapNong({
+  const bo = createHotReloader({
     duongDan: f,
     dich: dangChay,
     docCauHinh,
@@ -182,7 +182,7 @@ test('C2 ★ config HỎNG ⇒ GIỮ NGUYÊN bản đang chạy + báo host ĐÚ
 
   const dangChay = docCauHinh(f);
   const bao = [];
-  const bo = taoBoNapNong({
+  const bo = createHotReloader({
     duongDan: f, dich: dangChay, docCauHinh, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
   });
 
@@ -204,7 +204,7 @@ test('C3 ★ config MỞ TOANG (chatId = "*") ⇒ TỪ CHỐI nạp', () => {
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
   const dangChay = docCauHinh(f);
 
-  const bo = taoBoNapNong({ duongDan: f, dich: dangChay, docCauHinh, log: () => {}, tuChay: false });
+  const bo = createHotReloader({ duongDan: f, dich: dangChay, docCauHinh, log: () => {}, tuChay: false });
   fs.writeFileSync(f, JSON.stringify(cauHinhMau([{ chatId: '*', ten: 'tất cả' }])));
 
   assert.equal(bo.kiemNgay(true), null, 'mở toang thì phải TỪ CHỐI');
@@ -218,7 +218,7 @@ test('C4 file BIẾN MẤT ⇒ giữ nguyên, ⛔ không coi là "không nhóm n
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
   const dangChay = docCauHinh(f);
   const bao = [];
-  const bo = taoBoNapNong({
+  const bo = createHotReloader({
     duongDan: f, dich: dangChay, docCauHinh, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
   });
 
@@ -237,7 +237,7 @@ test('C5 mtime KHÔNG đổi ⇒ ⛔ không đọc lại file (nhịp poll phả
   const dangChay = docCauHinh(f);
 
   let soLanDoc = 0;
-  const bo = taoBoNapNong({
+  const bo = createHotReloader({
     duongDan: f,
     dich: dangChay,
     docCauHinh: (d) => { soLanDoc += 1; return docCauHinh(d); },

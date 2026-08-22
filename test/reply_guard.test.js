@@ -15,7 +15,7 @@
  *    VĨNH VIỄN. Vì vậy phần lớn bài dưới đây canh các đường THOÁT, ⛔ không
  *    phải đường chặn.
  *
- *     node --test test/chot_tra_loi.test.js
+ *     node --test test/reply_guard.test.js
  * ═══════════════════════════════════════════════════════════════════════
  */
 import test from 'node:test';
@@ -25,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { CUA_SO_MS, cauChan, quyetDinhChan } from '../src/ops/chot_tra_loi.js';
+import { RECENT_WINDOW_MS, blockMessage, decideBlock } from '../src/ops/reply_guard.js';
 import { moDb, dongDb } from '../src/store/db.js';
 import { taoHangDoi, capNhatHangDoi } from '../src/store/write.js';
 
@@ -42,7 +42,7 @@ const moi = (truMs = 5_000, them = {}) => ({
 // ═══════════════════════════════════════════════════════════════════════
 
 test('A1 ★★★ còn lượt chưa gửi đi -> CHẶN kết thúc', () => {
-  const kq = quyetDinhChan({ dong: [moi()] });
+  const kq = decideBlock({ dong: [moi()] });
   assert.ok(kq, '🔴 ⛔ không chặn = dựng lại đúng lỗi 11:20 nhóm Haceco');
   assert.equal(kq.soCau, 1);
   assert.equal(kq.ds[0].requestId, 'r-moi');
@@ -50,14 +50,14 @@ test('A1 ★★★ còn lượt chưa gửi đi -> CHẶN kết thúc', () => {
 
 test('A2 ★★ câu chặn phải nêu ĐÍCH DANH tool và request_id', () => {
   // Nhắc chung chung ("nhớ trả lời nhé") là mời model quên lần nữa.
-  const s = cauChan(quyetDinhChan({ dong: [moi()] }));
+  const s = blockMessage(decideBlock({ dong: [moi()] }));
   assert.match(s, /tra_loi/, 'phải nêu tên tool');
   assert.match(s, /r-moi/, 'phải nêu request_id');
   assert.match(s, /KHÔNG tới người nhắn/, 'phải nói vì sao viết ra là chưa đủ');
 });
 
 test('A3 ★ lượt CHỈ NGHE thì chỉ đường sang bo_qua, ⛔ không bắt trả lời', () => {
-  const s = cauChan(quyetDinhChan({ dong: [moi(5_000, { chi_nghe: 1 })] }));
+  const s = blockMessage(decideBlock({ dong: [moi(5_000, { chi_nghe: 1 })] }));
   assert.match(s, /bo_qua/);
   assert.match(s, /CHỈ NGHE/);
 });
@@ -68,27 +68,27 @@ test('A3 ★ lượt CHỈ NGHE thì chỉ đường sang bo_qua, ⛔ không b�
 
 test('B1 ★★★ `stop_hook_active` -> THÔI chặn (cửa thoát vòng lặp vô hạn)', () => {
   // Thiếu cửa này: hook chặn -> model chạy -> hook chặn -> … pane kẹt mãi mãi.
-  assert.equal(quyetDinhChan({ dong: [moi()], stopHookActive: true }), null);
+  assert.equal(decideBlock({ dong: [moi()], stopHookActive: true }), null);
 });
 
 test('B2 ★★★ dòng CŨ hơn cửa sổ -> ⛔ KHÔNG chặn', () => {
   // Dòng cũ là của lượt trước — đã hết hạn hoặc đã có lưới vớt lo. Chặn ở đây
   // là chặn oan, mà chặn oan thì lần sau ⛔ không ai tin cái chốt này nữa.
-  assert.equal(quyetDinhChan({ dong: [moi(CUA_SO_MS + 60_000)] }), null);
+  assert.equal(decideBlock({ dong: [moi(RECENT_WINDOW_MS + 60_000)] }), null);
 });
 
 test('B3 ★ ⛔ không còn dòng nào -> cho đi tiếp', () => {
-  assert.equal(quyetDinhChan({ dong: [] }), null);
-  assert.equal(quyetDinhChan({}), null);
+  assert.equal(decideBlock({ dong: [] }), null);
+  assert.equal(decideBlock({}), null);
 });
 
 test('B4 ★★ mốc thời gian hỏng -> ⛔ KHÔNG chặn (hỏng thì MỞ)', () => {
-  assert.equal(quyetDinhChan({ dong: [moi(0, { ts_tao: 'không-phải-ngày' })] }), null);
-  assert.equal(quyetDinhChan({ dong: [moi(0, { ts_tao: null })] }), null);
+  assert.equal(decideBlock({ dong: [moi(0, { ts_tao: 'không-phải-ngày' })] }), null);
+  assert.equal(decideBlock({ dong: [moi(0, { ts_tao: null })] }), null);
 });
 
 test('B5 ★ mốc ở TƯƠNG LAI (lệch giờ máy) -> ⛔ không chặn', () => {
-  assert.equal(quyetDinhChan({ dong: [moi(-60_000)] }), null);
+  assert.equal(decideBlock({ dong: [moi(-60_000)] }), null);
 });
 
 // ═══════════════════════════════════════════════════════════════════════

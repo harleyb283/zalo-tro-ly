@@ -27,7 +27,7 @@ import readline from 'node:readline/promises';
 
 import { moRong } from '../src/lib/duong_dan.js';
 import { dangChayTest } from '../src/ops/notify_host.js';
-import { kiemMoiTruong, dungConfig, phanTichLuaChon } from '../src/ops/cai_dat.js';
+import { checkEnvironment, buildConfig, parseGroupChoice } from '../src/ops/setup.js';
 import {
   dangNhapBangCookie, dangNhapBangQr, docPhien, luuPhien,
   layThongTinToi, layDanhSachNhom, apDungAnTrangThai,
@@ -71,7 +71,7 @@ async function main() {
   gach();
 
   // ── ① Môi trường ────────────────────────────────────────────────────
-  const kiem = kiemMoiTruong({ coNodeModules: fs.existsSync(path.join(THU_MUC_PACK, 'node_modules')) });
+  const kiem = checkEnvironment({ coNodeModules: fs.existsSync(path.join(THU_MUC_PACK, 'node_modules')) });
   if (!kiem.ok) {
     out('\n⛔ Chưa chạy được, còn thiếu:');
     for (const v of kiem.van) out(`   · ${v.loi}\n     -> ${v.cach}`);
@@ -152,7 +152,7 @@ async function main() {
   let chon = [];
   while (nhom.length) {
     const tra = await hoi('\n   Chọn nhóm: ');
-    const kq = phanTichLuaChon(tra, nhom.length);
+    const kq = parseGroupChoice(tra, nhom.length);
     if (!kq.ok) { out(`   ⚠️ ${kq.loi} — thử lại nhé.`); continue; }
     if (kq.chon.length === nhom.length && nhom.length > 1) {
       out(`   ⚠️ Bạn đang chọn TẤT CẢ ${nhom.length} nhóm — tin của mọi người trong mọi nhóm sẽ được lưu.`);
@@ -181,7 +181,7 @@ async function main() {
   }
 
   const mau = JSON.parse(fs.readFileSync(F_MAU, 'utf8'));
-  const cauHinh = dungConfig({ mau, toi, nhomChon: chon.map((i) => nhom[i]) });
+  const cauHinh = buildConfig({ mau, toi, nhomChon: chon.map((i) => nhom[i]) });
   fs.writeFileSync(F_CONFIG, `${JSON.stringify(cauHinh, null, 2)}\n`, { mode: 0o600 });
   out(`   ✅ Đã ghi cấu hình: ${F_CONFIG}`);
 

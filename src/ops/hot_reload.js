@@ -45,7 +45,7 @@ import fs from 'node:fs';
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
 
 /** Trường ĐƯỢC nạp nóng. Xem khối 🔴 đầu file trước khi thêm gì vào đây. */
-export const TRUONG_NAP_NONG = Object.freeze([
+export const HOT_RELOADABLE_FIELDS = Object.freeze([
   'groups',
   'cauTrungTinh',
   'kenhPhu',
@@ -54,7 +54,7 @@ export const TRUONG_NAP_NONG = Object.freeze([
 ]);
 
 /** Trường KHOÁ CỨNG: đổi thì phải restart, và phải BÁO cho host biết. */
-export const TRUONG_KHOA_CUNG = Object.freeze([
+export const RESTART_REQUIRED_FIELDS = Object.freeze([
   'hosts',
   'duongDan',
   'thoiGian',
@@ -67,9 +67,9 @@ export const TRUONG_KHOA_CUNG = Object.freeze([
  * Nhịp soi `mtime`. 3 giây: đủ nhanh để "add vào nhóm xong là chạy" cảm giác
  * tức thì, đủ chậm để một `statSync` mỗi nhịp là con số ⛔ không đáng nhắc tới.
  */
-export const NHIP_NAP_NONG_MS = 3000;
+export const HOT_RELOAD_TICK_MS = 3000;
 
-const _log = (s) => process.stderr.write(`[nap_nong] ${s}\n`);
+const _log = (s) => process.stderr.write(`[hot_reload] ${s}\n`);
 
 /** Rút một nhóm về đúng 4 trường có nghĩa, để so sánh ⛔ không dính rác. */
 function _hinhDangNhom(g) {
@@ -91,7 +91,7 @@ function _hinhDangNhom(g) {
  * @param {Array<any>} [moi]
  * @returns {{them: any[], bo: any[], doi: Array<{chatId: string, truoc: any, sau: any}>}}
  */
-export function soSanhNhom(cu = [], moi = []) {
+export function diffGroups(cu = [], moi = []) {
   const mCu = new Map((cu ?? []).map((g) => [String(g?.chatId ?? ''), _hinhDangNhom(g)]));
   const mMoi = new Map((moi ?? []).map((g) => [String(g?.chatId ?? ''), _hinhDangNhom(g)]));
 
@@ -118,29 +118,29 @@ export function soSanhNhom(cu = [], moi = []) {
  *
  * @param {CauHinh|any} dich  cấu hình ĐANG CHẠY — bị sửa tại chỗ
  * @param {CauHinh|any} moi   cấu hình vừa đọc + validate xong
- * @returns {{thayDoi: string[], khoaCungDoi: string[], nhom: ReturnType<typeof soSanhNhom>}}
+ * @returns {{thayDoi: string[], khoaCungDoi: string[], nhom: ReturnType<typeof diffGroups>}}
  */
-export function apDungNapNong(dich, moi) {
+export function applyHotReload(dich, moi) {
   if (!dich || typeof dich !== 'object') {
-    throw new Error('apDungNapNong: `dich` phải là object cấu hình đang chạy');
+    throw new Error('applyHotReload: `dich` phải là object cấu hình đang chạy');
   }
   if (!moi || typeof moi !== 'object') {
-    throw new Error('apDungNapNong: `moi` phải là object cấu hình vừa đọc');
+    throw new Error('applyHotReload: `moi` phải là object cấu hình vừa đọc');
   }
 
-  const nhom = soSanhNhom(dich.groups ?? [], moi.groups ?? []);
+  const nhom = diffGroups(dich.groups ?? [], moi.groups ?? []);
 
   const thayDoi = [];
-  for (const truong of TRUONG_NAP_NONG) {
+  for (const truong of HOT_RELOADABLE_FIELDS) {
     if (JSON.stringify(dich[truong] ?? null) === JSON.stringify(moi[truong] ?? null)) continue;
     dich[truong] = moi[truong];
     thayDoi.push(truong);
   }
 
-  // ⚠️ Tính SAU khi áp: các trường khoá cứng ⛔ không nằm trong TRUONG_NAP_NONG
+  // ⚠️ Tính SAU khi áp: các trường khoá cứng ⛔ không nằm trong HOT_RELOADABLE_FIELDS
   // nên vòng trên ⛔ không đụng tới chúng — `dich` vẫn giữ giá trị đang chạy,
   // đúng thứ cần đem ra so.
-  const khoaCungDoi = TRUONG_KHOA_CUNG.filter(
+  const khoaCungDoi = RESTART_REQUIRED_FIELDS.filter(
     (t) => JSON.stringify(dich[t] ?? null) !== JSON.stringify(moi[t] ?? null),
   );
 
@@ -151,10 +151,10 @@ export function apDungNapNong(dich, moi) {
  * Dựng câu báo cho host. Trả `null` khi ⛔ không có gì đáng nói — ⛔ không báo
  * "đã nạp lại, không có gì đổi", vì cảnh báo phiền là cảnh báo bị bỏ qua.
  *
- * @param {ReturnType<typeof apDungNapNong>} kq
+ * @param {ReturnType<typeof applyHotReload>} kq
  * @returns {string|null}
  */
-export function moTaThayDoi(kq) {
+export function describeChanges(kq) {
   if (!kq) return null;
   const dong = [];
 
@@ -200,17 +200,17 @@ export function moTaThayDoi(kq) {
  *   tuChay?: boolean,
  * }} p
  */
-export function taoBoNapNong(p) {
+export function createHotReloader(p) {
   const duongDan = String(p?.duongDan ?? '');
   const dich = p?.dich;
   const doc = p?.docCauHinh;
-  if (!duongDan) throw new Error('taoBoNapNong: thiếu `duongDan` file cấu hình');
-  if (!dich || typeof dich !== 'object') throw new Error('taoBoNapNong: thiếu `dich`');
-  if (typeof doc !== 'function') throw new Error('taoBoNapNong: thiếu `docCauHinh`');
+  if (!duongDan) throw new Error('createHotReloader: thiếu `duongDan` file cấu hình');
+  if (!dich || typeof dich !== 'object') throw new Error('createHotReloader: thiếu `dich`');
+  if (typeof doc !== 'function') throw new Error('createHotReloader: thiếu `docCauHinh`');
 
   const log = typeof p.log === 'function' ? p.log : _log;
   const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;
-  const nhipMs = Number(p.nhipMs) > 0 ? Number(p.nhipMs) : NHIP_NAP_NONG_MS;
+  const nhipMs = Number(p.nhipMs) > 0 ? Number(p.nhipMs) : HOT_RELOAD_TICK_MS;
 
   const _mtime = () => {
     try { return fs.statSync(duongDan).mtimeMs; } catch { return null; }
@@ -223,7 +223,7 @@ export function taoBoNapNong(p) {
   let loiDaBao = null;
   let dangChay = false;
 
-  /** @returns {ReturnType<typeof apDungNapNong>|null} */
+  /** @returns {ReturnType<typeof applyHotReload>|null} */
   const kiemNgay = (ep = false) => {
     if (dangChay) return null;
     dangChay = true;
@@ -260,8 +260,8 @@ export function taoBoNapNong(p) {
       }
       loiDaBao = null;
 
-      const kq = apDungNapNong(dich, moi);
-      const mo = moTaThayDoi(kq);
+      const kq = applyHotReload(dich, moi);
+      const mo = describeChanges(kq);
       if (mo) {
         log(mo.replace(/\n/g, ' · '));
         baoHost?.(mo);

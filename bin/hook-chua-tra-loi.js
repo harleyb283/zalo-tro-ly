@@ -4,7 +4,7 @@
  * ★ HOOK `Stop` — CHẶN KẾT THÚC LƯỢT KHI CÂU HỎI ZALO CHƯA ĐƯỢC GỬI ĐI.
  *
  * Cắm trong `.claude/settings.json` của repo. Đọc JSON của hook qua stdin,
- * in JSON quyết định ra stdout. Xem `src/ops/chot_tra_loi.js` để biết vì sao
+ * in JSON quyết định ra stdout. Xem `src/ops/reply_guard.js` để biết vì sao
  * chốt này tồn tại (sự cố 22/08/2026: pane soạn xong câu trả lời rồi quên gọi
  * tool gửi, trong nhóm ⛔ không có gì xuất hiện).
  *
@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-import { quyetDinhChan, cauChan } from '../src/ops/chot_tra_loi.js';
+import { decideBlock, blockMessage } from '../src/ops/reply_guard.js';
 
 const thoatIm = () => process.exit(0);
 
@@ -70,12 +70,12 @@ async function main() {
     db.close();
   } catch { thoatIm(); }
 
-  const kq = quyetDinhChan({ dong, stopHookActive: vao?.stop_hook_active === true });
+  const kq = decideBlock({ dong, stopHookActive: vao?.stop_hook_active === true });
   if (!kq) thoatIm();
 
   process.stdout.write(`${JSON.stringify({
     decision: 'block',
-    reason: cauChan(kq),
+    reason: blockMessage(kq),
     systemMessage: `⛔ Chặn kết thúc lượt: còn ${kq.soCau} câu hỏi Zalo chưa được gửi trả lời.`,
   })}\n`);
   process.exit(0);

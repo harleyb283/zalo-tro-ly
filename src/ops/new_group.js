@@ -63,7 +63,7 @@ function _mo(duLieu) {
  * @returns {{chatId: string, ten: string|null, nguoiThem: string|null,
  *            doHostThem: boolean, ghiLichSu: boolean, traLoiKhiTag: boolean}|null}
  */
-export function quyetDinhNhomMoi({ sk, cauHinh, uidTroLy }) {
+export function decideNewGroup({ sk, cauHinh, uidTroLy }) {
   if (!uidTroLy) return null;                       // ⛔ không biết mình là ai ⇒ ⛔ không đoán
   if (!sk?.chatId) return null;
   if (!LOAI_THEM.has(String(sk.loai ?? '').toUpperCase())) return null;
@@ -105,7 +105,7 @@ export function quyetDinhNhomMoi({ sk, cauHinh, uidTroLy }) {
  * @param {{chatId: string, ten: string|null, ghiLichSu: boolean, traLoiKhiTag: boolean}} nhom
  * @returns {{daThem: boolean, lyDo?: string}}
  */
-export function themNhomVaoConfig(duongDan, nhom) {
+export function addGroupToConfig(duongDan, nhom) {
   const tho = fs.readFileSync(duongDan, 'utf8');
   const c = JSON.parse(tho);
   if (!Array.isArray(c.groups)) c.groups = [];
@@ -132,7 +132,7 @@ export function themNhomVaoConfig(duongDan, nhom) {
  *
  * @param {{chatId: string, ten: string|null, nguoiThem: string|null, doHostThem: boolean}} n
  */
-export function cauBaoHost(n) {
+export function newGroupHostMessage(n) {
   const ten = n.ten ? `"${n.ten}"` : `(chưa rõ tên)`;
   if (n.doHostThem) {
     return `✅ Anh vừa thêm em vào nhóm ${ten} (${n.chatId}).\n`

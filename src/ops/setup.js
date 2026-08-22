@@ -23,7 +23,7 @@
  * @param {number} soNhom  tổng số nhóm đang hiển thị
  * @returns {{ok: true, chon: number[]} | {ok: false, loi: string}}  chỉ số bắt đầu từ 0
  */
-export function phanTichLuaChon(tho, soNhom) {
+export function parseGroupChoice(tho, soNhom) {
   const s = String(tho ?? '').trim().toLowerCase();
   if (!s) return { ok: true, chon: [] };
 
@@ -68,10 +68,10 @@ export function phanTichLuaChon(tho, soNhom) {
  * @param {{mau: any, toi: {userId: string, ten?: string|null},
  *          nhomChon: Array<{chatId: string, ten?: string|null}>}} p
  */
-export function dungConfig(p) {
+export function buildConfig(p) {
   const mau = p?.mau ?? {};
   const userId = String(p?.toi?.userId ?? '').trim();
-  if (!userId) throw new Error('dungConfig: thiếu userId của chủ máy');
+  if (!userId) throw new Error('buildConfig: thiếu userId của chủ máy');
 
   return {
     ...mau,
@@ -97,7 +97,7 @@ export function dungConfig(p) {
  * @param {{phienBanNode?: string, coNodeModules?: boolean}} p
  * @returns {{ok: boolean, van: Array<{loi: string, cach: string}>}}
  */
-export function kiemMoiTruong(p = {}) {
+export function checkEnvironment(p = {}) {
   const van = [];
 
   const chuoi = String(p.phienBanNode ?? process.version).replace(/^v/, '');

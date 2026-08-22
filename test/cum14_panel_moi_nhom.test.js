@@ -425,7 +425,7 @@ test('★★★ W4 client: `chatIdHoi` và `treToiThieuMs` nối ĐÚNG nguồn'
   // Bỏ điều kiện `toanBo` ⇒ pane khoá vào nhóm A vớt câu hỏi của nhóm B rồi
   // trả lời vào B trong khi chỉ đọc được A. Đúng lỗ hổng v10.2 sinh ra để bịt.
   // 🔴 v11.1 — nhịp vớt "vô chủ" nay là MỘT NHÁNH RIÊNG có ngưỡng riêng
-  // (`TUOI_VO_CHU_MS`), ⛔ không còn là tham số đè trong nhịp vớt thường: dùng
+  // (`UNCLAIMED_AGE_MS`), ⛔ không còn là tham số đè trong nhịp vớt thường: dùng
   // chung ngưỡng thì pane toàn quyền nhảy vào ĐÚNG LÚC pane chủ được thử lại.
   assert.match(kh, /if \(toanBo\) \{[\s\S]{0,220}?chatIdHoi: null/,
     '🔴 chỉ pane toàn quyền mới được vớt dòng vô chủ');
