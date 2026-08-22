@@ -113,7 +113,7 @@ export function diffGroups(cu = [], moi = []) {
  *
  * 🔴 GÁN ĐÈ TỪNG TRƯỜNG, ⛔ TUYỆT ĐỐI KHÔNG trả về object mới: `cauHinh` đã bị
  * hàng chục closure trong `index.js` giữ tham chiếu (`findGroup(cauHinh, …)`,
- * `baoHost(cauHinh, …)`, watchdog, tool…). Thay object là mọi closure đó vẫn
+ * `notifyHost(cauHinh, …)`, watchdog, tool…). Thay object là mọi closure đó vẫn
  * ôm bản CŨ, tức nạp nóng "chạy" mà ⛔ không có gì thay đổi.
  *
  * @param {CauHinh|any} dich  cấu hình ĐANG CHẠY — bị sửa tại chỗ
@@ -195,7 +195,7 @@ export function describeChanges(kq) {
  *   dich: CauHinh|any,
  *   readConfig: (d?: string) => any,
  *   log?: (s: string) => void,
- *   baoHost?: (s: string) => any,
+ *   notifyHost?: (s: string) => any,
  *   nhipMs?: number,
  *   tuChay?: boolean,
  * }} p
@@ -209,7 +209,7 @@ export function createHotReloader(p) {
   if (typeof doc !== 'function') throw new Error('createHotReloader: thiếu `readConfig`');
 
   const log = typeof p.log === 'function' ? p.log : _log;
-  const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;
+  const notifyHost = typeof p.notifyHost === 'function' ? p.notifyHost : null;
   const nhipMs = Number(p.nhipMs) > 0 ? Number(p.nhipMs) : HOT_RELOAD_TICK_MS;
 
   const _mtime = () => {
@@ -236,7 +236,7 @@ export function createHotReloader(p) {
         if (loiDaBao !== msg) {
           loiDaBao = msg;
           log(`${msg} -> GIỮ NGUYÊN bản đang chạy`);
-          baoHost?.(`⚠️ Nạp nóng: ${msg}. Em giữ nguyên cấu hình đang chạy.`);
+          notifyHost?.(`⚠️ Nạp nóng: ${msg}. Em giữ nguyên cấu hình đang chạy.`);
         }
         return null;
       }
@@ -251,7 +251,7 @@ export function createHotReloader(p) {
         if (loiDaBao !== msg) {
           loiDaBao = msg;
           log(`config KHÔNG hợp lệ -> GIỮ NGUYÊN bản đang chạy: ${msg}`);
-          baoHost?.(
+          notifyHost?.(
             `⚠️ Nạp nóng cấu hình THẤT BẠI — em GIỮ NGUYÊN bản đang chạy:\n${msg}\n`
             + 'Sửa lại file là em tự nạp, không cần restart.',
           );
@@ -264,7 +264,7 @@ export function createHotReloader(p) {
       const mo = describeChanges(kq);
       if (mo) {
         log(mo.replace(/\n/g, ' · '));
-        baoHost?.(mo);
+        notifyHost?.(mo);
       }
       return kq;
     } finally {

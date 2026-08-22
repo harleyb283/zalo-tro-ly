@@ -14,7 +14,7 @@ import test from 'node:test';
 
 import { dongDb, moDb } from '../src/store/db.js';
 import { layHangDoiCho, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { LY_DO_BO_QUA, taoSoMoPhien } from '../src/ops/mo_phien.js';
+import { SKIP_REASON, createPaneLedger } from '../src/ops/pane_ledger.js';
 import {
   GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, NGHI_SAU_GIO_MAC_DINH,
   THU_LAI_MO_PHIEN_MS, TRAN_SO_CLIENT_MAC_DINH,
@@ -78,17 +78,17 @@ test('★★★ L1 NGHIỆM THU①: `moPhienLenh` mặc định NULL -> ⛔ KHÔ
   assert.equal(validateConfig({ ...nen }).tichHop.moPhienLenh, null);
 
   const goi = [];
-  const so = taoSoMoPhien({ lenh: null, chay: async (d) => { goi.push(d); return { thanhCong: true }; } });
+  const so = createPaneLedger({ lenh: null, chay: async (d) => { goi.push(d); return { thanhCong: true }; } });
   const kq = await so.baoDam(NHOM_A);
   assert.deepEqual(goi, [], '🔴 lệnh null mà VẪN gọi');
   assert.equal(kq.daGoi, false);
-  assert.equal(kq.lyDo, LY_DO_BO_QUA.KHONG_CO_LENH);
+  assert.equal(kq.lyDo, SKIP_REASON.KHONG_CO_LENH);
 });
 
 test('★★★ L2 NGHIỆM THU②: gọi ĐÚNG MỘT LẦN cho mỗi nhóm (⛔ không phải mỗi tin)', async () => {
   // Nhóm bận đo thật 449 tin/ngày ⇒ mỗi tin một lần là 449 lần mở pane.
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'bash x.sh',
     chay: async (d) => { goi.push(d.chatId); return { thanhCong: true }; },
   });
@@ -101,7 +101,7 @@ test('★★★ L2 NGHIỆM THU②: gọi ĐÚNG MỘT LẦN cho mỗi nhóm (�
 
 test('★★★ L3 hợp đồng stdin: đúng 3 khoá `chatId`/`tenNhom`/`lyDo`', async () => {
   const goi = [];
-  const so = taoSoMoPhien({ lenh: 'x', chay: async (d) => { goi.push(d); return { thanhCong: true }; } });
+  const so = createPaneLedger({ lenh: 'x', chay: async (d) => { goi.push(d); return { thanhCong: true }; } });
   await so.baoDam(NHOM_A, { tenNhom: 'Nhóm A', lyDo: 'tin-moi' });
   assert.deepEqual(goi[0], { chatId: NHOM_A, tenNhom: 'Nhóm A', lyDo: 'tin-moi' });
   // Thiếu thông tin ⇒ `null`/mặc định, ⛔ không phải `undefined` (JSON nuốt mất khoá).
@@ -115,7 +115,7 @@ test('★★★ L4 THẤT BẠI -> ⛔ không đánh dấu đã mở, thử lạ
   // Không đánh dấu gì ⇒ mỗi tin một lần gọi. Mốc thời gian là đường giữa.
   const dh = dongHo();
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', bayGio: dh.bayGio,
     chay: async (d) => { goi.push(d.chatId); return { thanhCong: false, ma: 1, lyDo: 'hỏng' }; },
   });
@@ -129,7 +129,7 @@ test('★★★ L4 THẤT BẠI -> ⛔ không đánh dấu đã mở, thử lạ
 
 test('★★★ L5 lệnh NÉM LỖI -> nuốt CÓ GHI SỔ, ⛔ không giết vòng nhận tin', async () => {
   const log = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', log: (m) => log.push(m),
     chay: async () => { throw new Error('spawn hỏng'); },
   });
@@ -141,7 +141,7 @@ test('★★★ L5 lệnh NÉM LỖI -> nuốt CÓ GHI SỔ, ⛔ không giết v
 test('★★★ L6 lệnh đang chạy dở -> ⛔ KHÔNG bắn chồng cho cùng nhóm', async () => {
   let dangCho;
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x',
     chay: async (d) => {
       goi.push(d.chatId);
@@ -151,18 +151,18 @@ test('★★★ L6 lệnh đang chạy dở -> ⛔ KHÔNG bắn chồng cho cùn
   });
   const p1 = so.baoDam(NHOM_A);
   const kq2 = await so.baoDam(NHOM_A);      // trong lúc p1 chưa xong
-  assert.equal(kq2.lyDo, LY_DO_BO_QUA.DANG_CHAY);
+  assert.equal(kq2.lyDo, SKIP_REASON.DANG_CHAY);
   assert.equal(goi.length, 1, '🔴 hai lời gọi chồng nhau cho một nhóm');
   dangCho();
   await p1;
 });
 
-test('★★★ L7 lệnh TREO ⛔ KHÔNG chặn vòng chính — trần nằm ở `chayNotifyCommand`', async () => {
+test('★★★ L7 lệnh TREO ⛔ KHÔNG chặn vòng chính — trần nằm ở `runNotifyCommand`', async () => {
   // 🔴 Đây là bài chứng minh trần THẬT SỰ tồn tại, ⛔ không phải "tin là có".
   // Dùng lệnh `sleep` — ⛔ KHÔNG chạm mạng, ⛔ không bắn thông báo.
-  const { chayNotifyCommand } = await import('../src/ops/notify_host.js');
+  const { runNotifyCommand } = await import('../src/ops/notify_host.js');
   const t0 = Date.now();
-  const kq = await chayNotifyCommand('sleep 30', { chatId: NHOM_A }, 300);
+  const kq = await runNotifyCommand('sleep 30', { chatId: NHOM_A }, 300);
   const troi = Date.now() - t0;
   assert.equal(kq.thanhCong, false, 'treo phải tính là THẤT BẠI');
   assert.ok(troi < 3000, `🔴 chờ ${troi}ms — trần không có tác dụng, vòng chính bị giữ`);
@@ -238,7 +238,7 @@ test('★★★ R5 NGƯỠNG 37s = TỔNG CÓ TÊN, ⛔ không phải số chọ
 test('★★★ T1 NGHIỆM THU④: quá trần -> RƠI VỀ DỰ PHÒNG, ⛔ không im lặng', async () => {
   const log = [];
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', tranSoClient: 2, log: (m) => log.push(m),
     chay: async (d) => { goi.push(d.chatId); return { thanhCong: true }; },
   });
@@ -247,21 +247,21 @@ test('★★★ T1 NGHIỆM THU④: quá trần -> RƠI VỀ DỰ PHÒNG, ⛔ kh
   const kq = await so.baoDam(NHOM_C);
   assert.deepEqual(goi, [NHOM_A, NHOM_B], '🔴 mở quá trần');
   assert.equal(kq.daGoi, false);
-  assert.equal(kq.lyDo, LY_DO_BO_QUA.QUA_TRAN, '🔴 phải nói RÕ vì sao, ⛔ không im');
+  assert.equal(kq.lyDo, SKIP_REASON.QUA_TRAN, '🔴 phải nói RÕ vì sao, ⛔ không im');
   assert.ok(log.some((l) => /ĐỦ TRẦN/.test(l) && /dự phòng/.test(l)),
     'quá trần mà im = nhóm mới bị bỏ rơi không dấu vết');
 });
 
 test('★★★ T2 trần chỉ đếm phiên mở THÀNH CÔNG (thất bại ⛔ không chiếm chỗ)', () => {
   // Đếm cả lần thất bại là một nhóm hỏng chiếm suốt đời một suất trong trần.
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', tranSoClient: 1,
     chay: async () => ({ thanhCong: false, ma: 1 }),
   });
   return so.baoDam(NHOM_A)
     .then(() => so.baoDam(NHOM_B))
     .then((kq) => {
-      assert.notEqual(kq.lyDo, LY_DO_BO_QUA.QUA_TRAN,
+      assert.notEqual(kq.lyDo, SKIP_REASON.QUA_TRAN,
         '🔴 lần mở HỎNG cũng chiếm suất trong trần');
       assert.equal(so._so().daMo, 0);
     });
@@ -269,9 +269,9 @@ test('★★★ T2 trần chỉ đếm phiên mở THÀNH CÔNG (thất bại �
 
 test('★★ T3 mặc định trần = 4, và nó là VAN CHỈNH TAY (⛔ không phải kết luận đo)', () => {
   assert.equal(TRAN_SO_CLIENT_MAC_DINH, 4);
-  const so = taoSoMoPhien({ lenh: 'x' });
+  const so = createPaneLedger({ lenh: 'x' });
   assert.equal(so._so().tran, 4);
-  assert.equal(taoSoMoPhien({ lenh: 'x', tranSoClient: 9 })._so().tran, 9, 'phải chỉnh được');
+  assert.equal(createPaneLedger({ lenh: 'x', tranSoClient: 9 })._so().tran, 9, 'phải chỉnh được');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -281,7 +281,7 @@ test('★★ T3 mặc định trần = 4, và nó là VAN CHỈNH TAY (⛔ khôn
 test('★★★ N1 nhóm im quá `nghiSauGio` -> QUÊN khỏi sổ, có tin thì mở lại', async () => {
   const dh = dongHo();
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', nghiSauGio: 1, bayGio: dh.bayGio,
     chay: async (d) => { goi.push(d.chatId); return { thanhCong: true }; },
   });
@@ -296,7 +296,7 @@ test('★★★ N2 pack ⛔ KHÔNG có đường nào GIẾT tiến trình nó k
   // 🔴 GỠ CHÚ THÍCH TRƯỚC KHI SO. Canh trên mã thô là canh CHỮ: một dòng giải
   // thích *"file này KHÔNG spawn gì cả"* cũng làm bài đỏ. Đã dính đúng lỗi này
   // hai lần (`V1`, `P2` của cụm 12) — ghi lại để đừng lặp lần ba.
-  const tho = fs.readFileSync(path.join(process.cwd(), 'src/ops/mo_phien.js'), 'utf8');
+  const tho = fs.readFileSync(path.join(process.cwd(), 'src/ops/pane_ledger.js'), 'utf8');
   const src = tho.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   for (const cam of ['kill', 'spawn', 'exec', 'child_process', 'dongPhienLenh']) {
     assert.ok(!src.includes(cam), `🔴 \`mo_phien.js\` chạm '${cam}' — pack đụng vào thứ của người khác`);
@@ -403,7 +403,7 @@ test('★★★ W2 lời gọi mở pane ⛔ KHÔNG được `await` (chặn cal
 
 test('★★★ W3 daemon truyền ĐÚNG trần thời gian cho lệnh mở pane', () => {
   // Đột biến đổi trần thành 1 giờ SỐNG SÓT vì `L7` gọi thẳng
-  // `chayNotifyCommand` với trần riêng — nó ⛔ không đi qua `index.js`.
+  // `runNotifyCommand` với trần riêng — nó ⛔ không đi qua `index.js`.
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
   assert.match(idx, /_chayLenh\(cauHinh\.tichHop\.moPhienLenh, duLieu, HAN_MO_PHIEN_MS\)/,
@@ -463,7 +463,7 @@ test('★★★ W6 ĐÃ MỞ thì ⛔ không gọi lại, KỂ CẢ khi đã qu�
   // ngưỡng thử lại, lúc đó CHỈ còn chốt đã-mở làm việc.
   const dh = dongHo();
   const goi = [];
-  const so = taoSoMoPhien({
+  const so = createPaneLedger({
     lenh: 'x', bayGio: dh.bayGio,
     chay: async (d) => { goi.push(d.chatId); return { thanhCong: true }; },
   });
@@ -499,8 +499,8 @@ test('★★★ P1 NGHIỆM THU⑤: ⛔ `grep -rn "herdr" src/` = 0 kết quả'
   assert.deepEqual(dinh, [], `🔴 pack nhắc tới công cụ riêng của người dùng: ${dinh.join(', ')}`);
 });
 
-test('★★★ P2 `mo_phien.js` ⛔ không chứa đường dẫn máy ai', () => {
-  const src = fs.readFileSync(path.join(process.cwd(), 'src/ops/mo_phien.js'), 'utf8');
+test('★★★ P2 `pane_ledger.js` ⛔ không chứa đường dẫn máy ai', () => {
+  const src = fs.readFileSync(path.join(process.cwd(), 'src/ops/pane_ledger.js'), 'utf8');
   assert.ok(!/\/Users\//.test(src), 'có đường dẫn tuyệt đối của một máy cụ thể');
   assert.ok(!/40_system/.test(src), 'có đường dẫn hệ riêng của người vận hành');
 });

@@ -66,9 +66,9 @@ import { batDauNghe, dungNghe } from './zalo/listener.js';
 import { apDungAnTrangThai, dangNhapBangCookie, keepAlive } from './zalo/session.js';
 import { taoWatchdog } from './zalo/watchdog.js';
 
-import { ghiTrangThai } from './ops/health.js';
-import { baoHost } from './ops/notify_host.js';
-import { taoSoMoPhien } from './ops/mo_phien.js';
+import { writeHealth } from './ops/health.js';
+import { notifyHost } from './ops/notify_host.js';
+import { createPaneLedger } from './ops/pane_ledger.js';
 import { createHotReloader } from './ops/hot_reload.js';
 import { newGroupHostMessage, decideNewGroup, addGroupToConfig } from './ops/new_group.js';
 import {
@@ -347,7 +347,7 @@ export function xuLyMotTin(p, tin) {
   // ⚠️ FIRE-AND-FORGET CÓ CHỦ Ý, ⛔ KHÔNG `await`. Lệnh mở pane do NGƯỜI VẬN
   // HÀNH viết, pack ⛔ không biết nó làm gì và nó có thể treo. `await` ở đây là
   // giữ luôn callback của websocket ⇒ **mọi nhóm câm**, không riêng nhóm đang
-  // mở pane. Trần thời gian nằm trong `chayNotifyCommand` (đã có sẵn).
+  // mở pane. Trần thời gian nằm trong `runNotifyCommand` (đã có sẵn).
   // ⚠️ Đặt SAU khi `taoHangDoi` thành công: mở pane cho một dòng chưa tồn tại
   // là mở cho một câu hỏi đã mất.
   // ⚠️ `soMoPhien` vắng ⇒ ⛔ không làm gì — đúng đường một-tiến-trình hôm nay.
@@ -529,7 +529,7 @@ export const NHIP_POLL_CLIENT_MS = 2000;
  * để lần ra — `setInterval` chỉ lặng lẽ ngừng gọi.
  *
  * ⚠️ CHỐNG CHỒNG NHỊP: một nhịp chưa xong mà nhịp sau đã tới thì hai bên cùng
- * quét một bảng. CAS ở `dayHangDoiCho` chặn được việc trùng, nhưng bỏ hẳn nhịp
+ * quét một bảng. CAS ở `pushPendingQueue` chặn được việc trùng, nhưng bỏ hẳn nhịp
  * chồng thì rẻ hơn và không phụ thuộc CAS.
  *
  * @param {{chay: () => Promise<any>, nhipMs?: number, log: (s: string) => void,
@@ -782,10 +782,10 @@ async function chayClient(co, log, cauHinh) {
     return MA_THOAT.OK;
   }
 
-  const { taoChannel, dayHangDoiCho } = await import('./mcp/channel.js');
+  const { createChannel, pushPendingQueue } = await import('./mcp/channel.js');
   const { layBoiCanhTraLoi } = await import('./store/query.js');
-  const { dangKyTool } = await import('./mcp/tools.js');
-  const { docTrangThai } = await import('./ops/health.js');
+  const { registerTools } = await import('./mcp/tools.js');
+  const { readHealth } = await import('./ops/health.js');
   const { xepHangGui } = await import('./store/write.js');
 
   // 🔴 Sổ nguồn trên ĐĨA — xem khối chú thích trên.
@@ -807,7 +807,7 @@ async function chayClient(co, log, cauHinh) {
   // Client ⛔ không có `api` (cố ý). Trước v11 nghĩa là mọi cảnh báo của nó
   // chết trong log — xem tầng 1b ở `ops/notify_host.js`. Nay nó xếp hàng, và
   // daemon rút ra gửi: đúng con đường `tra_loi` đang đi.
-  const baoHostClient = (s) => baoHost(cauHinh, s, {
+  const baoHostClient = (s) => notifyHost(cauHinh, s, {
     api: null,
     xepHangDm: (dmChatId, text) => { xepHangGui(db, { chatIdDich: dmChatId, text }); },
   });
@@ -815,18 +815,18 @@ async function chayClient(co, log, cauHinh) {
   // Sổ đếm số lần đã vớt cho từng câu.
   const soVot = createRescueLedger({
     log: (s) => log(`[client][vớt] ${s}`),
-    baoHost: (s) => { baoHostClient(s).catch(() => {}); },
+    notifyHost: (s) => { baoHostClient(s).catch(() => {}); },
   });
 
   /** Một nhịp lấy việc. Tách ra để `khiSanSang` và vòng poll dùng CHUNG. */
-  const motNhipLayViec = (tuyChon) => dayHangDoiCho({
+  const motNhipLayViec = (tuyChon) => pushPendingQueue({
     db,
     queueTtlMs: cauHinh.thoiGian.queueTtlMs,
     guiThongBao: channel.guiThongBao,
     layHangDoiCho,
     capNhatHangDoi,
     // 🔴 CAS nhận việc — thiếu nó là hai client cùng nhặt một dòng, tức hai tin
-    // vào nhóm người thật. Xem khối 🔴 trong `dayHangDoiCho`.
+    // vào nhóm người thật. Xem khối 🔴 trong `pushPendingQueue`.
     nhanViec,
     tenHoiThoai,
     ghiDoTre: (b) => soDoTre.ghi(b),
@@ -856,19 +856,19 @@ async function chayClient(co, log, cauHinh) {
     // là `laDuPhong`, ⛔ không phải `toanBo`.
     treToiThieuMs: laDuPhong ? nguongDuPhongMs : 0,
     // 🔴 v11 — báo "câu hỏi quá hạn" ĐI QUA OUTBOX.
-    // ⛔ Trước đây dòng này là `baoHost(..., { api: null })`, và vì client
+    // ⛔ Trước đây dòng này là `notifyHost(..., { api: null })`, và vì client
     // ⛔ không có `api` còn `notifyCommand` mặc định `null`, nó rơi thẳng xuống
     // "chỉ còn log". Ba câu quá hạn chiều 21/08/2026 ⛔ KHÔNG tới được anh —
     // cảnh báo không tới nơi thì đúng bằng ⛔ không có cảnh báo.
     baoHetHan: (loiNhan) => baoHostClient(loiNhan),
   });
 
-  channel = taoChannel({
+  channel = createChannel({
     tenServer: TEN_SERVER,
     phienBan: PHIEN_BAN,
     layBoiCanhTraLoi: (requestId) => layBoiCanhTraLoi(db, requestId),
-    dangKyTool: (server) =>
-      dangKyTool(server, {
+    registerTools: (server) =>
+      registerTools(server, {
         db,
         cauHinh,
         boTichLuy,
@@ -876,7 +876,7 @@ async function chayClient(co, log, cauHinh) {
         // đó lỡ gọi đường gửi thẳng, `send.js` sẽ ném ngay ở bước kiểm
         // `api.sendMessage` chứ không âm thầm gửi bằng một kết nối thứ hai.
         api: null,
-        docSucKhoe: () => docTrangThai(cauHinh.duongDan.health),
+        docSucKhoe: () => readHealth(cauHinh.duongDan.health),
         // ★ Cửa gửi của client: XẾP HÀNG, ⛔ không chạm mạng.
         kho: { xepHangGuiRa: xepHangGui },
       }),
@@ -936,7 +936,7 @@ async function chayClient(co, log, cauHinh) {
   });
 
   // ═══ NẠP NÓNG cũng phải chạy Ở CLIENT ═══
-  // 🔴 Ở chế độ TÁCH, chính client mới là bên phục vụ tool: `dangKyTool` giữ
+  // 🔴 Ở chế độ TÁCH, chính client mới là bên phục vụ tool: `registerTools` giữ
   // `cauHinh` của TIẾN TRÌNH NÀY. Chỉ nạp nóng ở daemon thì daemon nghe được
   // nhóm mới, còn tool `tra_loi` ở client vẫn coi nhóm đó là "không có trong
   // config" ⇒ nghe được mà ⛔ không nói được. Hai tiến trình, hai bản config,
@@ -1091,7 +1091,7 @@ export async function main(argv = process.argv) {
         log(`ghi lại tin trợ lý thất bại (đã nuốt): ${safeLogText(e)}`);
       }
     };
-    const baoHostDaemon = (thongDiep, them = {}) => baoHost(cauHinh, thongDiep, {
+    const baoHostDaemon = (thongDiep, them = {}) => notifyHost(cauHinh, thongDiep, {
       api,
       ghiLai: ghiLaiTinTroLy,
       uidTroLy: toId(api?.getOwnId?.(), 'index.uidTroLy'),
@@ -1119,12 +1119,12 @@ export async function main(argv = process.argv) {
         : TRANG_THAI_SUC_KHOE.KHONG_BIET;
       const canQr = ma === TRANG_THAI_SUC_KHOE.CAN_QR;
       try {
-        ghiTrangThai(cauHinh.duongDan.health, { trangThai: ma, lyDo: String(e?.message ?? e) });
+        writeHealth(cauHinh.duongDan.health, { trangThai: ma, lyDo: String(e?.message ?? e) });
       } catch (e2) {
         log(`không ghi được health: ${safeLogText(e2)}`);
       }
       // boTang1: không có api thì không DM Zalo được — đừng thử rồi báo hỏng.
-      await baoHost(
+      await notifyHost(
         cauHinh,
         canQr
           ? `Không đăng nhập được bằng cookie: ${e?.message ?? e}`
@@ -1159,28 +1159,28 @@ export async function main(argv = process.argv) {
     // xuống câu dự phòng do CODE dựng (mất giọng model).
     const boMcp = co.khongMcp || che.cheDo === CHE_DO.TACH;
     if (!boMcp) {
-      const { taoChannel, dayHangDoiCho } = await import('./mcp/channel.js');
+      const { createChannel, pushPendingQueue } = await import('./mcp/channel.js');
       const { layBoiCanhTraLoi } = await import('./store/query.js');
-      const { dangKyTool } = await import('./mcp/tools.js');
-      const { docTrangThai } = await import('./ops/health.js');
-      channel = taoChannel({
+      const { registerTools } = await import('./mcp/tools.js');
+      const { readHealth } = await import('./ops/health.js');
+      channel = createChannel({
         tenServer: TEN_SERVER,
         phienBan: PHIEN_BAN,
         // Tin báo cho Claude kèm sẵn trích đoạn tin gốc khi anh reply một tin
         // cũ. Trước đây `channel.js` phải bắc cầu qua biến cấp module trong
         // `mcp/tools.js` vì file này bị pane khác giữ — cầu đó nay ĐÃ XOÁ.
         layBoiCanhTraLoi: (requestId) => layBoiCanhTraLoi(db, requestId),
-        dangKyTool: (server) =>
-          dangKyTool(server, {
+        registerTools: (server) =>
+          registerTools(server, {
             db,
             cauHinh,
             boTichLuy,
             api,
-            docSucKhoe: () => docTrangThai(cauHinh.duongDan.health),
+            docSucKhoe: () => readHealth(cauHinh.duongDan.health),
           }),
         khiSanSang: () => {
           // Claude vừa bắt tay xong -> đẩy bù câu hỏi còn 'cho'.
-          dayHangDoiCho({
+          pushPendingQueue({
             db,
             queueTtlMs: cauHinh.thoiGian.queueTtlMs,
             guiThongBao: channel.guiThongBao,
@@ -1200,10 +1200,10 @@ export async function main(argv = process.argv) {
       // lại `da_day` cho tới lần bắt tay sau. Xem `ops/rescue_orphans.js`.
       const soVotDaemon = createRescueLedger({
         log: (s) => log(`[vớt] ${s}`),
-        baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
+        notifyHost: (s) => { baoHostDaemon(s).catch(() => {}); },
       });
       hen.push(setInterval(() => {
-        dayHangDoiCho({
+        pushPendingQueue({
           db,
           queueTtlMs: cauHinh.thoiGian.queueTtlMs,
           guiThongBao: channel.guiThongBao,
@@ -1224,9 +1224,9 @@ export async function main(argv = process.argv) {
     // ⛔ không mở pane cho ai (nó còn không biết có nhóm nào khác).
     // ⚠️ `moPhienLenh: null` ⇒ `baoDam()` không gọi gì cả, chỉ ghi sổ chạm.
     // ⛔ Pack KHÔNG biết lệnh bên kia là gì — nó chỉ chạy chuỗi người ta khai,
-    // qua `chayNotifyCommand` (đã có sẵn trần thời gian + giết khi treo).
-    const { chayNotifyCommand: _chayLenh } = await import('./ops/notify_host.js');
-    const soMoPhien = taoSoMoPhien({
+    // qua `runNotifyCommand` (đã có sẵn trần thời gian + giết khi treo).
+    const { runNotifyCommand: _chayLenh } = await import('./ops/notify_host.js');
+    const soMoPhien = createPaneLedger({
       lenh: cauHinh.tichHop?.moPhienLenh ?? null,
       tranSoClient: cauHinh.tranSoClient,
       nghiSauGio: cauHinh.nghiSauGio,
@@ -1312,7 +1312,7 @@ export async function main(argv = process.argv) {
       },
       ghiSucKhoe: (tt) => {
         try {
-          ghiTrangThai(cauHinh.duongDan.health, tt);
+          writeHealth(cauHinh.duongDan.health, tt);
         } catch (e) {
           log(`ghi health thất bại: ${safeLogText(e)}`);
         }
@@ -1347,7 +1347,7 @@ export async function main(argv = process.argv) {
       dich: cauHinh,
       readConfig,
       log: (s) => log(`[nạp nóng] ${s}`),
-      baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
+      notifyHost: (s) => { baoHostDaemon(s).catch(() => {}); },
     });
     log(`nạp nóng cấu hình BẬT — soi ${configPath(co.config)}`);
 
@@ -1391,7 +1391,7 @@ export async function main(argv = process.argv) {
           setInterval(() => {
             quetMotLuot({
               db, api,
-              baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
+              notifyHost: (s) => { baoHostDaemon(s).catch(() => {}); },
             }).catch((e) => log(`quét đối chiếu lỗi (đã nuốt): ${safeLogText(e)}`));
           }, GIOI_HAN_QUET.CHU_KY_QUET_MS),
         );
@@ -1406,7 +1406,7 @@ export async function main(argv = process.argv) {
       const { batLich, chayMotNhip, chayNhipTheoDuoi, NHIP_MS } = await import('./lich/bo_chay.js');
       const { dsNguoiTrongNhom, truyVanLichSu } = await import('./store/query.js');
       const { guiVaoNhom, guiDmHost } = await import('./zalo/send.js');
-      const { dmHostChinh } = await import('./ops/notify_host.js');
+      const { primaryHostDm } = await import('./ops/notify_host.js');
       const { sinhSoNhac } = await import('./lich/theo_duoi.js');
       if (batLich()) {
         const uidTroLy = toId(api?.getOwnId?.(), 'index.uidTroLy');
@@ -1434,7 +1434,7 @@ export async function main(argv = process.argv) {
             chayMotNhip({
               db, api, guiVaoNhom, guiDmHost, dsNguoiTrongNhom,
               uidTroLy,
-              dmHostChatId: dmHostChinh(cauHinh),
+              dmHostChatId: primaryHostDm(cauHinh),
               ghiLai: ghiLaiTin,
             })
               .then((ra) => demLoiGui('lịch một lần', ra))
@@ -1455,7 +1455,7 @@ export async function main(argv = process.argv) {
               // qua tool nào ⇒ đi vòng qua chỗ `mcp/tools.js` khai nguồn. Thiếu
               // dòng này thì `bo_chay` fail-closed: bối cảnh chạm nhóm khác là
               // KHÔNG giao model — không rò, nhưng lời nhắc mất giọng model.
-              // ⚠️ `boTichLuy` phải là ĐÚNG bộ đang dùng ở `dangKyTool` (dựng ở
+              // ⚠️ `boTichLuy` phải là ĐÚNG bộ đang dùng ở `registerTools` (dựng ở
               // ⑨-chuẩn bị) — hai bộ khác nhau thì `leak_guard` tra một sổ,
               // `bo_chay` ghi vào sổ kia, và lá chắn lại mù đúng ca cần nó.
               recordSources: noiGhiNhanNguon(boTichLuy),
@@ -1469,7 +1469,7 @@ export async function main(argv = process.argv) {
               //   hiểm nhất của tính năng này".
               // (`chayMotNhip` ngay phía trên đã truyền tham số này từ đầu —
               //  lệch giữa hai chỗ gọi là dấu hiệu bỏ sót, không phải cố ý.)
-              dmHostChatId: dmHostChinh(cauHinh),
+              dmHostChatId: primaryHostDm(cauHinh),
             })
               .then((ra) => demLoiGui('nhắc theo đuổi', ra))
               .catch((e) => log(`bộ chạy lời nhắc theo đuổi lỗi (đã nuốt): ${safeLogText(e)}`));
@@ -1535,7 +1535,7 @@ export async function main(argv = process.argv) {
       log('--khong-mcp: chạy daemon ghi lịch sử thuần, không nối MCP');
     }
 
-    ghiTrangThai(cauHinh.duongDan.health, {
+    writeHealth(cauHinh.duongDan.health, {
       trangThai: TRANG_THAI_SUC_KHOE.OK,
       lyDo: 'khởi động xong',
     });

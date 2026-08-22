@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { TEN_TOOL, TEN_TOOL_LICH, MA_LOI, GIOI_HAN, HUONG_TRA_LOI, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
 
 const CHAT_HOI = '9990000000001';
@@ -103,7 +103,7 @@ function dungTool(ghiDe = {}) {
     guiDmHost: ghiDe.guiDmHost ?? (async (_api, dmChatId, text) => {
       daGui.dm.push({ dmChatId, text }); return { msgId: 'gui-dm-1' };
     }),
-    baoHost: ghiDe.baoHost,
+    notifyHost: ghiDe.notifyHost,
     guiNhieuPhan: ghiDe.guiNhieuPhan ?? (async (_api, chatId, text) => {
       const { splitMessage } = await import('../src/lib/split_message.js');
       const kq = splitMessage(text);
@@ -125,7 +125,7 @@ function dungTool(ghiDe = {}) {
     },
   };
 
-  dangKyTool(server, {
+  registerTools(server, {
     db: ghiDe.db ?? {},
     cauHinh: ghiDe.cauHinh ?? { cauTrungTinh: 'Em nhắn riêng anh rồi ạ.', hosts: [], groups: [] },
     boTichLuy: {},
@@ -509,7 +509,7 @@ test('H4 "telegram" + lệnh CHẠY ĐƯỢC -> câu ngắn vào Zalo, bản đ�
 test('H5 🔴 "telegram" mà lệnh CHƯA CẮM -> rơi về "zalo" ĐỦ NỘI DUNG và BÁO HOST', async () => {
   const baoDaGui = [];
   const t = toolKenh('telegram', { tichHop: { kenhPhuLenh: null } }, {
-    baoHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
+    notifyHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
   });
   await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: DAI }));
 
@@ -523,7 +523,7 @@ test('H5 🔴 "telegram" mà lệnh CHƯA CẮM -> rơi về "zalo" ĐỦ NỘI 
 test('H6 "telegram" mà lệnh THOÁT MÃ ≠ 0 -> cũng rơi về + báo', async () => {
   const baoDaGui = [];
   const t = toolKenh('telegram', { tichHop: { kenhPhuLenh: 'cat > /dev/null; exit 3' } }, {
-    baoHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
+    notifyHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
   });
   await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: DAI }));
   assert.ok(t.daGui.nhom.length > 1);
@@ -533,7 +533,7 @@ test('H6 "telegram" mà lệnh THOÁT MÃ ≠ 0 -> cũng rơi về + báo', asyn
 test('H7 câu báo rơi về KHÔNG mang nội dung đáp án (chống rò)', async () => {
   const baoDaGui = [];
   const t = toolKenh('telegram', { tichHop: { kenhPhuLenh: null } }, {
-    baoHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
+    notifyHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
   });
   await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: DAI }));
   for (const x of baoDaGui) {
@@ -544,7 +544,7 @@ test('H7 câu báo rơi về KHÔNG mang nội dung đáp án (chống rò)', as
 test('H8 báo rơi về CÓ QUÃNG NGHỈ — cấu hình sai không đẻ ra một DM mỗi lượt', async () => {
   const baoDaGui = [];
   const t = toolKenh('telegram', { tichHop: { kenhPhuLenh: null } }, {
-    baoHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
+    notifyHost: async (_ch, tin) => { baoDaGui.push(tin); return true; },
   });
   await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: DAI }));
   const sauLan1 = baoDaGui.length;
@@ -592,14 +592,14 @@ function toolNhac(ghiDe = {}) {
 }
 
 test('I1 ★ 4 tool nhắc theo đuổi ĐÃ đăng ký, tên lấy từ hằng số', async () => {
-  const { KHAI_BAO_TOOL } = await import('../src/mcp/tools.js');
-  const ten = KHAI_BAO_TOOL.map((x) => x.name);
+  const { TOOL_DECLARATIONS } = await import('../src/mcp/tools.js');
+  const ten = TOOL_DECLARATIONS.map((x) => x.name);
   for (const t of Object.values(TN)) assert.ok(ten.includes(t), `thiếu tool '${t}'`);
 });
 
 test('I2 ★ MÔ TẢ tool phải phân biệt với 4 tool lịch MỘT LẦN', async () => {
-  const { KHAI_BAO_TOOL } = await import('../src/mcp/tools.js');
-  const mo = (n) => KHAI_BAO_TOOL.find((x) => x.name === n).description;
+  const { TOOL_DECLARATIONS } = await import('../src/mcp/tools.js');
+  const mo = (n) => TOOL_DECLARATIONS.find((x) => x.name === n).description;
 
   // Model đọc mô tả TRƯỚC khi gọi; dặn ở chỗ khác thì lúc nó chuẩn bị gọi
   // lại không thấy.
@@ -613,8 +613,8 @@ test('I2 ★ MÔ TẢ tool phải phân biệt với 4 tool lịch MỘT LẦN',
 });
 
 test('I3 🔴 mô tả `dong_nhac` phải DẶN model hỏi anh trước khi đóng', async () => {
-  const { KHAI_BAO_TOOL } = await import('../src/mcp/tools.js');
-  const mo = KHAI_BAO_TOOL.find((x) => x.name === TN.DONG_NHAC).description;
+  const { TOOL_DECLARATIONS } = await import('../src/mcp/tools.js');
+  const mo = TOOL_DECLARATIONS.find((x) => x.name === TN.DONG_NHAC).description;
   assert.match(mo, /HỎI ANH/i, 'tự đóng vì "nghe như đã xong" là im lặng bỏ rơi một việc thật');
   assert.match(mo, /chinh_nhip_nhac/, 'phải chỉ đường VAN XẢ để model không lấy đóng ra dùng thay');
 });
@@ -989,8 +989,8 @@ test('L7 câu xác nhận: 1 lịch -> KHÔNG bắt gõ mã; nhiều lịch -> c
 });
 
 test('L8 mô tả tool DẶN model các từ chốt/huỷ và cấm hỏi lại mã', async () => {
-  const { KHAI_BAO_TOOL } = await import('../src/mcp/tools.js');
-  const mo = (n) => KHAI_BAO_TOOL.find((x) => x.name === n).description;
+  const { TOOL_DECLARATIONS } = await import('../src/mcp/tools.js');
+  const mo = (n) => TOOL_DECLARATIONS.find((x) => x.name === n).description;
   const chot = mo(TEN_TOOL_LICH.DAT_LICH_CHOT);
   for (const tu of ['"ok"', '"đồng ý"', '"ừ"']) assert.ok(chot.includes(tu), `thiếu từ ${tu}`);
   assert.match(chot, /ĐỪNG hỏi lại mã/);

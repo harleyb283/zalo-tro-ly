@@ -23,7 +23,7 @@ import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { decideReplyRoute, createSourceLedger, getSources, recordSources } from '../src/policy/leak_guard.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 
 const NHOM = '9990000000001';
 const NHOM_KHAC = '111222333444';
@@ -171,7 +171,7 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
 function dungTool(db) {
   const nhatKy = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(schema, fn) { if (schema?.shape?.method?.value === 'tools/call') xuLy = fn; },
   }, {
     db,

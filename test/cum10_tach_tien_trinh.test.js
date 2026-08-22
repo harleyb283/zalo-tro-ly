@@ -28,7 +28,7 @@ import {
   CHE_DO, chotCheDo, HUONG_TRA_LOI, PHIEN_BAN_SCHEMA, TEN_TOOL, TRANG_THAI_GUI, VAI,
 } from '../src/lib/hang_so.js';
 import { createSourceLedger } from '../src/policy/leak_guard.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { rutOutbox } from '../src/index.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -62,7 +62,7 @@ function dbTam() {
 function dungClient(db) {
   const daGuiThang = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s, f) { if (s?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -226,9 +226,9 @@ test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việ
   for (const cam of ['giuKhoaPid', 'dangNhapBangCookie', 'batDauNghe', 'chayNhipTheoDuoi', 'chayMotNhip', 'keepAlive']) {
     assert.ok(!kh.includes(cam), `vai client gọi \`${cam}\` — đó là việc của daemon`);
   }
-  // ⚠️ Neo vào ĐÚNG khối `dangKyTool`. Bản đầu em canh `/api: null/` trên cả
+  // ⚠️ Neo vào ĐÚNG khối `registerTools`. Bản đầu em canh `/api: null/` trên cả
   // hàm — quá lỏng: trong `chayClient` còn một `{ api: null }` khác (đường
-  // `baoHost`), nên đổi `api` của tool sang giá trị khác vẫn xanh. Đột biến M7
+  // `notifyHost`), nên đổi `api` của tool sang giá trị khác vẫn xanh. Đột biến M7
   // sống sót đúng vì thế.
   assert.match(kh, /api: null,\s*\n\s*docSucKhoe:/,
     'client phải truyền api null CHO TOOL làm chốt chặn cuối');
@@ -284,7 +284,7 @@ test('★★★ X3 chế độ MỘT TIẾN TRÌNH: gửi THẲNG, ⛔ không x�
   const db = dbTam();
   const daGui = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s, f) { if (s?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -324,7 +324,7 @@ test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách 
   bo.ghiNhan(rid, ['9990000000009']);      // đã đọc dữ liệu một nhóm KHÁC
 
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s, f) { if (s?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,

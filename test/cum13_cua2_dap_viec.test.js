@@ -28,8 +28,8 @@ import { dongNhac, taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC,
 } from '../src/lib/hang_so.js';
-import { dangKyTool, TOOL_NOI_KHI_CUA2, TRAN_NOI_CUA2, LOP } from '../src/mcp/tools.js';
-import { nhanCua2, NHAN_CHI_NGHE } from '../src/mcp/channel.js';
+import { registerTools, TOOL_NOI_KHI_CUA2, TRAN_NOI_CUA2, LOP } from '../src/mcp/tools.js';
+import { nhanCua2, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
 import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -223,7 +223,7 @@ function dungTool(db, doiCauHinh = {}) {
   // sẽ luôn thấy mảng rỗng và luôn xanh. (Em vừa dính đúng lỗi này.)
   const daGui = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -439,7 +439,7 @@ test('★★★ T2d4 ⛔ KHÔNG bao giờ tag CHÍNH BOT, kể cả khi host = t
 
   const daGoiApi = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -673,7 +673,7 @@ test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn
   const { db } = dbCoNhac();
   const daGui = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -831,11 +831,11 @@ test('★★★ N1 nhãn cửa 2 nêu ĐÍCH DANH việc + 3 điều bắt buộ
 });
 
 test('★★★ N2 nhãn cửa 2 THẮNG nhãn chỉ-nghe (⛔ không dán cả hai)', async () => {
-  const { taoChannel } = await import('../src/mcp/channel.js');
+  const { createChannel } = await import('../src/mcp/channel.js');
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
   const nhan = [];
-  const kenh = taoChannel({ tenServer: 't', phienBan: '0', dangKyTool: () => {} });
+  const kenh = createChannel({ tenServer: 't', phienBan: '0', registerTools: () => {} });
   const client = new Client({ name: 'c', version: '1.0.0' }, { capabilities: {} });
   client.fallbackNotificationHandler = async (n) => { nhan.push(n); };
   const [tC, tS] = InMemoryTransport.createLinkedPair();
@@ -850,7 +850,7 @@ test('★★★ N2 nhãn cửa 2 THẮNG nhãn chỉ-nghe (⛔ không dán cả 
   assert.equal(nhan.length, 1);
   const c = nhan[0].params.content;
   assert.ok(c.startsWith('[ĐÁP VIỆC'), 'nhãn cửa 2 phải ở ĐẦU content');
-  assert.ok(!c.includes(NHAN_CHI_NGHE),
+  assert.ok(!c.includes(LISTEN_ONLY_LABEL),
     '🔴 dán cả hai nhãn = bảo model vừa "không được trả lời" vừa "đáp ngắn"');
   assert.equal(nhan[0].params.meta.id_viec_mo_cua, 'NHAC1');
   await kenh.dong();

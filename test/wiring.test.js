@@ -546,7 +546,7 @@ test('K5 ★ cầu nối tạm ĐÃ XOÁ HẲN, không còn hai đường song s
       assert.ok(!src.includes(dau), `${ten} vẫn còn '${dau}' — hai đường song song là chỗ sinh sai lệch`);
     }
   }
-  // Đường DUY NHẤT còn lại: index.js truyền thẳng vào taoChannel.
+  // Đường DUY NHẤT còn lại: index.js truyền thẳng vào createChannel.
   assert.match(SRC_INDEX, /layBoiCanhTraLoi: \(requestId\) => layBoiCanhTraLoi\(db, requestId\)/);
   assert.match(SRC_INDEX, /import\('\.\/store\/query\.js'\)/);
   const q = await import('../src/store/query.js');
@@ -555,9 +555,9 @@ test('K5 ★ cầu nối tạm ĐÃ XOÁ HẲN, không còn hai đường song s
 
 test('K6 mọi module + tên hàm index.js nạp ĐỘNG cho v4 đều tồn tại thật', async () => {
   const can = [
-    ['./mcp/channel.js', ['taoChannel', 'dayHangDoiCho']],
+    ['./mcp/channel.js', ['createChannel', 'pushPendingQueue']],
     ['./store/query.js', ['layBoiCanhTraLoi']],
-    ['./mcp/tools.js', ['dangKyTool']],
+    ['./mcp/tools.js', ['registerTools']],
   ];
   for (const [duongDan, ten] of can) {
     assert.ok(SRC_INDEX.includes(`import('${duongDan}')`), `index.js không nạp ${duongDan}`);

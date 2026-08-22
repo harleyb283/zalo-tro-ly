@@ -38,7 +38,7 @@ import { quyetDinh } from '../src/policy/gate.js';
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayMotNhip, chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { baoDamTag, datLaiThrottle, datThrottle, guiDmHost, guiVaoNhom } from '../src/zalo/send.js';
 
 /**
@@ -101,7 +101,7 @@ const ten = (l) => (l === ThreadType.User ? 'User(DM)' : l === ThreadType.Group 
 
 function dungTool(db, api, { hosts, cauTrungTinh = 'Em nhắn riêng anh rồi ạ.', huong } = {}) {
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s, f) { if (s?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -403,7 +403,7 @@ test('★★★ C8 khi đích là DM, `_traLoi` KHÔNG truyền dsNguoi xuống 
   const bat = [];
   const api = { getOwnId: () => 'uid-bot', async sendMessage() { return { message: { msgId: 'm1' } }; } };
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s2, f) { if (s2?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,

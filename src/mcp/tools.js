@@ -96,7 +96,7 @@ const MO_TA_REQUEST_ID =
   'Mã phiên lấy từ meta.request_id của notification <channel> đang xử lý. ' +
   'BẮT BUỘC truyền lại đúng mã đó; thiếu hoặc sai thì bị từ chối.';
 
-export const KHAI_BAO_TOOL = Object.freeze([
+export const TOOL_DECLARATIONS = Object.freeze([
   {
     name: TEN_TOOL.LICH_SU,
     description:
@@ -784,7 +784,7 @@ function _kiemPhien(kho, db, thamSo) {
  * Đó là prompt injection đi vòng qua bộ nhớ — chậm hơn nhưng bền hơn. Muốn mở
  * là quyết định của anh, ⛔ không phải của code.
  */
-export const TOOL_DUOC_PHEP_KHI_CHI_NGHE = Object.freeze([
+export const TOOLS_ALLOWED_LISTEN_ONLY = Object.freeze([
   TEN_TOOL.LICH_SU,
   TEN_TOOL.TRANG_THAI,
   TEN_TOOL_LICH.XEM_LICH,
@@ -808,7 +808,7 @@ export const TOOL_DUOC_PHEP_KHI_CHI_NGHE = Object.freeze([
  * `_chanThieuNguon()`. Cấm-bằng-cách-không-đưa-công-cụ đổi thành
  * **cho-nhưng-để-lại-dấu-vết**.
  */
-export const TOOL_NGHIEP_VU_KHI_CHI_NGHE = Object.freeze([
+export const BUSINESS_TOOLS_LISTEN_ONLY = Object.freeze([
   // 🔴 `tra_loi` ⛔ KHÔNG nằm đây — em ĐÃ cho vào rồi phải rút ra, ghi lại để
   // người sau khỏi đi lại đường đó: host nới quyền **ĐÓNG VIỆC / ĐỔI LỊCH /
   // GHI NHỚ**, ⛔ KHÔNG nới quyền **NÓI**. Cho `tra_loi` vào đây là gỡ luôn
@@ -827,12 +827,12 @@ export const TOOL_NGHIEP_VU_KHI_CHI_NGHE = Object.freeze([
 /**
  * ★ Tool ĐỔI TRẠNG THÁI THẬT — bắt buộc khai nguồn ở lượt chỉ-nghe.
  *
- * Hiện trùng khít `TOOL_NGHIEP_VU_KHI_CHI_NGHE` (mọi tool nghiệp vụ đều đổi
+ * Hiện trùng khít `BUSINESS_TOOLS_LISTEN_ONLY` (mọi tool nghiệp vụ đều đổi
  * trạng thái). Tách riêng vì hai danh sách trả lời hai câu hỏi KHÁC nhau —
  * *"được chạy không"* và *"có phải khai nguồn không"* — và ngày mai thêm một
  * tool nghiệp vụ chỉ-đọc thì chúng tách ra ngay.
  */
-export const TOOL_DOI_TRANG_THAI = Object.freeze([...TOOL_NGHIEP_VU_KHI_CHI_NGHE]);
+export const STATE_CHANGING_TOOLS = Object.freeze([...BUSINESS_TOOLS_LISTEN_ONLY]);
 
 /**
  * ★ v10 — HAI TOOL **NÓI** mà CỬA 2 nới thêm.
@@ -867,8 +867,8 @@ export const TRAN_NOI_CUA2 = 300;
  */
 function _chanKhiChiNghe(ten, phien) {
   if (!phien?.chiNghe) return null;
-  if (TOOL_DUOC_PHEP_KHI_CHI_NGHE.includes(ten)) return null;
-  if (TOOL_NGHIEP_VU_KHI_CHI_NGHE.includes(ten)) return null;
+  if (TOOLS_ALLOWED_LISTEN_ONLY.includes(ten)) return null;
+  if (BUSINESS_TOOLS_LISTEN_ONLY.includes(ten)) return null;
   // 🔴 CỬA 2 (v10) — GIỮ NGUYÊN, ⛔ đừng gỡ khi viết lại hàm này (em suýt gỡ).
   // Người ĐANG BỊ NHẮC nói về đúng việc họ phụ trách ⇒ được ĐÁP trong nhóm.
   // Đây là quyền NÓI, tách hẳn khỏi quyền nghiệp vụ vừa nới ở trên.
@@ -897,7 +897,7 @@ function _chanKhiChiNghe(ten, phien) {
  */
 function _chanThieuNguon(ten, phien, thamSo) {
   if (!phien?.chiNghe) return null;                    // lượt host: ⛔ không đòi gì
-  if (!TOOL_DOI_TRANG_THAI.includes(ten)) return null;
+  if (!STATE_CHANGING_TOOLS.includes(ten)) return null;
   const ai = String(thamSo?.nguonNguoi ?? '').trim();
   const cau = String(thamSo?.nguonNguyenVan ?? '').trim();
   if (ai && cau) return null;
@@ -976,7 +976,7 @@ function _nhanText(text) {
  *          kho?: object, chinhSach?: object, guiTin?: object}} phuThuoc
  * @returns {void}
  */
-export function dangKyTool(server, phuThuoc) {
+export function registerTools(server, phuThuoc) {
   // Mặc định là module THẬT; 3 khoá `kho`/`chinhSach`/`guiTin` là đường TIÊM
   // PHỤ THUỘC, thêm vào cho test chạy được khi G4/G7 còn là stub (luật 8:
   // mỗi gói phải tự nghiệm thu được, không chờ gói khác). G8 wiring KHÔNG
@@ -1010,7 +1010,7 @@ export function dangKyTool(server, phuThuoc) {
   // chủ đích: thà bot lọt vào danh sách còn hơn xoá nhầm người thật).
   datUidTroLy(_uidTroLyTuApi(api));
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: KHAI_BAO_TOOL }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DECLARATIONS }));
 
   server.setRequestHandler(CallToolRequestSchema, async (yeuCau) => {
     const ten = yeuCau?.params?.name;
@@ -1732,8 +1732,8 @@ async function _baoRoiVe(cauHinh, api, lyDo, soPhan, baoHostTiem) {
     + `Em đã gửi đầy đủ vào Zalo thay thế (${soPhan} tin). `
     + 'Kiểm lại tichHop.kenhPhuLenh trong cấu hình.';
   try {
-    const baoHost = baoHostTiem ?? (await import('../ops/notify_host.js')).baoHost;
-    await baoHost(cauHinh, tin, { api });
+    const notifyHost = baoHostTiem ?? (await import('../ops/notify_host.js')).notifyHost;
+    await notifyHost(cauHinh, tin, { api });
     return true;
   } catch (e) {
     _log(cleanError('không báo được host chuyện rơi về kênh phụ', e).message);
@@ -1753,7 +1753,7 @@ async function _baoRoiVe(cauHinh, api, lyDo, soPhan, baoHostTiem) {
 async function _guiTheoChinhSach(nen, chatId, text, tuyChon = {}) {
   const { cauHinh, api, kho, db } = nen;
   // Đi qua bộ đã TIÊM chứ không gọi thẳng module: `guiTin` là đường tiêm phụ
-  // thuộc của gói này (xem `dangKyTool`), bộ test dựa vào nó để chạy mà không
+  // thuộc của gói này (xem `registerTools`), bộ test dựa vào nó để chạy mà không
   // cần Zalo thật.
   const G = nen.guiTin ?? {};
   const _nhom = G.guiVaoNhom ?? guiVaoNhom;
@@ -1787,10 +1787,10 @@ async function _guiTheoChinhSach(nen, chatId, text, tuyChon = {}) {
     } else {
       let kq;
       try {
-        const { chayNotifyCommand } = await import('../ops/notify_host.js');
+        const { runNotifyCommand } = await import('../ops/notify_host.js');
         // ⛔ `text` đi qua STDIN, KHÔNG BAO GIỜ nối vào chuỗi lệnh — nó là
         // nội dung người ngoài chi phối được.
-        kq = await chayNotifyCommand(lenh, {
+        kq = await runNotifyCommand(lenh, {
           loai: 'ket_qua_dai',
           chatId: String(chatId),
           laDm,
@@ -1810,7 +1810,7 @@ async function _guiTheoChinhSach(nen, chatId, text, tuyChon = {}) {
     // RƠI VỀ "zalo": gửi ĐỦ vào Zalo rồi mới báo host (đáp án quan trọng hơn
     // lời cáo lỗi; báo trước mà gửi hỏng là hứa suông).
     const r = await _nhieu(api, chatId, text, tuyChonGui);
-    await _baoRoiVe(cauHinh, api, lyDo, r.soPhan, G.baoHost);
+    await _baoRoiVe(cauHinh, api, lyDo, r.soPhan, G.notifyHost);
     return { msgId: r.msgId, kenh: 'zalo', soPhan: r.soPhan, daRoiVe: true, daCat: r.daCat };
   }
 
@@ -2079,7 +2079,7 @@ function _iso(ts) {
  *
  * @returns {{ms: number}|{loi: string}}
  */
-export function docMocTuyetDoi(s) {
+export function parseAbsoluteTime(s) {
   const t = String(s ?? '').trim();
   if (!/[+-]\d{2}:?\d{2}$|Z$/i.test(t)) {
     return {
@@ -2105,7 +2105,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
     return _loi(MA_LOI.BI_CHAN_RO_CHEO, 'Chỉ host mới được đặt lịch nhắc.');
   }
 
-  const moc = docMocTuyetDoi(thamSo.guiLuc);
+  const moc = parseAbsoluteTime(thamSo.guiLuc);
   if (moc.loi) return _loi(MA_LOI.CAU_HINH_SAI, moc.loi);
 
   const bayGio = Date.now();
@@ -2877,10 +2877,10 @@ function _xinDuyet({ kho, db, cauHinh, api }, thamSo) {
     return _loi(MA_LOI.DB_LOI, cleanError('không ghi được yêu cầu duyệt', e).message);
   }
 
-  // ⚠️ Báo host MỘT DÒNG. ⛔ Không mở đường mới ra Zalo từ client: `baoHost`
+  // ⚠️ Báo host MỘT DÒNG. ⛔ Không mở đường mới ra Zalo từ client: `notifyHost`
   // với `api: null` đi đường lệnh shell của config (`notifyCommand`) + log.
   _baoHostMotDong(cauHinh, api,
-    `Nhóm ${phien.dong.chat_id_hoi} xin duyệt: ${viec.slice(0, 200)}`, kho?.baoHost);
+    `Nhóm ${phien.dong.chat_id_hoi} xin duyệt: ${viec.slice(0, 200)}`, kho?.notifyHost);
 
   return _ok({
     id: ra.id,
@@ -2975,7 +2975,7 @@ function _duyetYeuCau({ kho, db }, thamSo) {
  * Rải vào từng handler thì thêm tool nghiệp vụ thứ 9 là quên một chỗ, và quên
  * ⛔ KHÔNG có lỗi nào nổ ra: việc vẫn chạy, chỉ là ⛔ không ai truy được ai bảo
  * làm. Đúng kiểu hỏng câm mà cả thiết kế này đang tránh. Bài `V7` canh đúng
- * điều đó: MỌI tool trong `TOOL_DOI_TRANG_THAI` phải đi qua hàm này.
+ * điều đó: MỌI tool trong `STATE_CHANGING_TOOLS` phải đi qua hàm này.
  *
  * ⚠️ CHỈ ghi khi hành động THÀNH CÔNG. Ghi vết cho một lời gọi hỏng là dựng
  * một sổ ghi chép nói rằng việc đã xảy ra trong khi nó ⛔ chưa từng xảy ra.
@@ -2987,7 +2987,7 @@ function _duyetYeuCau({ kho, db }, thamSo) {
 function _ghiVetNeuOk(nen, phien, tenTool, thamSo, ketQua) {
   if (ketQua?.ok !== true) return ketQua;
   if (!phien?.chiNghe) return ketQua;              // lượt host: đã truy được sẵn
-  if (!TOOL_DOI_TRANG_THAI.includes(tenTool)) return ketQua;
+  if (!STATE_CHANGING_TOOLS.includes(tenTool)) return ketQua;
   const ai = String(thamSo?.nguonNguoi ?? '').trim();
   const cau = String(thamSo?.nguonNguyenVan ?? '').trim();
   // `_chanThieuNguon` đã chặn ca thiếu từ trước; tới đây mà thiếu là chốt kia
@@ -3011,15 +3011,15 @@ function _ghiVetNeuOk(nen, phien, tenTool, thamSo, ketQua) {
     _log(cleanError(`🔴 ⛔ KHÔNG ghi được vết cho '${tenTool}' (việc ĐÃ chạy)`, e).message);
   }
   _baoHostMotDong(nen.cauHinh, nen.api,
-    `[${chatId}] ${tenTool} chạy theo lời ${ai}: "${cau.slice(0, 160)}"`, nen.kho?.baoHost);
+    `[${chatId}] ${tenTool} chạy theo lời ${ai}: "${cau.slice(0, 160)}"`, nen.kho?.notifyHost);
   return ketQua;
 }
 
 /**
  * Báo host MỘT DÒNG. ⛔ KHÔNG BAO GIỜ ném — đây là việc phụ.
  *
- * ⚠️ Client ⛔ KHÔNG giữ Zalo (`api: null` là chốt chặn cuối, xem `dangKyTool`).
- * `baoHost` khi thiếu `api` sẽ đi đường lệnh shell của config (`notifyCommand`)
+ * ⚠️ Client ⛔ KHÔNG giữ Zalo (`api: null` là chốt chặn cuối, xem `registerTools`).
+ * `notifyHost` khi thiếu `api` sẽ đi đường lệnh shell của config (`notifyCommand`)
  * và luôn ghi log. ⛔ Đừng mở một đường mới ra Zalo từ client: hai tiến trình
  * cùng gửi là hai bộ đếm throttle độc lập, và tài khoản bot có thể bị gắn cờ.
  */
@@ -3029,7 +3029,7 @@ function _baoHostMotDong(cauHinh, api, thongDiep, baoHostTiem) {
     // đường chạy lệnh shell, ⛔ đừng buộc nó vào mọi lần nạp `tools.js`.
     Promise.resolve(baoHostTiem
       ? baoHostTiem(cauHinh, thongDiep, { api: api ?? null })
-      : import('../ops/notify_host.js').then((m) => m.baoHost(cauHinh, thongDiep, { api: api ?? null })))
+      : import('../ops/notify_host.js').then((m) => m.notifyHost(cauHinh, thongDiep, { api: api ?? null })))
       .catch((e) => _log(cleanError('báo host thất bại (đã nuốt)', e).message));
   } catch (e) {
     _log(cleanError('báo host ném ngay (đã nuốt)', e).message);
@@ -3129,7 +3129,7 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
     return _loi(MA_LOI.DB_LOI, cleanError('không ghi nhớ được', e).message);
   }
   // ⚠️ BÁO HOST + GHI VẾT ⛔ KHÔNG làm ở đây nữa (21/08/2026). Làm TẬP TRUNG ở
-  // `_ghiVetNeuOk` trong `dangKyTool`: rải vào từng handler thì thêm tool
+  // `_ghiVetNeuOk` trong `registerTools`: rải vào từng handler thì thêm tool
   // nghiệp vụ thứ 9 là quên một chỗ, mà quên ở đây ⛔ KHÔNG có lỗi nào nổ ra —
   // chỉ có một hành động đổi trạng thái ⛔ không để lại dấu vết nào.
 

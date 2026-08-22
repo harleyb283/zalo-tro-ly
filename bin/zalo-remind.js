@@ -50,7 +50,7 @@ import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { GIOI_HAN } from '../src/lib/hang_so.js';
 import { dangNhapBangCookie, LoiPhienZalo } from '../src/zalo/session.js';
-import { daemonDangChay } from '../src/ops/health.js';
+import { isDaemonRunning } from '../src/ops/health.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 import { guiDmHost, guiVaoNhom, catAnToan } from '../src/zalo/send.js';
 
@@ -223,7 +223,7 @@ export async function main(argv) {
     // khuyên cho chúng khác nhau và một trong hai lời khuyên (quét QR) sẽ
     // ĐÁ VĂNG phiên đang khoẻ nếu dùng nhầm chỗ.
     out(`  phiên   : ${coPhien ? 'CÓ file' : '⛔ CHƯA CÓ FILE — chưa từng đăng nhập trên máy này'} (${ps})`);
-    const dt = daemonDangChay(cauHinh);
+    const dt = isDaemonRunning(cauHinh);
     out(`  daemon  : ${dt.lyDo}`);
     out('');
     if (!coPhien) {
@@ -240,7 +240,7 @@ export async function main(argv) {
   // lợi ích thì bằng không (chờ vài phút chạy lại là được), nên mặc định TỪ CHỐI.
   // Muốn thử để ĐO thì phải nói rõ ý định bằng --du-biet-rui-ro — cố ý bắt gõ
   // dài, để không ai vô tình cắm nó vào crontab.
-  const dt = daemonDangChay(cauHinh);
+  const dt = isDaemonRunning(cauHinh);
   if (dt.song === true && !t.duBietRuiRo) {
     err(`⛔ TỪ CHỐI GỬI: ${dt.lyDo}.`);
     err('   Script này phải đăng nhập Zalo lần thứ hai để gửi, mà tài khoản chỉ có MỘT suất');

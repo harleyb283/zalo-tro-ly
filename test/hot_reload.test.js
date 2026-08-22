@@ -158,7 +158,7 @@ test('C1 ★ sửa file ⇒ nhóm mới có hiệu lực mà KHÔNG restart', ()
     dich: dangChay,
     readConfig,
     log: () => {},
-    baoHost: (s) => bao.push(s),
+    notifyHost: (s) => bao.push(s),
     tuChay: false,
   });
 
@@ -183,7 +183,7 @@ test('C2 ★ config HỎNG ⇒ GIỮ NGUYÊN bản đang chạy + báo host ĐÚ
   const dangChay = readConfig(f);
   const bao = [];
   const bo = createHotReloader({
-    duongDan: f, dich: dangChay, readConfig, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
+    duongDan: f, dich: dangChay, readConfig, log: () => {}, notifyHost: (s) => bao.push(s), tuChay: false,
   });
 
   fs.writeFileSync(f, '{ "hosts": [ this is not json');
@@ -219,7 +219,7 @@ test('C4 file BIẾN MẤT ⇒ giữ nguyên, ⛔ không coi là "không nhóm n
   const dangChay = readConfig(f);
   const bao = [];
   const bo = createHotReloader({
-    duongDan: f, dich: dangChay, readConfig, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
+    duongDan: f, dich: dangChay, readConfig, log: () => {}, notifyHost: (s) => bao.push(s), tuChay: false,
   });
 
   fs.rmSync(f);

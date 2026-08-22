@@ -30,7 +30,7 @@ import {
 } from '../lib/hang_so.js';
 
 /** Lý do KHÔNG gọi lệnh — mã máy, để log và test so khớp mà không so câu chữ. */
-export const LY_DO_BO_QUA = Object.freeze({
+export const SKIP_REASON = Object.freeze({
   KHONG_CO_LENH: 'khong-co-lenh',
   DA_MO: 'da-mo',
   DANG_CHO_THU_LAI: 'dang-cho-thu-lai',
@@ -49,7 +49,7 @@ export const LY_DO_BO_QUA = Object.freeze({
  *   log?: (s: string) => void,
  * }} p
  */
-export function taoSoMoPhien(p = {}) {
+export function createPaneLedger(p = {}) {
   /** chatId -> {daMo: boolean, lucGoiMs: number, lucChamMs: number} */
   const so = new Map();
   const dangChay = new Set();
@@ -90,7 +90,7 @@ export function taoSoMoPhien(p = {}) {
      */
     async baoDam(chatId, thongTin = {}) {
       const chat = String(chatId ?? '').trim();
-      if (!chat) return { daGoi: false, lyDo: LY_DO_BO_QUA.KHONG_CO_LENH };
+      if (!chat) return { daGoi: false, lyDo: SKIP_REASON.KHONG_CO_LENH };
       donNgu();
 
       const m = so.get(chat) ?? { daMo: false, lucGoiMs: 0, lucChamMs: 0 };
@@ -98,18 +98,18 @@ export function taoSoMoPhien(p = {}) {
       so.set(chat, m);
 
       // ⚠️ MẶC ĐỊNH `null` ⇒ ⛔ KHÔNG có panel-mỗi-nhóm, y hệt hôm nay.
-      if (!p.lenh) return { daGoi: false, lyDo: LY_DO_BO_QUA.KHONG_CO_LENH };
-      if (m.daMo) return { daGoi: false, lyDo: LY_DO_BO_QUA.DA_MO };
+      if (!p.lenh) return { daGoi: false, lyDo: SKIP_REASON.KHONG_CO_LENH };
+      if (m.daMo) return { daGoi: false, lyDo: SKIP_REASON.DA_MO };
       // Lệnh đang chạy dở cho chính nhóm này ⇒ ⛔ đừng bắn chồng.
-      if (dangChay.has(chat)) return { daGoi: false, lyDo: LY_DO_BO_QUA.DANG_CHAY };
+      if (dangChay.has(chat)) return { daGoi: false, lyDo: SKIP_REASON.DANG_CHAY };
       if (m.lucGoiMs && bayGio() - m.lucGoiMs < thuLaiMs) {
-        return { daGoi: false, lyDo: LY_DO_BO_QUA.DANG_CHO_THU_LAI };
+        return { daGoi: false, lyDo: SKIP_REASON.DANG_CHO_THU_LAI };
       }
       // 🔴 Quá trần ⇒ dồn về client DỰ PHÒNG, ⛔ KHÔNG bỏ rơi câu hỏi, và
       // ⛔ KHÔNG im lặng.
       if (demDaMo() >= tran) {
         log(`[moPhien] ĐÃ ĐỦ TRẦN ${tran} phiên -> nhóm ${chat} dùng client dự phòng`);
-        return { daGoi: false, lyDo: LY_DO_BO_QUA.QUA_TRAN };
+        return { daGoi: false, lyDo: SKIP_REASON.QUA_TRAN };
       }
 
       m.lucGoiMs = bayGio();

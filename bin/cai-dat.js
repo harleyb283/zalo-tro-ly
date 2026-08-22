@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url';
 import readline from 'node:readline/promises';
 
 import { expandPath } from '../src/lib/paths.js';
-import { dangChayTest } from '../src/ops/notify_host.js';
+import { isRunningTests } from '../src/ops/notify_host.js';
 import { checkEnvironment, buildConfig, parseGroupChoice } from '../src/ops/setup.js';
 import {
   dangNhapBangCookie, dangNhapBangQr, docPhien, luuPhien,
@@ -52,7 +52,7 @@ function moAnh(duongDan) {
   // 🔴 CỔNG CHẶN LÚC CHẠY TEST — cùng khuôn `bin/zalo-login.js`.
   // Mở ảnh là CHẠM RA NGOÀI tiến trình: nó bật hẳn trình xem ảnh trên màn hình
   // người dùng. Bài test nào lỡ gọi tới đây ⛔ không được phép làm điều đó.
-  if (dangChayTest()) {
+  if (isRunningTests()) {
     process.stderr.write(`[cai-dat] [CHẶN] đang chạy test -> KHÔNG mở ảnh QR: ${duongDan}\n`);
     return false;
   }

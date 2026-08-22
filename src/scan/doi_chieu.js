@@ -324,7 +324,7 @@ export function soGoiTrongNgay(db, bayGioMs) {
  * Một LƯỢT quét đầy đủ (mọi nhóm cần quét).
  *
  * @param {{db: any, api: any, bayGioMs?: number, tranNgay?: number,
- *          baoHost?: (s: string) => void, nghi?: (ms: number) => Promise<void>}} p
+ *          notifyHost?: (s: string) => void, nghi?: (ms: number) => Promise<void>}} p
  * @returns {Promise<{daQuet: number, boQua: string|null, tong: object}>}
  */
 export async function quetMotLuot(p) {
@@ -338,7 +338,7 @@ export async function quetMotLuot(p) {
   if (daTieu >= tranNgay) {
     // Chạm trần ⇒ NGỪNG tới nửa đêm và BÁO HOST. Im lặng dừng là tệ nhất: tính
     // năng chết mà không ai biết, rồi tưởng "không có tin nào bị thu hồi".
-    p.baoHost?.(
+    p.notifyHost?.(
       `Đối chiếu thu hồi đã dùng ${daTieu}/${tranNgay} request hôm nay -> NGỪNG quét tới nửa đêm.`,
     );
     return { daQuet: 0, boQua: 'TRAN_NGAY', tong };
@@ -353,7 +353,7 @@ export async function quetMotLuot(p) {
 
   for (const chatId of ds) {
     if (daTieu + tong.soGoiMang >= tranNgay) {
-      p.baoHost?.(`Chạm trần ${tranNgay} request/ngày giữa lượt quét -> dừng.`);
+      p.notifyHost?.(`Chạm trần ${tranNgay} request/ngày giữa lượt quét -> dừng.`);
       break;
     }
     const tsBatDau = new Date().toISOString();

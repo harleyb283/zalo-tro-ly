@@ -23,7 +23,7 @@
  *    phút/lần mà cũng đăng nhập thì có nguy cơ **đá chính cái daemon nó đang
  *    canh** — bộ theo dõi tự tay gây ra sự cố nó sinh ra để phát hiện. Chưa
  *    ai xác minh được là an toàn, mà thiệt hại nếu sai thì rất lớn ⇒ không làm.
- *    ⇒ Ở đây `baoHost()` luôn được gọi với `boTang1: true`.
+ *    ⇒ Ở đây `notifyHost()` luôn được gọi với `boTang1: true`.
  *
  * MÃ THOÁT (cron chỉ đọc được cái này):
  *    0  bình thường  (hoặc --xem, luôn 0)
@@ -46,9 +46,9 @@ import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 import {
-  docTrangThai, tuoiNhipTimMs, tuoiTrangThaiMs, moTaKhoangThoiGian, daemonDangChay,
+  readHealth, heartbeatAgeMs, stateAgeMs, describeDuration, isDaemonRunning,
 } from '../src/ops/health.js';
-import { baoHost } from '../src/ops/notify_host.js';
+import { notifyHost } from '../src/ops/notify_host.js';
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
 const err = (s = '') => process.stderr.write(`${s}\n`);
@@ -116,7 +116,7 @@ Mã thoát: 0 ok · 1 lỗi · 2 cấu hình · 3 CAN_QR · 4 LISTENER_CHET
 /**
  * Phán trạng thái. Hàm THUẦN — không I/O, để test được không cần đĩa.
  *
- * @param {object|null} tt  kết quả docTrangThai()
+ * @param {object|null} tt  kết quả readHealth()
  * @param {object} cauHinh
  * @param {number} [bayGioMs]
  * @returns {{ma: number, nghiemTrong: boolean, tomTat: string, chiTiet: object}}
@@ -124,7 +124,7 @@ Mã thoát: 0 ok · 1 lỗi · 2 cấu hình · 3 CAN_QR · 4 LISTENER_CHET
 export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
   // 🔴 BỐN TRẠNG THÁI KHÁC HẲN NHAU, lâu nay bị gộp thành một câu "cần quét QR":
   //   ① daemon không chạy   ② chưa từng đăng nhập   ③ đang khởi động lại   ④ cookie chết thật
-  // CHỈ ④ mới cần quét QR. `tienTrinh` (daemonDangChay) là dữ kiện để tách ① và ③
+  // CHỈ ④ mới cần quét QR. `tienTrinh` (isDaemonRunning) là dữ kiện để tách ① và ③
   // ra khỏi ④ — thiếu nó thì mọi câu trả lời đều là phỏng đoán.
   const dt = tienTrinh ?? { song: null, pid: null, lyDo: 'chưa kiểm tiến trình' };
   const moTaTienTrinh = dt.song === true
@@ -149,15 +149,15 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
     };
   }
 
-  const nhipTim = tuoiNhipTimMs(tt, bayGioMs);
-  const tuoiTt = tuoiTrangThaiMs(tt, bayGioMs);
+  const nhipTim = heartbeatAgeMs(tt, bayGioMs);
+  const tuoiTt = stateAgeMs(tt, bayGioMs);
   const han = hanNhipTimMs(cauHinh);
   const chiTiet = {
     trangThai: tt.trangThai,
     lyDo: tt.lyDo,
     soLanThuLai: tt.soLanThuLai,
     nhipTimMs: nhipTim,
-    tuoiTrangThaiMs: tuoiTt,
+    stateAgeMs: tuoiTt,
     hanNhipTimMs: han,
     tienTrinh: dt,
   };
@@ -170,8 +170,8 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
       ma: MA.NHIP_TIM_CHET,
       nghiemTrong: true,
       tomTat:
-        `NHỊP TIM CHẾT: ${moTaKhoangThoiGian(nhipTim)} rồi không ai ghi health.json `
-        + `(ngưỡng ${moTaKhoangThoiGian(han)}). Trạng thái ghi lần cuối là `
+        `NHỊP TIM CHẾT: ${describeDuration(nhipTim)} rồi không ai ghi health.json `
+        + `(ngưỡng ${describeDuration(han)}). Trạng thái ghi lần cuối là `
         + `"${tt.trangThai}" nhưng con số đó đã cũ — nhiều khả năng tiến trình chết hẳn.`,
       chiTiet,
     };
@@ -193,7 +193,7 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
         return {
           ma: MA.OK, nghiemTrong: false,
           tomTat:
-            `health.json ghi CAN_QR (đã ${moTaKhoangThoiGian(tuoiTt)}) NHƯNG ${moTaTienTrinh} `
+            `health.json ghi CAN_QR (đã ${describeDuration(tuoiTt)}) NHƯNG ${moTaTienTrinh} `
             + '⇒ nhiều khả năng đây là TRẠNG THÁI CŨ của một lần khởi động hỏng trước đó, '
             + 'không phải sự cố đang diễn ra. ⛔ ĐỪNG quét QR — quét khi phiên còn sống sẽ ĐÁ VĂNG nó. '
             + 'Kiểm bằng cách gửi thử một tin vào nhóm rồi xem có được ghi không.'
@@ -204,7 +204,7 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
       return {
         ma: MA.CAN_QR, nghiemTrong: true,
         tomTat:
-          `CẦN QUÉT QR LẠI (đã ${moTaKhoangThoiGian(tuoiTt)}). ${moTaTienTrinh} Chạy TAY: `
+          `CẦN QUÉT QR LẠI (đã ${describeDuration(tuoiTt)}). ${moTaTienTrinh} Chạy TAY: `
           + `node bin/zalo-login.js — trợ lý KHÔNG tự làm được việc này.`
           + (tt.lyDo ? `\n  Lý do: ${tt.lyDo}` : ''),
         chiTiet,
@@ -215,7 +215,7 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
       return {
         ma: MA.LISTENER_CHET, nghiemTrong: true,
         tomTat:
-          `LISTENER CHẾT (đã ${moTaKhoangThoiGian(tuoiTt)}). Tin nhắn mới KHÔNG `
+          `LISTENER CHẾT (đã ${describeDuration(tuoiTt)}). Tin nhắn mới KHÔNG `
           + 'được ghi lại trong khoảng này — và sẽ không lấy lại được, Zalo không '
           + 'cho đọc lịch sử trước lúc bot nghe.'
           + (tt.lyDo ? `\n  Lý do: ${tt.lyDo}` : ''),
@@ -230,9 +230,9 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
         ma: ket ? MA.NOI_LAI_KET : MA.OK,
         nghiemTrong: ket,
         tomTat: ket
-          ? `NỐI LẠI MẮC KẸT: đã ${moTaKhoangThoiGian(tuoiTt)} vẫn chưa xong `
+          ? `NỐI LẠI MẮC KẸT: đã ${describeDuration(tuoiTt)} vẫn chưa xong `
             + `(thử ${tt.soLanThuLai} lần). Vòng nối lại đáng ra xong trong ~12 phút.`
-          : `Đang nối lại (${moTaKhoangThoiGian(tuoiTt)}, thử ${tt.soLanThuLai} lần) — `
+          : `Đang nối lại (${describeDuration(tuoiTt)}, thử ${tt.soLanThuLai} lần) — `
             + 'còn trong khoảng bình thường, chưa báo động.',
         chiTiet,
       };
@@ -243,7 +243,7 @@ export function phanDinh(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null) {
         ma: MA.KHONG_BIET, nghiemTrong: true,
         tomTat:
           `KHÔNG XÁC ĐỊNH ĐƯỢC listener còn sống hay không (đã `
-          + `${moTaKhoangThoiGian(tuoiTt)}). Đây KHÔNG phải "đã chết" — watchdog `
+          + `${describeDuration(tuoiTt)}). Đây KHÔNG phải "đã chết" — watchdog `
           + 'cố ý không tự nối lại ở trạng thái này để khỏi rơi vào vòng vô hạn. '
           + 'Thường là do zca-js lên version và đổi thuộc tính nội bộ. '
           + 'Kiểm bằng cách gửi thử một tin vào nhóm rồi xem có được ghi không.'
@@ -280,10 +280,10 @@ export async function main(argv) {
       : cauHinh.duongDan.health,
   );
 
-  const tt = docTrangThai(duongDanHealth);
+  const tt = readHealth(duongDanHealth);
   // Đọc tiến trình daemon TRƯỚC khi phán: thiếu dữ kiện này thì không tách nổi
   // "đang khởi động lại" với "cookie chết thật" (xem chú thích ở phanDinh).
-  const tienTrinh = daemonDangChay(cauHinh);
+  const tienTrinh = isDaemonRunning(cauHinh);
   const kq = phanDinh(tt, cauHinh, Date.now(), tienTrinh);
 
   if (t.json) {
@@ -298,8 +298,8 @@ export async function main(argv) {
     out(`  file        : ${duongDanHealth}`);
     out(`  trạng thái  : ${tt?.trangThai ?? '(chưa có file)'}`);
     if (tt) {
-      out(`  vào lúc     : ${tt.tuLuc}  (${moTaKhoangThoiGian(tuoiTrangThaiMs(tt))} trước)`);
-      out(`  ghi lần cuối: ${tt.ghiLuc}  (${moTaKhoangThoiGian(tuoiNhipTimMs(tt))} trước)`);
+      out(`  vào lúc     : ${tt.tuLuc}  (${describeDuration(stateAgeMs(tt))} trước)`);
+      out(`  ghi lần cuối: ${tt.ghiLuc}  (${describeDuration(heartbeatAgeMs(tt))} trước)`);
       out(`  số lần thử  : ${tt.soLanThuLai}`);
       if (tt.lyDo) out(`  lý do       : ${tt.lyDo}`);
     }
@@ -319,7 +319,7 @@ export async function main(argv) {
   if (!t.imLang) {
     try {
       // 🔴 boTang1: KHÔNG đăng nhập Zalo từ tiến trình cron.
-      await baoHost(cauHinh, kq.tomTat, {
+      await notifyHost(cauHinh, kq.tomTat, {
         boTang1: true,
         trangThai: tt,
         tieuDe: 'Trợ lý Zalo — cần xem',

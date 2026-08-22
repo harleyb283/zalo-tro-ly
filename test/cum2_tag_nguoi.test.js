@@ -27,7 +27,7 @@ import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI } from '../
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { datLaiThrottle, datThrottle, guiVaoNhom, guiDmHost } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
@@ -95,7 +95,7 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
       if (schema?.shape?.method?.value === 'tools/call') xuLy = fn;
     },
   };
-  dangKyTool(server, {
+  registerTools(server, {
     db,
     cauHinh: {
       cauTrungTinh: 'Em nhắn riêng anh rồi ạ.',

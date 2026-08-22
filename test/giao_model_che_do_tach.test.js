@@ -22,7 +22,7 @@ import { dongDb, moDb } from '../src/store/db.js';
 import {
   capNhatHangDoi, layHangDoiCho, taoHangDoi, upsertHoiThoai,
 } from '../src/store/write.js';
-import { dayHangDoiCho } from '../src/mcp/channel.js';
+import { pushPendingQueue } from '../src/mcp/channel.js';
 import { CHE_DO, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import {
@@ -157,7 +157,7 @@ test('B2 — tách: client nhặt được đúng việc daemon vừa giao', asy
 
   // Phía client: đúng lời gọi `chayClient` dùng trong `khiSanSang`.
   const daBom = [];
-  const kq = await dayHangDoiCho({
+  const kq = await pushPendingQueue({
     db,
     queueTtlMs: 1_800_000,
     guiThongBao: async (x) => { daBom.push(x); return true; },
@@ -351,7 +351,7 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
 // G — DÒNG `da_day` KẸT Ở CHẾ ĐỘ TÁCH VẪN CÓ ĐƯỜNG RA
 //
 // 🔴 EM KHÔNG LÀM THEO ĐỀ NGHỊ A2 ("đặt lại dòng về 'cho'"), và đây là bài
-//    chứng minh vì sao KHÔNG CẦN: `dayHangDoiCho` của client gọi
+//    chứng minh vì sao KHÔNG CẦN: `pushPendingQueue` của client gọi
 //    `layHangDoiCho(..., { gomDaDay: true })` ⇒ dòng kẹt `'da_day'` ĐÃ được
 //    client nhặt lại sẵn, không phải đổi trạng thái gì cả.
 // ⚠️ Bài này càng quan trọng SAU khi lưới canh `hang_doi_hoi` bị bỏ hẳn
@@ -369,7 +369,7 @@ test('G1 — tách: dòng kẹt "da_day" ĐÃ được client nhặt lại, khô
   capNhatHangDoi(db, 'r-ket', TRANG_THAI_HANG_DOI.DA_DAY);
 
   const daBom = [];
-  const kq = await dayHangDoiCho({
+  const kq = await pushPendingQueue({
     db,
     queueTtlMs: 1_800_000,
     guiThongBao: async (x) => { daBom.push(x); return true; },

@@ -128,13 +128,13 @@ test('N2 ★★★ `main()` THẬT SỰ truyền closure đó vào chayNhipTheoD
     'thiếu import thì ESM ném ngay lúc nạp module');
 });
 
-test('N3 ★★ MỘT sổ nguồn duy nhất: dangKyTool và bo_chay dùng CHUNG `boTichLuy`', () => {
+test('N3 ★★ MỘT sổ nguồn duy nhất: registerTools và bo_chay dùng CHUNG `boTichLuy`', () => {
   // Bẫy tinh vi nhất: dựng hai `createSourceLedger()` khác nhau. `mcp/tools.js` tra
   // một sổ, `bo_chay` ghi vào sổ kia -> `leak_guard` thấy nguồn = ∅ và cho gửi
   // thẳng vào nhóm. Đúng ca lá chắn sinh ra để chặn, mà lại im lặng.
   const soLanDung = (SRC_INDEX.match(/createSourceLedger\(\)/g) ?? []).length;
   assert.equal(soLanDung, 1, `index.js dựng ${soLanDung} bộ tích luỹ — phải đúng MỘT`);
-  assert.match(SRC_INDEX, /\n\s*boTichLuy,\n/, 'dangKyTool không còn nhận boTichLuy');
+  assert.match(SRC_INDEX, /\n\s*boTichLuy,\n/, 'registerTools không còn nhận boTichLuy');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -232,7 +232,7 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
 test('N8 ★★ index.js truyền `dmHostChatId` cho CẢ HAI bộ chạy, không chỉ lịch một lần', () => {
   const i = SRC_INDEX.indexOf('chayNhipTheoDuoi({');
   const khoiGoi = SRC_INDEX.slice(i, i + 2600);
-  assert.match(khoiGoi, /dmHostChatId:\s*dmHostChinh\(cauHinh\)/,
+  assert.match(khoiGoi, /dmHostChatId:\s*primaryHostDm\(cauHinh\)/,
     'chayNhipTheoDuoi vẫn thiếu dmHostChatId -> câu báo HẾT LƯỢT rơi vào nhánh '
     + '"host sẽ không biết" (chayMotNhip ngay trên đã có từ đầu)');
 });

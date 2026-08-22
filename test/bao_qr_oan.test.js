@@ -25,7 +25,7 @@ import path from 'node:path';
 import {
   phanLoaiLoiDangNhap, loiDangNhapThatBai, dangNhapBangCookie,
 } from '../src/zalo/session.js';
-import { daemonDangChay, duongDanPid, ghiTrangThai, docTrangThai } from '../src/ops/health.js';
+import { isDaemonRunning, pidFilePath, writeHealth, readHealth } from '../src/ops/health.js';
 import { phanDinh, MA } from '../bin/zalo-health.js';
 import { taoWatchdog, WS } from '../src/zalo/watchdog.js';
 import { main as remindMain, MA as MA_REMIND } from '../bin/zalo-remind.js';
@@ -113,22 +113,22 @@ test('🔴 A6 CHƯA TỪNG đăng nhập -> vẫn CAN_QR (đúng) nhưng KHÔNG 
 test('B1 pid trỏ tiến trình ĐANG SỐNG -> song=true', () => {
   const ch = cauHinhGia();
   fs.mkdirSync(path.dirname(ch.duongDan.db), { recursive: true });
-  fs.writeFileSync(duongDanPid(ch), String(process.pid));
-  const d = daemonDangChay(ch);
+  fs.writeFileSync(pidFilePath(ch), String(process.pid));
+  const d = isDaemonRunning(ch);
   assert.equal(d.song, true);
   assert.equal(d.pid, process.pid);
 });
 
 test('B2 KHÔNG có file pid -> song=false (chưa chạy / đã thoát sạch)', () => {
-  assert.equal(daemonDangChay(cauHinhGia()).song, false);
+  assert.equal(isDaemonRunning(cauHinhGia()).song, false);
 });
 
 test('B3 pid mồ côi (tiến trình đã chết) -> song=false', () => {
   const ch = cauHinhGia();
   fs.mkdirSync(path.dirname(ch.duongDan.db), { recursive: true });
   // pid rất lớn, gần như chắc chắn không tồn tại
-  fs.writeFileSync(duongDanPid(ch), '4194303');
-  const d = daemonDangChay(ch);
+  fs.writeFileSync(pidFilePath(ch), '4194303');
+  const d = isDaemonRunning(ch);
   assert.equal(d.song, false);
   assert.match(d.lyDo, /mồ côi/);
 });
@@ -136,8 +136,8 @@ test('B3 pid mồ côi (tiến trình đã chết) -> song=false', () => {
 test('B4 file pid rác -> song=null (KHÔNG BIẾT), tuyệt đối không đoán bừa', () => {
   const ch = cauHinhGia();
   fs.mkdirSync(path.dirname(ch.duongDan.db), { recursive: true });
-  fs.writeFileSync(duongDanPid(ch), 'không phải số');
-  assert.equal(daemonDangChay(ch).song, null);
+  fs.writeFileSync(pidFilePath(ch), 'không phải số');
+  assert.equal(isDaemonRunning(ch).song, null);
 });
 
 // ═══ C. ★ Ca chính anh gặp: health nói CAN_QR mà daemon vẫn chạy ═══
@@ -237,9 +237,9 @@ test('E1 ĐỔI mã thì ghi một dòng lịch sử; nhịp tim cùng mã thì 
   const nk = path.join(path.dirname(h), 'health-history.log');
   const truoc = fs.existsSync(nk) ? fs.readFileSync(nk, 'utf8').split('\n').length : 0;
 
-  ghiTrangThai(h, { trangThai: 'OK', lyDo: 'khởi động xong' });
-  ghiTrangThai(h, { trangThai: 'OK', lyDo: 'nhịp tim' });
-  ghiTrangThai(h, { trangThai: 'CAN_QR', lyDo: 'cookie hỏng' });
+  writeHealth(h, { trangThai: 'OK', lyDo: 'khởi động xong' });
+  writeHealth(h, { trangThai: 'OK', lyDo: 'nhịp tim' });
+  writeHealth(h, { trangThai: 'CAN_QR', lyDo: 'cookie hỏng' });
 
   const dong = fs.readFileSync(nk, 'utf8').trim().split('\n');
   assert.equal(dong.length - Math.max(0, truoc - 1), 2, 'đúng 2 lần ĐỔI mã, nhịp tim không ghi');
@@ -250,7 +250,7 @@ test('E1 ĐỔI mã thì ghi một dòng lịch sử; nhịp tim cùng mã thì 
 test('🔴 F1 daemon đang chạy -> TỪ CHỐI gửi, KHÔNG đăng nhập lần hai', async () => {
   const ch = cauHinhGia();
   fs.mkdirSync(path.dirname(ch.duongDan.db), { recursive: true });
-  fs.writeFileSync(duongDanPid(ch), String(process.pid));   // "daemon" = chính tiến trình test
+  fs.writeFileSync(pidFilePath(ch), String(process.pid));   // "daemon" = chính tiến trình test
   const fCauHinh = sp(`ch-${Date.now()}.json`);
   fs.writeFileSync(fCauHinh, JSON.stringify(ch));
 

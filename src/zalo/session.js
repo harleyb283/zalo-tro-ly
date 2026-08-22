@@ -202,7 +202,7 @@ export function layCookieHienThoi(api) {
  *
  * ⚠️ KHÔNG thêm mã trạng thái mới được — `TRANG_THAI_SUC_KHOE` nằm ở
  * `src/lib/hang_so.js`, file của gói khác. Nhưng KHÔNG cần: `KHONG_BIET` sinh
- * ra đúng cho ca này — *"không phải bằng chứng hỏng"*, và `laHong()` đã trả
+ * ra đúng cho ca này — *"không phải bằng chứng hỏng"*, và `isBroken()` đã trả
  * `false` cho nó nên không chỗ nào hô hoán.
  *
  * @param {unknown} e

@@ -71,7 +71,7 @@ export const TRANG_THAI_HANG_DOI = Object.freeze({
   /**
    * v9 — ★ CHỖ NHẬN VIỆC CỦA CLIENT, và nó tồn tại vì MỘT lý do:
    *
-   * 🔴 `da_day` KHÔNG dùng làm chốt giành việc được. `dayHangDoiCho` gom cả
+   * 🔴 `da_day` KHÔNG dùng làm chốt giành việc được. `pushPendingQueue` gom cả
    * `da_day` (bù dòng mồ côi), nên CAS `da_day -> da_day` **luôn thắng** —
    * hai client cùng khởi động sẽ cùng "nhận" một dòng rồi cùng đẩy, tức hai
    * lượt model cho một câu hỏi, tức hai tin vào nhóm người thật.

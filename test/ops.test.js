@@ -3,7 +3,7 @@
  * Chạy: node --test
  *
  * ⛔ KHÔNG đăng nhập Zalo, KHÔNG gọi mạng. `api` là đối tượng giả.
- * Riêng `chayNotifyCommand` CÓ chạy tiến trình con thật (`sh -c`) — đó là thứ
+ * Riêng `runNotifyCommand` CÓ chạy tiến trình con thật (`sh -c`) — đó là thứ
  * duy nhất trong gói này đáng chạy thật, vì cả điểm của nó là bơm JSON qua
  * stdin cho một lệnh của người lạ.
  */
@@ -15,13 +15,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  ghiTrangThai, docTrangThai, laMaHopLe, laHong, laKhongBiet,
-  tuoiNhipTimMs, tuoiTrangThaiMs, moTaKhoangThoiGian,
+  writeHealth, readHealth, isValidHealthCode, isBroken, isUnknown,
+  heartbeatAgeMs, stateAgeMs, describeDuration,
 } from '../src/ops/health.js';
 import {
-  baoHost, chayNotifyCommand, dmHostChinh, thongBaoHeDieuHanh,
-  dangChayTest, layThongBaoDaChan, xoaNhatKyChan, layLenhOsascript,
-  KICH_BAN_OSASCRIPT, dongDauThat,
+  notifyHost, runNotifyCommand, primaryHostDm, osNotify,
+  isRunningTests, getBlockedNotifications, clearBlockedLog, osascriptArgs,
+  OSASCRIPT_SOURCE, stampReal,
 } from '../src/ops/notify_host.js';
 import { phanDinh, MA, hanNhipTimMs, HAN_NOI_LAI_MS } from '../bin/zalo-health.js';
 import { layNoiDung, chonDich, MA as MA_REMIND } from '../bin/zalo-remind.js';
@@ -52,52 +52,52 @@ function cauHinhGia(ghiDe = {}) {
 test('A1 đúng 5 mã trạng thái, không thừa không thiếu', () => {
   assert.deepEqual([...DANH_SACH_TRANG_THAI_SUC_KHOE].sort(),
     ['CAN_QR', 'DANG_NOI_LAI', 'KHONG_BIET', 'LISTENER_CHET', 'OK']);
-  for (const m of DANH_SACH_TRANG_THAI_SUC_KHOE) assert.ok(laMaHopLe(m));
-  assert.equal(laMaHopLe('LISTENER_CHET '), false, 'có dấu cách thừa là mã khác');
-  assert.equal(laMaHopLe('listener_chet'), false, 'phân biệt hoa thường');
+  for (const m of DANH_SACH_TRANG_THAI_SUC_KHOE) assert.ok(isValidHealthCode(m));
+  assert.equal(isValidHealthCode('LISTENER_CHET '), false, 'có dấu cách thừa là mã khác');
+  assert.equal(isValidHealthCode('listener_chet'), false, 'phân biệt hoa thường');
 });
 
 test('🔴 A2 KHONG_BIET KHÔNG bị xếp vào nhóm "hỏng" (nếu không: nối lại vô hạn)', () => {
-  assert.equal(laHong(TRANG_THAI_SUC_KHOE.KHONG_BIET), false);
-  assert.equal(laKhongBiet(TRANG_THAI_SUC_KHOE.KHONG_BIET), true);
-  assert.equal(laHong(TRANG_THAI_SUC_KHOE.LISTENER_CHET), true);
-  assert.equal(laHong(TRANG_THAI_SUC_KHOE.CAN_QR), true);
-  assert.equal(laHong(TRANG_THAI_SUC_KHOE.OK), false);
+  assert.equal(isBroken(TRANG_THAI_SUC_KHOE.KHONG_BIET), false);
+  assert.equal(isUnknown(TRANG_THAI_SUC_KHOE.KHONG_BIET), true);
+  assert.equal(isBroken(TRANG_THAI_SUC_KHOE.LISTENER_CHET), true);
+  assert.equal(isBroken(TRANG_THAI_SUC_KHOE.CAN_QR), true);
+  assert.equal(isBroken(TRANG_THAI_SUC_KHOE.OK), false);
   // Và nó cũng KHÔNG phải "khoẻ" — phải có nhánh riêng, không được gộp bên nào.
-  assert.notEqual(laHong(TRANG_THAI_SUC_KHOE.KHONG_BIET),
-    laKhongBiet(TRANG_THAI_SUC_KHOE.KHONG_BIET));
+  assert.notEqual(isBroken(TRANG_THAI_SUC_KHOE.KHONG_BIET),
+    isUnknown(TRANG_THAI_SUC_KHOE.KHONG_BIET));
 });
 
 test('A3 mã lạ -> NÉM LỖI, không âm thầm ép về KHONG_BIET', () => {
-  assert.throws(() => ghiTrangThai(hp('x.json'), { trangThai: 'CHET_ROI' }),
+  assert.throws(() => writeHealth(hp('x.json'), { trangThai: 'CHET_ROI' }),
     /không hợp lệ/);
-  assert.throws(() => ghiTrangThai(hp('x.json'), {}), /không hợp lệ/);
+  assert.throws(() => writeHealth(hp('x.json'), {}), /không hợp lệ/);
   assert.equal(fs.existsSync(hp('x.json')), false, 'không để lại file rác');
 });
 
 test('🔴 A4 tuLuc GIỮ NGUYÊN khi trạng thái không đổi, ĐỔI khi trạng thái đổi', async () => {
   const p = hp('a4.json');
-  const l1 = ghiTrangThai(p, { trangThai: 'OK', lyDo: 'lần 1' });
+  const l1 = writeHealth(p, { trangThai: 'OK', lyDo: 'lần 1' });
   await new Promise((r) => setTimeout(r, 12));
-  const l2 = ghiTrangThai(p, { trangThai: 'OK', lyDo: 'lần 2' });
+  const l2 = writeHealth(p, { trangThai: 'OK', lyDo: 'lần 2' });
   assert.equal(l2.tuLuc, l1.tuLuc, 'cùng mã -> tuLuc là mốc VÀO trạng thái, không đổi');
   assert.notEqual(l2.ghiLuc, l1.ghiLuc, 'ghiLuc là NHỊP TIM -> phải đổi mỗi lần ghi');
 
   await new Promise((r) => setTimeout(r, 12));
-  const l3 = ghiTrangThai(p, { trangThai: 'CAN_QR', lyDo: 'cookie chết' });
+  const l3 = writeHealth(p, { trangThai: 'CAN_QR', lyDo: 'cookie chết' });
   assert.notEqual(l3.tuLuc, l1.tuLuc, 'đổi mã -> đóng dấu mốc mới');
-  assert.equal(docTrangThai(p).trangThai, 'CAN_QR');
+  assert.equal(readHealth(p).trangThai, 'CAN_QR');
 });
 
 test('A5 tuLuc truyền tay thì được tôn trọng (dùng cho khôi phục sau restart)', () => {
   const p = hp('a5.json');
   const t = '2026-01-02T03:04:05.000Z';
-  assert.equal(ghiTrangThai(p, { trangThai: 'OK', tuLuc: t }).tuLuc, t);
+  assert.equal(writeHealth(p, { trangThai: 'OK', tuLuc: t }).tuLuc, t);
 });
 
 test('🔴 A6 lyDo đi qua redact() NGAY TẠI health.js, không tin chỗ gọi', () => {
   const p = hp('a6.json');
-  ghiTrangThai(p, { trangThai: 'CAN_QR', lyDo: 'fail Cookie: zpsid=SIEU_BI_MAT_XYZ' });
+  writeHealth(p, { trangThai: 'CAN_QR', lyDo: 'fail Cookie: zpsid=SIEU_BI_MAT_XYZ' });
   const doc = fs.readFileSync(p, 'utf8');
   assert.ok(!doc.includes('SIEU_BI_MAT_XYZ'),
     'file này người khác đọc được và cron có thể MAIL nó đi');
@@ -111,25 +111,25 @@ test('A7 lyDo quá dài bị cắt (stack trace lọt vào thì đừng để ph
   // thì đầu vào phải là thứ redact để nguyên.
   const dai = 'at moduleA (file line 10) '.repeat(60);
   assert.ok(dai.length > 1000);
-  const r = ghiTrangThai(p, { trangThai: 'OK', lyDo: dai });
+  const r = writeHealth(p, { trangThai: 'OK', lyDo: dai });
   assert.ok(r.lyDo.length < 700, String(r.lyDo.length));
   assert.match(r.lyDo, /đã cắt/);
 });
 
 test('A8 ghi NGUYÊN TỬ + quyền 0600, không để lại file .tmp', () => {
   const p = hp('a8.json');
-  ghiTrangThai(p, { trangThai: 'OK' });
+  writeHealth(p, { trangThai: 'OK' });
   assert.equal((fs.statSync(p).mode & 0o777).toString(8), '600');
   assert.equal(fs.readdirSync(SAN).filter((f) => f.includes('.tmp-')).length, 0,
     'file tạm phải được rename, không bỏ lại');
 });
 
-test('A9 docTrangThai: chưa có file / JSON hỏng / mã lạ -> null, KHÔNG ném', () => {
-  assert.equal(docTrangThai(hp('khong-co.json')), null);
+test('A9 readHealth: chưa có file / JSON hỏng / mã lạ -> null, KHÔNG ném', () => {
+  assert.equal(readHealth(hp('khong-co.json')), null);
   const p1 = hp('hong.json'); fs.writeFileSync(p1, '{ khong phai json');
-  assert.equal(docTrangThai(p1), null);
+  assert.equal(readHealth(p1), null);
   const p2 = hp('malạ.json'); fs.writeFileSync(p2, JSON.stringify({ trangThai: 'XYZ' }));
-  assert.equal(docTrangThai(p2), null);
+  assert.equal(readHealth(p2), null);
 });
 
 test('A10 file bản CŨ chưa có ghiLuc -> lùi về mtime, không mất nhịp tim', () => {
@@ -137,17 +137,17 @@ test('A10 file bản CŨ chưa có ghiLuc -> lùi về mtime, không mất nhị
   fs.writeFileSync(p, JSON.stringify({
     trangThai: 'OK', lyDo: '', tuLuc: '2020-01-01T00:00:00.000Z', soLanThuLai: 0,
   }));
-  const tt = docTrangThai(p);
+  const tt = readHealth(p);
   assert.ok(tt.ghiLuc, 'phải có ghiLuc suy ra từ mtime');
-  assert.ok(tuoiNhipTimMs(tt) < 60_000, 'mtime là vừa xong nên nhịp tim còn tươi');
+  assert.ok(heartbeatAgeMs(tt) < 60_000, 'mtime là vừa xong nên nhịp tim còn tươi');
 });
 
-test('A11 moTaKhoangThoiGian đọc được bằng tiếng Việt', () => {
-  assert.equal(moTaKhoangThoiGian(5_000), '5 giây');
-  assert.equal(moTaKhoangThoiGian(90_000), '1 phút');
-  assert.equal(moTaKhoangThoiGian(3_600_000), '1 giờ');
-  assert.equal(moTaKhoangThoiGian(3 * 86_400_000), '3 ngày');
-  assert.equal(moTaKhoangThoiGian(null), 'không rõ');
+test('A11 describeDuration đọc được bằng tiếng Việt', () => {
+  assert.equal(describeDuration(5_000), '5 giây');
+  assert.equal(describeDuration(90_000), '1 phút');
+  assert.equal(describeDuration(3_600_000), '1 giờ');
+  assert.equal(describeDuration(3 * 86_400_000), '3 ngày');
+  assert.equal(describeDuration(null), 'không rõ');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -287,20 +287,20 @@ test('C1b đường ra duy nhất là config.notifyCommand — do NGƯỜI SETUP
   assert.deepEqual(chuoiSpawn.sort(), ['sh'], `spawn chuỗi cứng: ${JSON.stringify(chuoiSpawn)}`);
   // Lệnh còn lại đi qua biến -> hỏi thẳng nguồn của biến đó lúc CHẠY. Mạnh hơn
   // grep: nó đo giá trị thật chứ không đo cách viết.
-  assert.equal(layLenhOsascript('a', 'b').lenh, 'osascript');
+  assert.equal(osascriptArgs('a', 'b').lenh, 'osascript');
   const spawnBien = [...s.matchAll(/spawn\(\s*([A-Za-z_$][\w$]*)\s*,/g)].map((m) => m[1]);
   assert.deepEqual([...new Set(spawnBien)], ['lenh'],
-    `chỉ được có MỘT biến lệnh (từ layLenhOsascript): ${JSON.stringify(spawnBien)}`);
+    `chỉ được có MỘT biến lệnh (từ osascriptArgs): ${JSON.stringify(spawnBien)}`);
 });
 
-test('C2 dmHostChinh lấy host ĐẦU TIÊN có dmChatId', () => {
-  assert.equal(dmHostChinh(cauHinhGia()), 'dm111');
-  assert.equal(dmHostChinh(cauHinhGia({ hosts: [] })), null);
+test('C2 primaryHostDm lấy host ĐẦU TIÊN có dmChatId', () => {
+  assert.equal(primaryHostDm(cauHinhGia()), 'dm111');
+  assert.equal(primaryHostDm(cauHinhGia({ hosts: [] })), null);
 });
 
-test('C3 chayNotifyCommand: bơm JSON qua STDIN, exit 0 -> thành công', async () => {
+test('C3 runNotifyCommand: bơm JSON qua STDIN, exit 0 -> thành công', async () => {
   const ra = path.join(SAN, 'nhan.json');
-  const kq = await chayNotifyCommand(`cat > ${JSON.stringify(ra)}`, { a: 1, thongDiep: 'xin chao' });
+  const kq = await runNotifyCommand(`cat > ${JSON.stringify(ra)}`, { a: 1, thongDiep: 'xin chao' });
   assert.equal(kq.thanhCong, true);
   const j = JSON.parse(fs.readFileSync(ra, 'utf8'));
   assert.equal(j.a, 1);
@@ -308,14 +308,14 @@ test('C3 chayNotifyCommand: bơm JSON qua STDIN, exit 0 -> thành công', async 
 });
 
 test('C4 lệnh thoát khác 0 -> thất bại, KHÔNG ném', async () => {
-  const kq = await chayNotifyCommand('exit 7', {});
+  const kq = await runNotifyCommand('exit 7', {});
   assert.equal(kq.thanhCong, false);
   assert.equal(kq.ma, 7);
 });
 
 test('C5 lệnh TREO bị giết theo hạn, không giữ tiến trình lại mãi', async () => {
   const t = Date.now();
-  const kq = await chayNotifyCommand('sleep 30', {}, 400);
+  const kq = await runNotifyCommand('sleep 30', {}, 400);
   assert.equal(kq.thanhCong, false);
   assert.equal(kq.lyDo, 'quá hạn');
   assert.ok(Date.now() - t < 3000, 'phải bị giết chứ không chờ hết 30 giây');
@@ -326,7 +326,7 @@ test('🔴 C6 thongDiep KHÔNG BAO GIỜ nối vào chuỗi lệnh (chỉ đi qu
   // biến một cảnh báo thành lệnh chạy.
   const bay = path.join(SAN, 'BI_TIEM.txt');
   const doc = path.join(SAN, 'stdin.json');
-  await chayNotifyCommand(`cat > ${JSON.stringify(doc)}`, {
+  await runNotifyCommand(`cat > ${JSON.stringify(doc)}`, {
     thongDiep: `hi"; touch ${bay}; echo "`,
   });
   assert.equal(fs.existsSync(bay), false, 'lệnh tiêm KHÔNG được chạy');
@@ -334,14 +334,14 @@ test('🔴 C6 thongDiep KHÔNG BAO GIỜ nối vào chuỗi lệnh (chỉ đi qu
     'nội dung vẫn tới nơi nguyên vẹn, chỉ là qua stdin');
 });
 
-test('🔴 C7 thongBaoHeDieuHanh TRONG TEST: KHÔNG bắn popup thật, chỉ ghi ý định', async () => {
+test('🔴 C7 osNotify TRONG TEST: KHÔNG bắn popup thật, chỉ ghi ý định', async () => {
   // Sự cố thật 20/08/2026: bài này gọi thẳng và CHẠY THẬT ⇒ mỗi lần bất kỳ pane
   // nào chạy `node --test` là macOS bắn popup vào mặt anh, với đúng những chữ
   // đáng sợ nhất trong bộ test ("cookie chết rồi", "listener chết").
-  xoaNhatKyChan();
-  const r = await thongBaoHeDieuHanh('t', 'n');
+  clearBlockedLog();
+  const r = await osNotify('t', 'n');
   assert.equal(r, false, 'trong test PHẢI trả false — không có popup nào tới người dùng');
-  const dc = layThongBaoDaChan();
+  const dc = getBlockedNotifications();
   assert.equal(dc.length, 1, 'vẫn phải GHI LẠI ý định để kiểm được');
   assert.equal(dc[0].tieuDe, 't');
 });
@@ -350,7 +350,7 @@ test('🔴 C7b cổng chặn tự nhận biết test — bài viết SAU NÀY kh
   // Tín hiệu do CHÍNH Node đặt, không phải biến người viết test tự khai.
   assert.equal(process.env.NODE_TEST_CONTEXT !== undefined, true,
     'node --test phải đặt NODE_TEST_CONTEXT — nền tảng của cổng chặn');
-  assert.equal(dangChayTest(), true);
+  assert.equal(isRunningTests(), true);
 });
 
 test('🔴 C7c bộ test KHÔNG được tự mở cửa thoát', () => {
@@ -359,21 +359,21 @@ test('🔴 C7c bộ test KHÔNG được tự mở cửa thoát', () => {
 });
 
 test('C7d VẪN kiểm được đường osascript — soi lệnh sẽ gọi, không gọi thật', () => {
-  const { lenh, doiSo } = layLenhOsascript('Tiêu "đề"', 'nội dung có dấu " và \'');
+  const { lenh, doiSo } = osascriptArgs('Tiêu "đề"', 'nội dung có dấu " và \'');
   assert.equal(lenh, 'osascript');
   assert.equal(doiSo[0], '-e');
-  assert.equal(doiSo[1], KICH_BAN_OSASCRIPT);
+  assert.equal(doiSo[1], OSASCRIPT_SOURCE);
   // ★ Điều đáng kiểm nhất: nội dung đi qua ARGV, KHÔNG nối vào chuỗi AppleScript.
   assert.equal(doiSo[2], 'Tiêu "đề"');
   assert.equal(doiSo[3], 'nội dung có dấu " và \'');
-  assert.ok(!KICH_BAN_OSASCRIPT.includes('Tiêu'), 'kịch bản phải là HẰNG SỐ, không nội suy dữ liệu');
+  assert.ok(!OSASCRIPT_SOURCE.includes('Tiêu'), 'kịch bản phải là HẰNG SỐ, không nội suy dữ liệu');
 });
 
 test('🔴 C8 tầng 1 (DM Zalo) chạy khi có api — ca chết câm vẫn báo được', async () => {
   const daGui = [];
   const api = { __gia: true };
-  // send.js được nạp muộn trong baoHost; ở đây kiểm qua kết quả trả về.
-  const kq = await baoHost(cauHinhGia(), 'listener chết', {
+  // send.js được nạp muộn trong notifyHost; ở đây kiểm qua kết quả trả về.
+  const kq = await notifyHost(cauHinhGia(), 'listener chết', {
     api,
     // guiDmHost thật sẽ ném vì api giả -> chứng minh nó CÓ thử tầng 1 rồi mới
     // xuống tầng 2, chứ không bỏ qua.
@@ -383,7 +383,7 @@ test('🔴 C8 tầng 1 (DM Zalo) chạy khi có api — ca chết câm vẫn bá
 });
 
 test('🔴 C9 boTang1 -> KHÔNG đụng Zalo (cron không được tự đăng nhập)', async () => {
-  const kq = await baoHost(cauHinhGia(), 'thử', { api: {}, boTang1: true });
+  const kq = await notifyHost(cauHinhGia(), 'thử', { api: {}, boTang1: true });
   assert.ok(kq.chiTiet.some((d) => d.includes('tầng 1 bỏ qua: bị tắt')),
     JSON.stringify(kq.chiTiet));
   assert.notEqual(kq.tang, 1);
@@ -391,7 +391,7 @@ test('🔴 C9 boTang1 -> KHÔNG đụng Zalo (cron không được tự đăng n
 
 test('C10 không có api -> bỏ tầng 1, xuống tầng 2 qua notifyCommand', async () => {
   const ra = path.join(SAN, 'tang2.json');
-  const kq = await baoHost(
+  const kq = await notifyHost(
     cauHinhGia({ notifyCommand: `cat > ${JSON.stringify(ra)}` }),
     'cookie chết rồi',
     { boTang1: true },
@@ -405,7 +405,7 @@ test('C10 không có api -> bỏ tầng 1, xuống tầng 2 qua notifyCommand', 
 
 test('🔴 C11 tầng 3 (log) LUÔN chạy, kể cả khi tầng khác ăn — nền chứ không phải phương án cuối', async () => {
   const ra = path.join(SAN, 'tang3.json');
-  const kq = await baoHost(
+  const kq = await notifyHost(
     cauHinhGia({ notifyCommand: `cat > ${JSON.stringify(ra)}` }), 'x', { boTang1: true });
   assert.ok(kq.chiTiet[0].startsWith('tầng 3'), 'tầng 3 phải là việc ĐẦU TIÊN làm');
 });
@@ -416,17 +416,17 @@ test('🔴 C12 không có đường nào ăn -> ĐÚNG tầng 3, thanhCong=false
   // trong hai nhánh là GỬI THÔNG BÁO THẬT CHO NGƯỜI DÙNG thì đó không phải
   // test, đó là tác dụng phụ — và nó chính là thứ đã bắn popup vào máy anh.
   // Nay cổng chặn làm nhánh đó không tồn tại trong test ⇒ chốt cứng được.
-  xoaNhatKyChan();
-  const kq = await baoHost(cauHinhGia({ notifyCommand: null }), 'x', { boTang1: true });
+  clearBlockedLog();
+  const kq = await notifyHost(cauHinhGia({ notifyCommand: null }), 'x', { boTang1: true });
   assert.equal(kq.tang, 3, 'không có notifyCommand, popup bị chặn ⇒ chỉ còn tầng 3');
   assert.equal(kq.thanhCong, false, 'CẤM tự khai thành công khi chẳng có gì tới tay anh');
-  assert.equal(layThongBaoDaChan().length, 1, 'vẫn chứng minh được nó CÓ thử tầng 2b');
+  assert.equal(getBlockedNotifications().length, 1, 'vẫn chứng minh được nó CÓ thử tầng 2b');
 });
 
-test('🔴 C12b baoHost đóng dấu KIỂM CHỨNG ĐƯỢC vào thông báo thật', async () => {
-  xoaNhatKyChan();
-  await baoHost(cauHinhGia({ notifyCommand: null }), 'cookie chết rồi', { boTang1: true });
-  const { tieuDe, noiDung } = layThongBaoDaChan()[0];
+test('🔴 C12b notifyHost đóng dấu KIỂM CHỨNG ĐƯỢC vào thông báo thật', async () => {
+  clearBlockedLog();
+  await notifyHost(cauHinhGia({ notifyCommand: null }), 'cookie chết rồi', { boTang1: true });
+  const { tieuDe, noiDung } = getBlockedNotifications()[0];
   // Trong test thì dấu phải là [GIẢ LẬP] — thông báo giả TUYỆT ĐỐI không được
   // trông như thật, nếu không thì "sói đến rồi" và hôm cookie chết thật anh bỏ qua.
   assert.match(tieuDe, /^\[GIẢ LẬP\]/);
@@ -439,7 +439,7 @@ test('C12c chạy THẬT (ngoài test) thì tiêu đề mang dấu cảnh báo +
   const goc = process.env.NODE_TEST_CONTEXT;
   delete process.env.NODE_TEST_CONTEXT;
   try {
-    const t = dongDauThat('Trợ lý Zalo cần xem');
+    const t = stampReal('Trợ lý Zalo cần xem');
     assert.match(t, /^⚠️ Trợ lý Zalo cần xem · \d{2}:\d{2}$/);
     assert.ok(!t.includes('GIẢ LẬP'));
   } finally {
@@ -448,7 +448,7 @@ test('C12c chạy THẬT (ngoài test) thì tiêu đề mang dấu cảnh báo +
 });
 
 test('🔴 C12e TRIPWIRE: file MỚI nào sinh tiến trình con cũng phải qua cổng chặn', () => {
-  // Cổng `dangChayTest()` chỉ che được những đường ĐÃ BIẾT. Bài này che phần
+  // Cổng `isRunningTests()` chỉ che được những đường ĐÃ BIẾT. Bài này che phần
   // còn lại: ai thêm một tiến trình con ở file mới sẽ làm bài này ĐỎ và buộc
   // phải nghĩ — đúng yêu cầu "bài thứ 6 không được lặp lại y hệt".
   //
@@ -476,16 +476,16 @@ test('🔴 C12e TRIPWIRE: file MỚI nào sinh tiến trình con cũng phải qu
   assert.deepEqual(dinh.sort(), [
     // ⚠️ Thêm 22/08/2026 — bài này đã ĐỎ đúng lúc `bin/cai-dat.js` ra đời, tức
     // tripwire làm đúng việc của nó. Hai đường sinh tiến trình con ở đó:
-    //   · mở ảnh QR      -> ĐÃ chốt cổng `dangChayTest()`, cùng khuôn zalo-login
+    //   · mở ảnh QR      -> ĐÃ chốt cổng `isRunningTests()`, cùng khuôn zalo-login
     //   · chạy `init-db` -> tiến trình con NODE có chủ đích, ⛔ KHÔNG chạm màn
     //     hình. Cố ý spawn thay vì `import`: init-db là script, nạp bằng import
     //     là chạy luôn `main()` + `process.exit` của nó trong tiến trình cài đặt.
     'bin/cai-dat.js',
     'bin/kiem-cu-phap.js',      // công cụ dev, chỉ chạy `node --check`
-    'bin/zalo-login.js',        // mở ảnh QR — ĐÃ có cổng dangChayTest()
+    'bin/zalo-login.js',        // mở ảnh QR — ĐÃ có cổng isRunningTests()
     'src/ops/notify_host.js',   // notifyCommand của người dùng + osascript — ĐÃ có cổng
   ], `File MỚI sinh tiến trình con: ${JSON.stringify(dinh)}. `
-    + 'Thêm cổng dangChayTest() rồi mới thêm tên vào danh sách này.');
+    + 'Thêm cổng isRunningTests() rồi mới thêm tên vào danh sách này.');
 });
 
 test('🔴 C12d RÀ CÙNG HỌ: mở ảnh QR cũng bị chặn trong test (không bật Preview lên màn hình)', async () => {
@@ -494,9 +494,9 @@ test('🔴 C12d RÀ CÙNG HỌ: mở ảnh QR cũng bị chặn trong test (khô
     'đây cũng là một đường CHẠM RA NGOÀI tiến trình — cùng họ với popup osascript');
 });
 
-test('C13 baoHost redact thông điệp trước khi đưa ra ngoài', async () => {
+test('C13 notifyHost redact thông điệp trước khi đưa ra ngoài', async () => {
   const ra = path.join(SAN, 'redact.json');
-  await baoHost(cauHinhGia({ notifyCommand: `cat > ${JSON.stringify(ra)}` }),
+  await notifyHost(cauHinhGia({ notifyCommand: `cat > ${JSON.stringify(ra)}` }),
     'lỗi Cookie: zpsid=RAT_BI_MAT_999', { boTang1: true });
   assert.ok(!fs.readFileSync(ra, 'utf8').includes('RAT_BI_MAT_999'));
 });

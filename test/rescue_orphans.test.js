@@ -11,7 +11,7 @@
  * 🔴 HAI LỖI TÁCH BIỆT, file này canh cả hai:
  *
  *  ① THAM SỐ BỊ NUỐT GIỮA ĐƯỜNG. `index.js` tính `chatIdHoi` (khoá định tuyến
- *    pane v10.2) rồi truyền vào `dayHangDoiCho`, nhưng hàm đó ⛔ KHÔNG chuyển
+ *    pane v10.2) rồi truyền vào `pushPendingQueue`, nhưng hàm đó ⛔ KHÔNG chuyển
  *    tiếp xuống `layHangDoiCho`. Khoá định tuyến chưa bao giờ chạy ⇒ pane khoá
  *    vào nhóm A vẫn giành được câu hỏi DM của host, đẩy vào phiên của nó, và
  *    câu đó chết ở đấy. Bài B1/B2 canh ĐƯỜNG ĐI của tham số, ⛔ không canh tầng
@@ -34,8 +34,8 @@ import path from 'node:path';
 import {
   RESCUE_TICK_MS, MAX_RESCUE_ATTEMPTS, ORPHAN_AGE_MS, UNCLAIMED_AGE_MS, createRescueLedger,
 } from '../src/ops/rescue_orphans.js';
-import { dayHangDoiCho } from '../src/mcp/channel.js';
-import { baoHost } from '../src/ops/notify_host.js';
+import { pushPendingQueue } from '../src/mcp/channel.js';
+import { notifyHost } from '../src/ops/notify_host.js';
 import { moDb, dongDb } from '../src/store/db.js';
 import { taoHangDoi, layHangDoiCho, capNhatHangDoi, nhanViec } from '../src/store/write.js';
 
@@ -71,7 +71,7 @@ test('A1 dòng `cho` LUÔN được đẩy và ⛔ không bị đếm', () => {
 
 test('A2 ★ vớt tối đa MAX_RESCUE_ATTEMPTS lần rồi TỪ CHỐI + báo host ĐÚNG một lần', () => {
   const bao = [];
-  const so = createRescueLedger({ log: () => {}, baoHost: (s) => bao.push(s) });
+  const so = createRescueLedger({ log: () => {}, notifyHost: (s) => bao.push(s) });
   const r = { request_id: 'r2', trang_thai: 'da_day', ts_tao: '2026-08-21T13:42:17.482Z', noi_dung: 'Xong thì báo a nhé' };
 
   for (let i = 0; i < MAX_RESCUE_ATTEMPTS; i += 1) assert.equal(so.choPhep(r), true, `lần ${i + 1} phải cho vớt`);
@@ -120,9 +120,9 @@ test('A5 ★★ pane toàn quyền dùng NGƯỠNG RIÊNG, cao hơn, cho dòng v
 // B · ★ THAM SỐ PHẢI ĐI HẾT ĐƯỜNG — lỗi ① ở đầu file
 // ═══════════════════════════════════════════════════════════════════════
 
-test('B1 ★★★ dayHangDoiCho PHẢI chuyển `chatIdHoi` xuống layHangDoiCho', async () => {
+test('B1 ★★★ pushPendingQueue PHẢI chuyển `chatIdHoi` xuống layHangDoiCho', async () => {
   let thayTuyChon = null;
-  await dayHangDoiCho({
+  await pushPendingQueue({
     db: {},
     queueTtlMs: 1000,
     guiThongBao: async () => true,
@@ -141,7 +141,7 @@ test('B1 ★★★ dayHangDoiCho PHẢI chuyển `chatIdHoi` xuống layHangDoiC
 
 test('B2 ★ vắng tham số ⇒ giữ nguyên hành vi cũ (⛔ không tự lọc)', async () => {
   let thayTuyChon = null;
-  await dayHangDoiCho({
+  await pushPendingQueue({
     db: {},
     queueTtlMs: 1000,
     guiThongBao: async () => true,
@@ -156,7 +156,7 @@ test('B2 ★ vắng tham số ⇒ giữ nguyên hành vi cũ (⛔ không tự l�
 test('B3 ★ `choPhepDay` phải chặn TRƯỚC khi CAS nhận việc', async () => {
   const casGoi = [];
   const daDay = [];
-  await dayHangDoiCho({
+  await pushPendingQueue({
     db: {},
     queueTtlMs: 0,
     guiThongBao: async (t) => { daDay.push(t.requestId); return true; },
@@ -259,7 +259,7 @@ const CAU_HINH_BAO = {
 
 test('D1 ★★★ client KHÔNG có api -> XẾP HÀNG DM, ⛔ không rơi xuống "chỉ còn log"', async () => {
   const daXep = [];
-  const kq = await baoHost(CAU_HINH_BAO, 'Có 3 câu anh hỏi mà em không kịp trả lời', {
+  const kq = await notifyHost(CAU_HINH_BAO, 'Có 3 câu anh hỏi mà em không kịp trả lời', {
     api: null,
     xepHangDm: (dm, text) => { daXep.push({ dm, text }); },
   });
@@ -274,7 +274,7 @@ test('D1 ★★★ client KHÔNG có api -> XẾP HÀNG DM, ⛔ không rơi xu�
 test('D2 ★ có api Zalo thì đi đường Zalo, ⛔ KHÔNG xếp hàng (⛔ không gửi đôi)', async () => {
   const daXep = [];
   const daGui = [];
-  await baoHost(CAU_HINH_BAO, 'thử', {
+  await notifyHost(CAU_HINH_BAO, 'thử', {
     api: { sendMessage: async (noiDung) => { daGui.push(noiDung); return { msgId: '1' }; } },
     xepHangDm: (dm, text) => { daXep.push({ dm, text }); },
   });
@@ -282,7 +282,7 @@ test('D2 ★ có api Zalo thì đi đường Zalo, ⛔ KHÔNG xếp hàng (⛔ k
 });
 
 test('D3 ★ xếp hàng HỎNG -> ⛔ không nuốt im, đi tiếp xuống tầng dưới', async () => {
-  const kq = await baoHost(CAU_HINH_BAO, 'thử', {
+  const kq = await notifyHost(CAU_HINH_BAO, 'thử', {
     api: null,
     xepHangDm: () => { throw new Error('DB khoá'); },
   });
@@ -293,7 +293,7 @@ test('D4 ★★★ cảnh báo gửi qua Zalo PHẢI vào sổ lịch sử', asy
   // 🔴 Thiếu `ghiLai` thì đọc lại kho chỉ thấy câu anh hỏi, ⛔ không thấy câu
   // em đáp — và cảnh báo là loại tin đáng tra cứu nhất khi có sự cố.
   const daGhi = [];
-  const kq = await baoHost(CAU_HINH_BAO, 'daemon mất kết nối', {
+  const kq = await notifyHost(CAU_HINH_BAO, 'daemon mất kết nối', {
     api: {
       sendMessage: async () => ({ message: { msgId: 123456789 } }),
       getOwnId: () => '9993000000000000008',
@@ -313,16 +313,16 @@ test('D4 ★★★ cảnh báo gửi qua Zalo PHẢI vào sổ lịch sử', asy
 // E · NỐI DÂY — canh ĐƯỜNG ĐI, vì đây đúng là chỗ đã đứt một lần
 // ═══════════════════════════════════════════════════════════════════════
 
-test('E1 ★★★ client nối `baoHetHan` vào đường XẾP HÀNG, ⛔ không phải baoHost trần', () => {
+test('E1 ★★★ client nối `baoHetHan` vào đường XẾP HÀNG, ⛔ không phải notifyHost trần', () => {
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
   const kh = idx.slice(idx.indexOf('async function chayClient'), idx.indexOf('export async function rutOutbox'));
   const sach = kh.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
   assert.match(sach, /xepHangDm:\s*\(dmChatId, text\)\s*=>\s*\{\s*xepHangGui\(db,/,
-    '🔴 client phải đưa hàm xếp hàng vào baoHost, không thì cảnh báo chết trong log');
+    '🔴 client phải đưa hàm xếp hàng vào notifyHost, không thì cảnh báo chết trong log');
   assert.match(sach, /baoHetHan:\s*\(loiNhan\)\s*=>\s*baoHostClient\(loiNhan\)/,
     '🔴 câu hỏi quá hạn phải đi qua đường có thật');
-  assert.ok(!/baoHetHan:\s*\(loiNhan\)\s*=>\s*baoHost\(cauHinh, loiNhan, \{ api: null \}\)/.test(sach),
+  assert.ok(!/baoHetHan:\s*\(loiNhan\)\s*=>\s*notifyHost\(cauHinh, loiNhan, \{ api: null \}\)/.test(sach),
     '⛔ đường cũ (rơi xuống chỉ-còn-log) ⛔ không được sống lại');
 });
 
@@ -333,10 +333,10 @@ test('E2 ★★★ daemon báo host qua một cửa DUY NHẤT có kèm `ghiLai`
   const idx = fs.readFileSync(path.join(process.cwd(), 'src/index.js'), 'utf8');
   const than = idx.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
 
-  assert.match(than, /const baoHostDaemon = \(thongDiep, them = \{\}\) => baoHost\(cauHinh, thongDiep, \{[\s\S]{0,200}?ghiLai: ghiLaiTinTroLy/,
+  assert.match(than, /const baoHostDaemon = \(thongDiep, them = \{\}\) => notifyHost\(cauHinh, thongDiep, \{[\s\S]{0,200}?ghiLai: ghiLaiTinTroLy/,
     '🔴 cửa chung phải luôn kèm ghiLai');
-  assert.ok(!/baoHost\(cauHinh, (loiNhan|s), \{ api \}\)/.test(than),
-    '⛔ ⛔ không được gọi thẳng baoHost với mỗi `api` — đó là đường ⛔ không ghi sổ');
+  assert.ok(!/notifyHost\(cauHinh, (loiNhan|s), \{ api \}\)/.test(than),
+    '⛔ ⛔ không được gọi thẳng notifyHost với mỗi `api` — đó là đường ⛔ không ghi sổ');
 });
 
 test('C6 ★ CAS `nhanViec` chỉ thắng MỘT lần — hai lưới vớt ⛔ không đẩy đôi', () => {

@@ -32,7 +32,7 @@ import { CHE_DO, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, VAI } from '../src/lib/
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { createSourceLedger } from '../src/policy/leak_guard.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
 const NHOM_A = '9990000000001';
@@ -205,7 +205,7 @@ test('★★★ P9 phạm vi KHÔNG có đường nào nhận từ tham số too
 function dungTool(db) {
   const nhatKy = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(s, f) { if (s?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -283,7 +283,7 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
   datPhamVi(NHOM_A);
   datClientId('pane-nhom-a');
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,

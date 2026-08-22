@@ -33,7 +33,7 @@ import { dongDb, moDb } from '../src/store/db.js';
 import { ghiTin, upsertHoiThoai } from '../src/store/write.js';
 import { dsNguoiTrongNhom, datUidTroLy, layUidTroLy } from '../src/store/query.js';
 import { baoDamTag } from '../src/zalo/send.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { thanHam } from './_cat_ma.js';
 
 const NHOM = '9990000000001';
@@ -182,7 +182,7 @@ test('N8 baoDamTag: bot đã được model tự tag sẵn thì cũng không tí
 // 4. ĐƯỜNG KHÔNG CẦM `api` (bo_chay / index.js) — nhờ tầng nhớ
 // ═══════════════════════════════════════════════════════════════════════
 
-test('N9 🔴 dangKyTool ghi nhớ uid bot -> đường lời nhắc tự chạy cũng lọc được', () => {
+test('N9 🔴 registerTools ghi nhớ uid bot -> đường lời nhắc tự chạy cũng lọc được', () => {
   // `src/lich/bo_chay.js` gọi `dsNguoiTrongNhom(db, chatId)` với ĐÚNG 2 tham số
   // và không cầm `api`. Chỉ thêm tham số thì đường đó vẫn trả về bot — mà đó là
   // đường nguy hiểm nhất: lời nhắc tự chạy, không có người ngồi xem.
@@ -190,25 +190,25 @@ test('N9 🔴 dangKyTool ghi nhớ uid bot -> đường lời nhắc tự chạy
   try {
     datUidTroLy(null);
     const server = { setRequestHandler() {} };
-    dangKyTool(server, {
+    registerTools(server, {
       db,
       cauHinh: { cauTrungTinh: 'x', hosts: [], groups: [] },
       boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
       api: { getOwnId: () => BOT },
       docSucKhoe: () => ({ trangThai: 'OK' }),
     });
-    assert.equal(layUidTroLy(), BOT, 'dangKyTool phải ghi nhớ uid bot');
+    assert.equal(layUidTroLy(), BOT, 'registerTools phải ghi nhớ uid bot');
     // Gọi ĐÚNG kiểu bo_chay gọi: 2 tham số, không truyền uid.
     assert.equal(uids(dsNguoiTrongNhom(db, NHOM)).includes(BOT), false);
   } finally { datUidTroLy(null); dongDb(db); }
 });
 
-test('N10 dangKyTool với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
+test('N10 registerTools với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
   const db = dbTam();
   try {
     datUidTroLy(null);
     for (const v of ['0', null, undefined]) {
-      dangKyTool({ setRequestHandler() {} }, {
+      registerTools({ setRequestHandler() {} }, {
         db,
         cauHinh: { cauTrungTinh: 'x', hosts: [], groups: [] },
         boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
@@ -218,7 +218,7 @@ test('N10 dangKyTool với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
       assert.equal(layUidTroLy(), null, `getOwnId()=${String(v)} phải là KHÔNG BIẾT`);
     }
     // api ném lỗi cũng không được làm chết việc đăng ký tool.
-    dangKyTool({ setRequestHandler() {} }, {
+    registerTools({ setRequestHandler() {} }, {
       db,
       cauHinh: { cauTrungTinh: 'x', hosts: [], groups: [] },
       boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },

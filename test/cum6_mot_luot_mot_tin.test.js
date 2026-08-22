@@ -32,7 +32,7 @@ import { HUONG_TRA_LOI, TEN_TOOL, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
@@ -95,7 +95,7 @@ function banGui() {
 
 function dungTool(db, api, { guiHong = false } = {}) {
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(schema, fn) { if (schema?.shape?.method?.value === 'tools/call') xuLy = fn; },
   }, {
     db,

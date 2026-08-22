@@ -310,7 +310,7 @@ test('F3 ★ chạm trần ngày -> KHÔNG quét và PHẢI báo host (không im
   const baoDuoc = [];
   const kq = await quetMotLuot({
     db, api: {}, bayGioMs: new Date().setHours(12, 0, 0, 0),
-    tranNgay: 100, baoHost: (s) => baoDuoc.push(s),
+    tranNgay: 100, notifyHost: (s) => baoDuoc.push(s),
   });
   assert.equal(kq.boQua, 'TRAN_NGAY');
   assert.equal(baoDuoc.length, 1, 'chạm trần mà im lặng thì tính năng chết không ai biết');
@@ -767,7 +767,7 @@ test('J21 ★★ ĐƯỜNG QUÉT THẬT cũng phải ghi mã lỗi, không chỉ
       throw e;
     },
   };
-  await quetMotLuot({ db, api, bayGioMs: bayGio, nghi: async () => {}, baoHost: () => {} });
+  await quetMotLuot({ db, api, bayGioMs: bayGio, nghi: async () => {}, notifyHost: () => {} });
   const nk = db.prepare('SELECT * FROM doi_chieu_lich_su ORDER BY id DESC LIMIT 1').get();
   assert.equal(nk.ket_qua, 'LOI_MANG');
   assert.match(nk.ghi_chu, /ma=114/, 'mã lỗi Zalo là thứ DUY NHẤT phân biệt được nguyên nhân');

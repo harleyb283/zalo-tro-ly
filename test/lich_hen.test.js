@@ -22,7 +22,7 @@ import {
   taoMaXacNhan, xemLich,
 } from '../src/lich/lich_hen.js';
 import { chayMotNhip, dungNoiDung, uidSangTen, batLich } from '../src/lich/bo_chay.js';
-import { docMocTuyetDoi } from '../src/mcp/tools.js';
+import { parseAbsoluteTime } from '../src/mcp/tools.js';
 
 const RAC = [];
 function dbTam() {
@@ -52,21 +52,21 @@ function lichGia(db, v = {}) {
 
 test('A1 ★ TỪ CHỐI chuỗi tương đối — quy đổi là việc của model, không phải tool', () => {
   for (const s of ['2 ngày nữa', 'mai', '9h sáng thứ Sáu', '']) {
-    assert.ok(docMocTuyetDoi(s).loi, `phải từ chối '${s}'`);
+    assert.ok(parseAbsoluteTime(s).loi, `phải từ chối '${s}'`);
   }
 });
 
 test('A2 ★ TỪ CHỐI ISO THIẾU OFFSET — thiếu offset là JS hiểu theo giờ MÁY', () => {
   // Đây là ca nguy hiểm nhất vì chuỗi trông hoàn toàn hợp lệ: máy đặt sai múi
   // giờ thì nhắc lệch vài tiếng mà nhìn không thấy gì bất thường.
-  const kq = docMocTuyetDoi('2026-08-22T09:00:00');
+  const kq = parseAbsoluteTime('2026-08-22T09:00:00');
   assert.ok(kq.loi);
   assert.match(kq.loi, /offset/);
 });
 
 test('A3 nhận ISO có offset và có Z', () => {
-  assert.equal(docMocTuyetDoi('2026-08-22T09:00:00+07:00').ms, Date.parse('2026-08-22T02:00:00Z'));
-  assert.equal(docMocTuyetDoi('2026-08-22T02:00:00Z').ms, Date.parse('2026-08-22T02:00:00Z'));
+  assert.equal(parseAbsoluteTime('2026-08-22T09:00:00+07:00').ms, Date.parse('2026-08-22T02:00:00Z'));
+  assert.equal(parseAbsoluteTime('2026-08-22T02:00:00Z').ms, Date.parse('2026-08-22T02:00:00Z'));
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -378,7 +378,7 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
     ['./lib/hang_so.js', ['GIOI_HAN_QUET']],
     ['./store/query.js', ['dsNguoiTrongNhom']],
     ['./zalo/send.js', ['guiVaoNhom', 'guiDmHost']],
-    ['./ops/notify_host.js', ['dmHostChinh']],
+    ['./ops/notify_host.js', ['primaryHostDm']],
   ];
   for (const [duongDan, ten] of can) {
     assert.ok(src.includes(`import('${duongDan}')`), `index.js không nạp ${duongDan}`);
@@ -412,7 +412,7 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
   // Anh đọc xong KHÔNG BIẾT gõ mã gì, mà tool thì báo ok:true.
   const { moDb: mo, dongDb: dong } = await import('../src/store/db.js');
   const { taoHangDoi, upsertHoiThoai: upsert } = await import('../src/store/write.js');
-  const { dangKyTool } = await import('../src/mcp/tools.js');
+  const { registerTools } = await import('../src/mcp/tools.js');
 
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-i1-'));
   RAC.push(d);
@@ -423,7 +423,7 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
     noiDung: 'x', tsTao: new Date().toISOString(),
   });
   const hs = [];
-  dangKyTool({ setRequestHandler: (_s, fn) => hs.push(fn) }, {
+  registerTools({ setRequestHandler: (_s, fn) => hs.push(fn) }, {
     db,
     cauHinh: { hosts: [{ userId: HOST, ten: 'Anh', dmChatId: 'dm1' }], groups: [{ chatId: NHOM, ten: 'Nhóm Sao Mai' }] },
     boTichLuy: null, api: null, docSucKhoe: () => null,

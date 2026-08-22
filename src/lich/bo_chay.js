@@ -125,7 +125,7 @@ export function laCheDoTach(p = {}, env = process.env, argv = process.argv) {
  * đầu của em nói "chưa ai gọi `xepHangGui`" và nay đã SAI, giữ lại đây để không
  * ai tin nhầm lần nữa): `mcp/tools.js` chọn cửa gửi bằng
  *     const xepHang = typeof kho?.xepHangGuiRa === 'function' ? ... : null;
- * mà `kho.xepHangGuiRa` CHỈ được truyền ở MỘT trong hai chỗ gọi `dangKyTool` —
+ * mà `kho.xepHangGuiRa` CHỈ được truyền ở MỘT trong hai chỗ gọi `registerTools` —
  * nhánh client (chế độ tách). Nhánh một-tiến-trình không truyền ⇒ `xepHang` là
  * `null` ⇒ `tra_loi` gửi thẳng như cũ, không dòng nào rơi vào `hang_doi_gui`.
  * ⚠️ Đây là điều em ĐỌC MÃ NGUỒN xác nhận, ⛔ chưa chạy thật ở chế độ tách.
@@ -157,7 +157,7 @@ async function _chayLuoiOutbox(p, bayGio) {
       bayGioMs: bayGio,
       // ⛔ CHỈ có đường DM host. Cố ý KHÔNG truyền `guiVaoNhom` xuống đây —
       // thiếu đường thì không ai lỡ tay gọi nhầm.
-      baoHost: (p.guiDmHost && p.dmHostChatId)
+      notifyHost: (p.guiDmHost && p.dmHostChatId)
         ? (loiNhan) => p.guiDmHost(p.api, p.dmHostChatId, loiNhan, {
             uidTroLy: p.uidTroLy ?? null, ghiLai: p.ghiLai, laDm: true,
           })
@@ -536,7 +536,7 @@ export async function chayNhipTheoDuoi(p) {
     //
     // Thứ model thật sự cần KHÔNG phải cái notification, mà là **dòng
     // `hang_doi_hoi`**. `taoHangDoi` đã ghi nó ở trạng thái `'cho'`; client (pane
-    // Claude) nhặt bằng `dayHangDoiCho` rồi tự bơm vào phiên của nó.
+    // Claude) nhặt bằng `pushPendingQueue` rồi tự bơm vào phiên của nó.
     // ⇒ Ở chế độ tách ta vẫn đi nhánh (a), chỉ BỎ lời gọi notify.
     //
     // 🔴 LƯỚI AN TOÀN KHÔNG SUY SUYỂN — đây là điều kiện để làm việc này:
@@ -596,7 +596,7 @@ export async function chayNhipTheoDuoi(p) {
           });
         } else {
           // Chế độ TÁCH: không có ai để notify. Dòng hàng đợi vừa tạo đang ở
-          // `'cho'` — client nhặt bằng `dayHangDoiCho`. ⛔ KHÔNG được coi đây là
+          // `'cho'` — client nhặt bằng `pushPendingQueue`. ⛔ KHÔNG được coi đây là
           // thất bại: `cho_model_tu_ms` đã đặt nên nhánh (b2) vẫn bù đúng hạn.
           _log(
             `lời nhắc ${d.id}: chế độ TÁCH -> để hàng đợi ${requestId} ở 'cho' cho client nhặt`

@@ -74,12 +74,12 @@ const _log = (s) => process.stderr.write(`[vot] ${s}\n`);
 /**
  * Sổ đếm số lần đã vớt cho từng câu hỏi.
  *
- * @param {{tran?: number, log?: (s: string) => void, baoHost?: (s: string) => any}} [p]
+ * @param {{tran?: number, log?: (s: string) => void, notifyHost?: (s: string) => any}} [p]
  */
 export function createRescueLedger(p = {}) {
   const tran = Number.isFinite(Number(p.tran)) && Number(p.tran) > 0 ? Number(p.tran) : MAX_RESCUE_ATTEMPTS;
   const log = typeof p.log === 'function' ? p.log : _log;
-  const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;
+  const notifyHost = typeof p.notifyHost === 'function' ? p.notifyHost : null;
 
   /** @type {Map<string, number>} */
   const dem = new Map();
@@ -115,7 +115,7 @@ export function createRescueLedger(p = {}) {
         const gio = String(r?.ts_tao ?? '').slice(11, 16);
         const trich = String(r?.noi_dung ?? '').replace(/\s+/g, ' ').slice(0, 80);
         log(`vớt QUÁ ${tran} lần vẫn im -> báo host: ${rid}`);
-        baoHost?.(
+        notifyHost?.(
           `⚠️ Câu hỏi lúc ${gio} "${trich}" em đã đẩy lại ${tran} lần mà phiên trả lời `
           + 'vẫn không nhận. Anh nhắn lại giúp em, hoặc kiểm xem pane trợ lý còn sống không.',
         );

@@ -164,7 +164,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
 
   /** @type {Map<string, {daBaoHost: boolean, lanDauKet: number}>} */
   const so = new Map();
-  const tong = { ket: 0, baoHost: 0, thoatKet: 0, boQuaGianAn: 0, loi: 0 };
+  const tong = { ket: 0, notifyHost: 0, thoatKet: 0, boQuaGianAn: 0, loi: 0 };
   /** Phân bố trạng thái lần cuối ĐÃ GHI SỔ — dùng cho state-diff. */
   let demCu = null;
   let daDungMoc = mocKhoiDong;
@@ -173,13 +173,13 @@ export function taoBoCanhOutbox(tuyChon = {}) {
    * Chạy MỘT nhịp canh.
    *
    * @param {{db: any, bayGioMs?: number,
-   *          baoHost?: ((loiNhan: string) => Promise<any>)|null}} p
-   * @returns {Promise<{ket: number, baoHost: number, thoatKet: number,
+   *          notifyHost?: ((loiNhan: string) => Promise<any>)|null}} p
+   * @returns {Promise<{ket: number, notifyHost: number, thoatKet: number,
    *                    boQuaGianAn: number, loi: number}>}
    */
   async function chayMotNhip(p) {
     const bayGio = p?.bayGioMs ?? Date.now();
-    const ra = { ket: 0, baoHost: 0, thoatKet: 0, boQuaGianAn: 0, loi: 0 };
+    const ra = { ket: 0, notifyHost: 0, thoatKet: 0, boQuaGianAn: 0, loi: 0 };
     if (daDungMoc === null) daDungMoc = bayGio;   // nhịp đầu tiên = mốc khởi động
 
     // ── MẪU SỐ: ghi khi phân bố ĐỔI, im khi đứng yên ────────────────────
@@ -234,7 +234,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
     }
 
     if (moiKet.length) {
-      ra.baoHost += 1; tong.baoHost += 1;
+      ra.notifyHost += 1; tong.notifyHost += 1;
       for (const d of moiKet) {
         _ghiSo(duongDanSo, {
           luc: new Date(bayGio).toISOString(), su_kien: 'ket',
@@ -245,9 +245,9 @@ export function taoBoCanhOutbox(tuyChon = {}) {
         });
       }
       _log(`${moiKet.length} tin kẹt trong outbox quá ${Math.round(nguongKet / 1000)}s -> BÁO HOST`);
-      if (typeof p.baoHost === 'function') {
+      if (typeof p.notifyHost === 'function') {
         // ⛔ Fire-and-forget: DM host hỏng thì tuyệt đối không được làm chết nhịp.
-        Promise.resolve(p.baoHost(_dungTin(p.db, moiKet, nguongKet))).catch((e) => {
+        Promise.resolve(p.notifyHost(_dungTin(p.db, moiKet, nguongKet))).catch((e) => {
           _log(`không DM được host về outbox kẹt: ${safeLogText(e)}`);
         });
       } else {

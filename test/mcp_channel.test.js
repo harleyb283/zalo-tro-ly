@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
-import { taoChannel, CHANNEL_METHOD, CHANNEL_CAPABILITY, dayHangDoiCho } from '../src/mcp/channel.js';
+import { createChannel, CHANNEL_METHOD, CHANNEL_CAPABILITY, pushPendingQueue } from '../src/mcp/channel.js';
 import { TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_GHI, TEN_TOOL_DUYET } from '../src/lib/hang_so.js';
 
 /** Nuốt stderr — file này cố ý kêu nhiều ra stderr. */
@@ -32,10 +32,10 @@ async function imLang(fn) {
 /** Dựng cặp client-server đã bắt tay xong. */
 async function dungCap(tuyChon = {}) {
   const nhanThongBao = [];
-  const kenh = taoChannel({
+  const kenh = createChannel({
     tenServer: 'zalo-tro-ly-test',
     phienBan: '0.1.0',
-    dangKyTool: tuyChon.dangKyTool ?? (() => {}),
+    registerTools: tuyChon.registerTools ?? (() => {}),
     khiSanSang: tuyChon.khiSanSang,
     layBoiCanhTraLoi: tuyChon.layBoiCanhTraLoi,
   });
@@ -85,7 +85,7 @@ test('A3 instructions tới được client — đây là chỗ DUY NHẤT dặn
 });
 
 test('A4 coOutbound: false trước bắt tay, true sau', async () => {
-  const kenh = taoChannel({ tenServer: 'x', phienBan: '0', dangKyTool: () => {} });
+  const kenh = createChannel({ tenServer: 'x', phienBan: '0', registerTools: () => {} });
   assert.equal(kenh.coOutbound(), false);
   const { kenh: k2 } = await dungCap();
   assert.equal(k2.coOutbound(), true);
@@ -126,7 +126,7 @@ test('B1 notification tới client ĐÚNG method và ĐÚNG hình dạng {conten
 });
 
 test('B2 CHƯA nối transport -> trả false, TUYỆT ĐỐI không ném (ghi lịch sử phải chạy tiếp)', async () => {
-  const kenh = taoChannel({ tenServer: 'x', phienBan: '0', dangKyTool: () => {} });
+  const kenh = createChannel({ tenServer: 'x', phienBan: '0', registerTools: () => {} });
   const { kq, keu } = await imLang(() => kenh.guiThongBao(TIN_MAU));
   assert.equal(kq, false);
   assert.match(keu.join(''), /cho'|hàng đợi|bắt tay/);
@@ -171,9 +171,9 @@ test('B6 soDaDay đếm số lần ĐẨY ĐI — CỐ Ý không gọi là "đã
 
 // ═══ C. tools/list qua client thật ═══
 test('C1 client thấy ĐÚNG 18 tool (4 gốc + 4 lịch + 4 nhắc + 3 ghi nhớ + 3 duyệt v11), tên lấy từ hằng số', async () => {
-  const { dangKyTool } = await import('../src/mcp/tools.js');
+  const { registerTools } = await import('../src/mcp/tools.js');
   const { kenh, client } = await dungCap({
-    dangKyTool: (server) => dangKyTool(server, {
+    registerTools: (server) => registerTools(server, {
       db: null, cauHinh: {}, boTichLuy: null, api: null, docSucKhoe: () => null,
     }),
   });
@@ -196,9 +196,9 @@ test('C1 client thấy ĐÚNG 18 tool (4 gốc + 4 lịch + 4 nhắc + 3 ghi nh�
 });
 
 test('C2 inputSchema PHẲNG: request_id CÙNG CẤP với chatId, và là bắt buộc', async () => {
-  const { dangKyTool } = await import('../src/mcp/tools.js');
+  const { registerTools } = await import('../src/mcp/tools.js');
   const { kenh, client } = await dungCap({
-    dangKyTool: (server) => dangKyTool(server, {
+    registerTools: (server) => registerTools(server, {
       db: null, cauHinh: {}, boTichLuy: null, api: null, docSucKhoe: () => null,
     }),
   });
@@ -223,10 +223,10 @@ test('C3 ĐẦU-CUỐI THẬT: client gọi tool qua transport, nhận đúng Ke
   // khác nhóm test kia vốn gọi thẳng handler bằng server giả. Nó bắt được lớp
   // lỗi mà mock không bắt nổi: schema sai hình dạng, handler đăng ký nhầm
   // method, kết quả không hợp lệ với MCP.
-  const { dangKyTool } = await import('../src/mcp/tools.js');
+  const { registerTools } = await import('../src/mcp/tools.js');
   const { MA_LOI } = await import('../src/lib/hang_so.js');
   const { kenh, client } = await dungCap({
-    dangKyTool: (server) => dangKyTool(server, {
+    registerTools: (server) => registerTools(server, {
       db: {}, cauHinh: { cauTrungTinh: 'x' }, boTichLuy: {}, api: {},
       docSucKhoe: () => ({ trangThai: 'OK', lyDo: '', tuLuc: '', soLanThuLai: 0 }),
       kho: { layHangDoi: () => null },   // request_id lạ -> fail-closed
@@ -247,7 +247,7 @@ test('C3 ĐẦU-CUỐI THẬT: client gọi tool qua transport, nhận đúng Ke
 // ═══ D. Đẩy bù hàng đợi trên đĩa ═══
 test('D1 đẩy bù: đẩy được thì chuyển da_day, đẩy hụt thì GIỮ NGUYÊN cho', async () => {
   const capNhat = [];
-  const kq = await imLang(() => dayHangDoiCho({
+  const kq = await imLang(() => pushPendingQueue({
     db: {},
     queueTtlMs: 60000,
     layHangDoiCho: () => ([
@@ -262,7 +262,7 @@ test('D1 đẩy bù: đẩy được thì chuyển da_day, đẩy hụt thì GI�
 });
 
 test('D2 đọc hàng đợi hỏng -> nuốt lỗi, trả 0/0, không giết tiến trình', async () => {
-  const kq = await imLang(() => dayHangDoiCho({
+  const kq = await imLang(() => pushPendingQueue({
     db: {}, queueTtlMs: 1,
     layHangDoiCho: () => { throw new Error('DB chết'); },
     capNhatHangDoi: () => true,
@@ -302,7 +302,7 @@ test('E2 CHỨNG MINH BẰNG HÀNH VI: nạp 2 module không làm bẩn stdout m
   const { execFileSync } = await import('node:child_process');
   const ra = execFileSync(process.execPath, [
     '-e',
-    "import('./src/mcp/channel.js').then(m=>{m.taoChannel({tenServer:'x',phienBan:'0',dangKyTool:()=>{}});return import('./src/mcp/tools.js')})",
+    "import('./src/mcp/channel.js').then(m=>{m.createChannel({tenServer:'x',phienBan:'0',registerTools:()=>{}});return import('./src/mcp/tools.js')})",
   ], { cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   assert.equal(ra, '', `stdout phải RỖNG tuyệt đối, nhận được: ${JSON.stringify(ra)}`);
 });
@@ -472,7 +472,7 @@ test('H4 🔴 payload của `lich/bo_chay.js` — quả mìn ĐÃ CÀI SẴN t�
 
 test('H5 ★ payload ÁC: số / boolean / object / undefined ở mọi khoá', async () => {
   // Chốt chặn phải giữ được hợp đồng BẤT KỂ caller truyền gì — hiện có 3 caller
-  // (index.js, dayHangDoiCho, bo_chay.js) và sẽ còn thêm. Vá lẻ từng chỗ gọi
+  // (index.js, pushPendingQueue, bo_chay.js) và sẽ còn thêm. Vá lẻ từng chỗ gọi
   // thì caller thứ tư lại làm đứt kết nối.
   const { kenh, nhanThongBao } = await dungCap({
     layBoiCanhTraLoi: () => ({ coTrongKho: true, noiDungGoc: 'x'.repeat(5000) }),

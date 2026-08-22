@@ -13,14 +13,14 @@
  *    đọc `ws._closeTimer` (thuộc tính PRIVATE của zca-js) không được nữa vì
  *    thư viện đổi tên. Gộp vào "chết" ⇒ watchdog đăng nhập lại VÔ HẠN.
  *    Gộp vào "sống" ⇒ chết CÂM đúng lúc cần nhất. Ba trạng thái, không phải hai.
- *    Hàm `laHong()` bên dưới cố ý KHÔNG xếp `KHONG_BIET` vào nhóm "hỏng chắc
+ *    Hàm `isBroken()` bên dưới cố ý KHÔNG xếp `KHONG_BIET` vào nhóm "hỏng chắc
  *    chắn" mà tách riêng — chỗ gọi phải tự quyết, không được nhắm mắt gộp.
  *
  * ═══ HAI MỐC THỜI GIAN, ĐỪNG LẪN ═══
  *   `tuLuc`  = lúc VÀO trạng thái này. Vào OK lúc 8h rồi chạy êm tới 5h chiều
  *              thì `tuLuc` vẫn là 8h — đó là ĐÚNG. Nhờ nó mới phân biệt được
  *              "CAN_QR từ 5 phút trước" với "CAN_QR từ 3 ngày trước".
- *              ⇒ `ghiTrangThai()` TỰ TÍNH: cùng mã với lần trước thì GIỮ NGUYÊN
+ *              ⇒ `writeHealth()` TỰ TÍNH: cùng mã với lần trước thì GIỮ NGUYÊN
  *                `tuLuc` cũ, khác mã thì đóng dấu thời điểm mới. Chỗ gọi không
  *                phải nhớ trạng thái trước đó — nhớ hộ nhau là chỗ sinh lỗi.
  *   `ghiLuc` = NHỊP TIM. Lúc file được ghi. Đổi mỗi lần ghi, kể cả khi trạng
@@ -31,7 +31,7 @@
  *   ⚠️ `ghiLuc` là trường THÊM so với `TrangThaiSucKhoe` trong types.d.ts (đã
  *      báo Router). Không dùng `mtime` của file làm nhịp tim vì pack này chia
  *      sẻ qua git và hay bị copy/rsync — `mtime` bị phá là mất dấu hiệu, mà
- *      mất kiểu im lặng. `docTrangThai()` vẫn lùi về `mtime` khi file cũ chưa
+ *      mất kiểu im lặng. `readHealth()` vẫn lùi về `mtime` khi file cũ chưa
  *      có trường này.
  * ═══════════════════════════════════════════════════════════════════════
  */
@@ -63,7 +63,7 @@ const DAI_LY_DO_TOI_DA = 600;
  * @param {unknown} ma
  * @returns {ma is MaTrangThaiSucKhoe}
  */
-export function laMaHopLe(ma) {
+export function isValidHealthCode(ma) {
   return DANH_SACH_TRANG_THAI_SUC_KHOE.includes(/** @type {any} */ (ma));
 }
 
@@ -77,9 +77,9 @@ export function laMaHopLe(ma) {
  *        thì được tôn trọng — dùng cho test và cho ca khôi phục sau restart.
  * @returns {TrangThaiSucKhoe & {ghiLuc: string}} bản ghi thật đã ghi xuống đĩa
  */
-export function ghiTrangThai(duongDanHealth, trangThai) {
+export function writeHealth(duongDanHealth, trangThai) {
   const ma = trangThai?.trangThai;
-  if (!laMaHopLe(ma)) {
+  if (!isValidHealthCode(ma)) {
     // Ném chứ KHÔNG âm thầm ép về KHONG_BIET: mã lạ là lỗi lập trình, mà ép
     // thầm thì cả hệ chạy tiếp trên một trạng thái không ai định nghĩa.
     throw new Error(
@@ -89,7 +89,7 @@ export function ghiTrangThai(duongDanHealth, trangThai) {
   }
 
   const p = expandPath(duongDanHealth);
-  const cu = docTrangThai(p);
+  const cu = readHealth(p);
   const bayGio = new Date().toISOString();
 
   // Cùng mã ⇒ giữ nguyên mốc VÀO trạng thái. Khác mã ⇒ đóng dấu lại.
@@ -147,7 +147,7 @@ export function ghiTrangThai(duongDanHealth, trangThai) {
  * @param {string} duongDanHealth
  * @returns {(TrangThaiSucKhoe & {ghiLuc: string})|null} null = chưa có file / file hỏng
  */
-export function docTrangThai(duongDanHealth) {
+export function readHealth(duongDanHealth) {
   const p = expandPath(duongDanHealth);
   if (!fs.existsSync(p)) return null;
 
@@ -161,7 +161,7 @@ export function docTrangThai(duongDanHealth) {
     return null;
   }
 
-  if (!laMaHopLe(tho?.trangThai)) {
+  if (!isValidHealthCode(tho?.trangThai)) {
     log(`⚠️ health.json có mã lạ ${JSON.stringify(tho?.trangThai)} -> coi như chưa có`);
     return null;
   }
@@ -191,19 +191,19 @@ export function docTrangThai(duongDanHealth) {
  *
  * 🔴 `KHONG_BIET` trả `false` — CỐ Ý. Nó không phải "khoẻ", nhưng cũng KHÔNG
  *    phải bằng chứng hỏng. Chỗ nào cần hành động (nối lại, báo động) phải hỏi
- *    riêng bằng `laKhongBiet()` và tự quyết, thay vì gộp bừa vào nhánh "hỏng"
+ *    riêng bằng `isUnknown()` và tự quyết, thay vì gộp bừa vào nhánh "hỏng"
  *    rồi sinh vòng nối lại vô hạn.
  *
  * @param {MaTrangThaiSucKhoe} ma
  * @returns {boolean}
  */
-export function laHong(ma) {
+export function isBroken(ma) {
   return ma === TRANG_THAI_SUC_KHOE.LISTENER_CHET
       || ma === TRANG_THAI_SUC_KHOE.CAN_QR;
 }
 
 /** @param {MaTrangThaiSucKhoe} ma */
-export function laKhongBiet(ma) {
+export function isUnknown(ma) {
   return ma === TRANG_THAI_SUC_KHOE.KHONG_BIET;
 }
 
@@ -218,7 +218,7 @@ export function laKhongBiet(ma) {
  * @param {number} [bayGioMs]
  * @returns {number|null}
  */
-export function tuoiNhipTimMs(tt, bayGioMs = Date.now()) {
+export function heartbeatAgeMs(tt, bayGioMs = Date.now()) {
   const t = Date.parse(tt?.ghiLuc ?? '');
   return Number.isFinite(t) ? Math.max(0, bayGioMs - t) : null;
 }
@@ -229,13 +229,13 @@ export function tuoiNhipTimMs(tt, bayGioMs = Date.now()) {
  * @param {number} [bayGioMs]
  * @returns {number|null}
  */
-export function tuoiTrangThaiMs(tt, bayGioMs = Date.now()) {
+export function stateAgeMs(tt, bayGioMs = Date.now()) {
   const t = Date.parse(tt?.tuLuc ?? '');
   return Number.isFinite(t) ? Math.max(0, bayGioMs - t) : null;
 }
 
 /** Đổi ms sang chuỗi người đọc được: "3 phút", "2 giờ 5 phút", "4 ngày". */
-export function moTaKhoangThoiGian(ms) {
+export function describeDuration(ms) {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return 'không rõ';
   const giay = Math.floor(ms / 1000);
   if (giay < 60) return `${giay} giây`;
@@ -261,7 +261,7 @@ export function moTaKhoangThoiGian(ms) {
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Đường dẫn file pid — suy từ `duongDan.db`, ĐÚNG như `src/index.js` đặt. */
-export function duongDanPid(cauHinh) {
+export function pidFilePath(cauHinh) {
   const db = cauHinh?.duongDan?.db;
   if (!db) return null;
   return path.join(path.dirname(expandPath(db)), 'zalo-tro-ly.pid');
@@ -277,8 +277,8 @@ export function duongDanPid(cauHinh) {
  * @returns {{song: boolean|null, pid: number|null, lyDo: string}}
  *   `song === null` nghĩa là KHÔNG BIẾT (không có file pid / không đọc được).
  */
-export function daemonDangChay(cauHinh) {
-  const p = duongDanPid(cauHinh);
+export function isDaemonRunning(cauHinh) {
+  const p = pidFilePath(cauHinh);
   if (!p) return { song: null, pid: null, lyDo: 'config không có duongDan.db nên không suy được file pid' };
   let tho;
   try {

@@ -31,7 +31,7 @@ import readline from 'node:readline/promises';
 
 import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
-import { dangChayTest } from '../src/ops/notify_host.js';
+import { isRunningTests } from '../src/ops/notify_host.js';
 import {
   dangNhapBangCookie,
   dangNhapBangQr,
@@ -146,7 +146,7 @@ export function moAnhBangHeDieuHanh(duongDan) {
   // Hôm nay chưa bài test nào với tới (phải đăng nhập QR thật mới gọi được),
   // nhưng chốt cổng luôn: bài test sau này giả lập được luồng QR thì nó KHÔNG
   // được bật Preview lên giữa lúc anh đang làm việc.
-  if (dangChayTest()) {
+  if (isRunningTests()) {
     process.stderr.write(`[zalo-login] [CHẶN] đang chạy test -> KHÔNG mở ảnh QR: ${duongDan}\n`);
     return false;
   }

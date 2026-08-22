@@ -45,7 +45,7 @@ import { hostDmChatId, hostUserIds } from '../policy/access.js';
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
 
 /** Trần thời gian cho `notifyCommand` — lệnh của người lạ, không được treo mãi. */
-export const HAN_LENH_MS = 15_000;
+export const COMMAND_TIMEOUT_MS = 15_000;
 
 function log(...phan) {
   process.stderr.write(`[ops/notify_host] ${phan.join(' ')}\n`);
@@ -59,7 +59,7 @@ function log(...phan) {
  * @param {CauHinh} cauHinh
  * @returns {string|null}
  */
-export function dmHostChinh(cauHinh) {
+export function primaryHostDm(cauHinh) {
   const ds = hostUserIds(cauHinh) ?? [];
   for (const uid of ds) {
     const dm = hostDmChatId(cauHinh, uid);
@@ -84,7 +84,7 @@ export function dmHostChinh(cauHinh) {
  * @param {number} [hanMs]
  * @returns {Promise<{thanhCong: boolean, ma: number|null, lyDo?: string}>}
  */
-export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
+export function runNotifyCommand(lenh, duLieu, hanMs = COMMAND_TIMEOUT_MS) {
   return new Promise((giai) => {
     let xong = false;
     /** @type {any} */
@@ -134,7 +134,7 @@ export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
 // ═══════════════════════════════════════════════════════════════════════
 // 🔴 CỔNG CHẶN TÁC DỤNG PHỤ RA NGOÀI TIẾN TRÌNH — thêm 20/08/2026
 //
-// SỰ CỐ THẬT: bộ test gọi `thongBaoHeDieuHanh()` chạy THẬT, nên mỗi lần bất kỳ
+// SỰ CỐ THẬT: bộ test gọi `osNotify()` chạy THẬT, nên mỗi lần bất kỳ
 // pane nào chạy `node --test` là macOS bắn popup thật vào mặt anh. Hôm đó 4
 // pane chạy song song ⇒ 5-6 popup liên tiếp với đúng những chữ đáng sợ nhất
 // trong bộ test: "cookie chết rồi", "listener chết", "lỗi Cookie: zpsid=…".
@@ -151,7 +151,7 @@ export function chayNotifyCommand(lenh, duLieu, hanMs = HAN_LENH_MS) {
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Kịch bản AppleScript. Tách hằng số để test soi được mà không cần chạy. */
-export const KICH_BAN_OSASCRIPT =
+export const OSASCRIPT_SOURCE =
   'on run {t, n}\n display notification n with title t\nend run';
 
 /**
@@ -167,7 +167,7 @@ export const KICH_BAN_OSASCRIPT =
  * ⚠️ `ZTL_CHO_PHEP_THONG_BAO_THAT=1` là cửa thoát dành cho NGƯỜI muốn tự mắt
  * kiểm popup thật. Bộ test TUYỆT ĐỐI không được đặt biến này (có bài canh).
  */
-export function dangChayTest() {
+export function isRunningTests() {
   if (process.env.ZTL_CHO_PHEP_THONG_BAO_THAT === '1') return false;
   if (process.env.NODE_TEST_CONTEXT !== undefined) return true;
   const vao = process.argv[1] ?? '';
@@ -183,12 +183,12 @@ const _daChan = [];
 const TRAN_NHAT_KY = 50;
 
 /** Danh sách thông báo đã bị chặn (mới nhất ở cuối). */
-export function layThongBaoDaChan() {
+export function getBlockedNotifications() {
   return _daChan.slice();
 }
 
 /** Xoá nhật ký chặn (test gọi giữa các bài). */
-export function xoaNhatKyChan() {
+export function clearBlockedLog() {
   _daChan.length = 0;
 }
 
@@ -203,25 +203,25 @@ export function xoaNhatKyChan() {
  * @param {string} noiDung
  * @returns {{lenh: string, doiSo: string[]}}
  */
-export function layLenhOsascript(tieuDe, noiDung) {
-  return { lenh: 'osascript', doiSo: ['-e', KICH_BAN_OSASCRIPT, String(tieuDe), String(noiDung)] };
+export function osascriptArgs(tieuDe, noiDung) {
+  return { lenh: 'osascript', doiSo: ['-e', OSASCRIPT_SOURCE, String(tieuDe), String(noiDung)] };
 }
 
 /**
  * Thông báo của hệ điều hành. Chỉ macOS mới có sẵn `osascript`.
  *
- * 🔴 Trong bộ test: KHÔNG bắn gì, chỉ ghi ý định vào `layThongBaoDaChan()` rồi
+ * 🔴 Trong bộ test: KHÔNG bắn gì, chỉ ghi ý định vào `getBlockedNotifications()` rồi
  * trả `false`. `false` ở đây nghĩa "không có popup nào tới người dùng" — đúng
- * sự thật, và đúng cái mà `baoHost()` cần biết để không tự khai là đã báo được.
+ * sự thật, và đúng cái mà `notifyHost()` cần biết để không tự khai là đã báo được.
  *
  * @param {string} tieuDe
  * @param {string} noiDung
  * @returns {Promise<boolean>}
  */
-export function thongBaoHeDieuHanh(tieuDe, noiDung) {
-  const { lenh, doiSo } = layLenhOsascript(tieuDe, noiDung);
+export function osNotify(tieuDe, noiDung) {
+  const { lenh, doiSo } = osascriptArgs(tieuDe, noiDung);
 
-  if (dangChayTest()) {
+  if (isRunningTests()) {
     if (_daChan.length >= TRAN_NHAT_KY) _daChan.shift();
     _daChan.push({ tieuDe: String(tieuDe), noiDung: String(noiDung), lenh, doiSo });
     log(`[CHẶN] đang chạy test -> KHÔNG bắn thông báo hệ điều hành: ${tieuDe}`);
@@ -245,7 +245,7 @@ export function thongBaoHeDieuHanh(tieuDe, noiDung) {
  * dấu ngược lại — một thông báo giả lập TUYỆT ĐỐI không được phép trông như thật.
  * @param {string} tieuDe
  */
-export function dongDauThat(tieuDe) {
+export function stampReal(tieuDe) {
   const gio = new Date().toTimeString().slice(0, 5);
   if (process.env.NODE_TEST_CONTEXT !== undefined) return `[GIẢ LẬP] ${tieuDe}`;
   return `⚠️ ${tieuDe} · ${gio}`;
@@ -256,7 +256,7 @@ export function dongDauThat(tieuDe) {
  * của daemon — cảnh báo thật thì hai số đó khớp nhau.
  * @param {string} sach  thông điệp ĐÃ redact
  */
-export function thanThongBao(sach) {
+export function notificationBody(sach) {
   const luc = new Date().toTimeString().slice(0, 8);
   return `${String(sach).slice(0, 160)}\n[trợ lý Zalo · pid ${process.pid} · ${luc}]`;
 }
@@ -272,7 +272,7 @@ export function thanThongBao(sach) {
  *        (xem `bin/zalo-health.js`).
  * @returns {Promise<{tang: number, thanhCong: boolean, chiTiet: string[]}>}
  */
-export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
+export async function notifyHost(cauHinh, thongDiep, phuThuoc = {}) {
   const chiTiet = [];
   const tieuDe = phuThuoc.tieuDe || 'Trợ lý Zalo';
   // redact ngay đầu vào, không tin chỗ gọi: thông điệp hay được ghép từ lỗi
@@ -285,7 +285,7 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
 
   // ── TẦNG 1 — DM qua chính Zalo ──────────────────────────────────────
   if (!phuThuoc.boTang1 && phuThuoc.api) {
-    const dm = dmHostChinh(cauHinh);
+    const dm = primaryHostDm(cauHinh);
     if (!dm) {
       chiTiet.push('tầng 1 bỏ qua: không có hosts[].dmChatId trong config');
     } else {
@@ -334,7 +334,7 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
   // gửi. ⚠️ Đây là ĐÚNG con đường `tra_loi` của client đang đi — ⛔ không mở
   // thêm cửa gửi nào, ⛔ không có kết nối Zalo thứ hai.
   if (!phuThuoc.boTang1 && !phuThuoc.api && typeof phuThuoc.xepHangDm === 'function') {
-    const dm = dmHostChinh(cauHinh);
+    const dm = primaryHostDm(cauHinh);
     if (!dm) {
       chiTiet.push('tầng 1b bỏ qua: không có hosts[].dmChatId trong config');
     } else {
@@ -352,7 +352,7 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
   // ── TẦNG 2a — kênh do người setup tự cắm ────────────────────────────
   let an2 = false;
   if (cauHinh?.notifyCommand) {
-    const kq = await chayNotifyCommand(cauHinh.notifyCommand, {
+    const kq = await runNotifyCommand(cauHinh.notifyCommand, {
       tieuDe,
       thongDiep: sach,
       trangThai: phuThuoc.trangThai ?? null,
@@ -375,7 +375,7 @@ export async function baoHost(cauHinh, thongDiep, phuThuoc = {}) {
   // popup nữa, nên thứ gì hiện lên màn hình đều là thật). Dấu này là lớp thứ
   // hai, để anh KIỂM CHỨNG được chứ không phải chỉ tin: `pid` phải khớp
   // `~/.zalo-tro-ly/zalo-tro-ly.pid`, và giờ phải là GIỜ NÀY.
-  const osOk = await thongBaoHeDieuHanh(dongDauThat(tieuDe), thanThongBao(sach));
+  const osOk = await osNotify(stampReal(tieuDe), notificationBody(sach));
   chiTiet.push(osOk
     ? 'tầng 2b: đã bắn thông báo hệ điều hành (KHÔNG bảo đảm host nhìn thấy)'
     : `tầng 2b bỏ qua/hỏng (nền tảng ${process.platform})`);

@@ -32,7 +32,7 @@ import {
 } from '../src/lib/hang_so.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { registerTools } from '../src/mcp/tools.js';
 
 const NHOM = '9990000000001';
 const HOST = '555000111';
@@ -64,7 +64,7 @@ function phien(db, { requestId = 'r1', noiDung = 'xin chào', userId = HOST, msg
 function dungTool(db, { cueGhiNho } = {}) {
   const daGui = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(schema, fn) { if (schema?.shape?.method?.value === 'tools/call') xuLy = fn; },
   }, {
     db,
@@ -405,7 +405,7 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
   const moi = await import(`../src/mcp/tools.js?doi-ban=${process.pid}`);
   const daGui = [];
   let xuLy;
-  moi.dangKyTool({
+  moi.registerTools({
     setRequestHandler(schema, fn) { if (schema?.shape?.method?.value === 'tools/call') xuLy = fn; },
   }, {
     db,

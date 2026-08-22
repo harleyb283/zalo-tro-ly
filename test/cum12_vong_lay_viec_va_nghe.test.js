@@ -24,13 +24,13 @@ import { dongDb, moDb } from '../src/store/db.js';
 import {
   capNhatHangDoi, ghiTin, layHangDoi, layHangDoiCho, nhanViec, taoHangDoi, upsertHoiThoai,
 } from '../src/store/write.js';
-import { dayHangDoiCho, NHAN_CHI_NGHE } from '../src/mcp/channel.js';
+import { pushPendingQueue, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
 import { docDoTre, taoSoDoTre, taoVongLayViec, NHIP_POLL_CLIENT_MS } from '../src/index.js';
 import { quyetDinh, LY_DO } from '../src/policy/gate.js';
 import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI,
 } from '../src/lib/hang_so.js';
-import { dangKyTool, TOOL_DUOC_PHEP_KHI_CHI_NGHE } from '../src/mcp/tools.js';
+import { registerTools, TOOLS_ALLOWED_LISTEN_ONLY } from '../src/mcp/tools.js';
 import { _xoaPhamViChoTest } from '../src/store/query.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -113,7 +113,7 @@ test('★★★ V6 HÀNH VI: `gomDaDay: false` thật sự KHÔNG đụng dòng 
   phien(db, 'r-dangxuly', false, 'câu Claude ĐANG xử lý dở');
   capNhatHangDoi(db, 'r-dangxuly', TRANG_THAI_HANG_DOI.DA_DAY);
   const day = [];
-  const chay = (gom) => dayHangDoiCho({
+  const chay = (gom) => pushPendingQueue({
     db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: gom,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
   });
@@ -199,7 +199,7 @@ test('★★★ K1 NGHIỆM THU: hai client cùng nhặt MỘT dòng -> ĐÚNG M
   const db = dbTam();
   phien(db, 'r-dua', false, 'anh hỏi một câu');
   const daDay = [];
-  const chay = () => dayHangDoiCho({
+  const chay = () => pushPendingQueue({
     db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
     guiThongBao: async (p) => { daDay.push(p.requestId); return true; },
   });
@@ -230,7 +230,7 @@ test('★★★ K2 CAS đi qua `dang_xu_ly`, ⛔ KHÔNG phải `da_day`', () => 
 test('★★★ K3 đẩy HỎNG sau khi đã cầm -> TRẢ LẠI về `cho` (⛔ không bốc hơi)', async () => {
   const db = dbTam();
   phien(db, 'r-hong', false, 'câu hỏi thật của anh');
-  await dayHangDoiCho({
+  await pushPendingQueue({
     db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
     guiThongBao: async () => false,
   });
@@ -257,7 +257,7 @@ test('★★★ K5 hai client cùng KHỞI ĐỘNG trên một dòng `da_day` m�
   phien(db, 'r-mc', false, 'câu hỏi mồ côi');
   capNhatHangDoi(db, 'r-mc', TRANG_THAI_HANG_DOI.DA_DAY);
   const day = [];
-  const chay = () => dayHangDoiCho({
+  const chay = () => pushPendingQueue({
     db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: true,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
   });
@@ -272,7 +272,7 @@ test('★★★ K6 THUA CAS -> ⛔ không đẩy, ⛔ không ghi độ trễ', a
   // bao giờ chạm tới nhánh "thua CAS". Phải TIÊM một `nhanViec` luôn thua.
   const doTre = [];
   const day = [];
-  const kq = await dayHangDoiCho({
+  const kq = await pushPendingQueue({
     db: {}, queueTtlMs: 600_000,
     layHangDoiCho: () => ([{
       request_id: 'r1', chat_id_hoi: NHOM, user_id: NGUOI_LA, noi_dung: 'x',
@@ -296,7 +296,7 @@ test('★★★ Đ1 độ trễ ĐƯỢC GHI, và chỉ bên THẮNG CAS mới g
   const db = dbTam();
   phien(db, 'r-do', false);
   const ghi = [];
-  const chay = () => dayHangDoiCho({
+  const chay = () => pushPendingQueue({
     db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
     guiThongBao: async () => true,
     ghiDoTre: (b) => ghi.push(b),
@@ -413,7 +413,7 @@ test('★★★ G7 host gõ mà KHÔNG tag -> vẫn DROP (chặn tiếng vọng 
 function dungTool(db, tuyChon = {}) {
   const daGui = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -491,21 +491,21 @@ test('★★★ S3 [ĐỔI v11] vẫn là danh sách TRẮNG — thêm tool mớ
   // Danh sách đen: thêm tool mà quên khai ⇒ nó CHẠY ĐƯỢC (hỏng về phía mở).
   // Danh sách trắng: quên khai ⇒ bị chặn (hỏng về phía an toàn). Nới quyền
   // nghiệp vụ ⛔ KHÔNG đổi nguyên tắc đó — chỉ thêm một danh sách trắng thứ hai.
-  const { TOOL_NGHIEP_VU_KHI_CHI_NGHE, TOOL_DOI_TRANG_THAI } = await import('../src/mcp/tools.js');
+  const { BUSINESS_TOOLS_LISTEN_ONLY, STATE_CHANGING_TOOLS } = await import('../src/mcp/tools.js');
   const src = fs.readFileSync(path.join(process.cwd(), 'src/mcp/tools.js'), 'utf8');
-  assert.match(src, /TOOL_DUOC_PHEP_KHI_CHI_NGHE\.includes\(ten\)/);
-  assert.match(src, /TOOL_NGHIEP_VU_KHI_CHI_NGHE\.includes\(ten\)/,
+  assert.match(src, /TOOLS_ALLOWED_LISTEN_ONLY\.includes\(ten\)/);
+  assert.match(src, /BUSINESS_TOOLS_LISTEN_ONLY\.includes\(ten\)/,
     'phải kiểm "có TRONG danh sách không", ⛔ không phải "có trong danh sách cấm không"');
 
   // 🔴 `nhan_rieng_host` ⛔ KHÔNG được lọt vào bất kỳ danh sách nào: đó là
   // đường nhắn THẲNG vào tin riêng của host = quyền RA LỆNH.
-  for (const ds of [TOOL_DUOC_PHEP_KHI_CHI_NGHE, TOOL_NGHIEP_VU_KHI_CHI_NGHE]) {
+  for (const ds of [TOOLS_ALLOWED_LISTEN_ONLY, BUSINESS_TOOLS_LISTEN_ONLY]) {
     assert.ok(!ds.includes(TEN_TOOL.NHAN_RIENG_HOST), '🔴 `nhan_rieng_host` lọt danh sách');
   }
   // 🔴 Mọi tool nghiệp vụ đều phải nằm trong nhóm ĐÒI NGUỒN — sót một cái là
   // một hành động đổi trạng thái ⛔ không để lại dấu vết nào.
-  for (const t of TOOL_NGHIEP_VU_KHI_CHI_NGHE) {
-    assert.ok(TOOL_DOI_TRANG_THAI.includes(t), `🔴 '${t}' chạy được mà ⛔ không phải khai nguồn`);
+  for (const t of BUSINESS_TOOLS_LISTEN_ONLY) {
+    assert.ok(STATE_CHANGING_TOOLS.includes(t), `🔴 '${t}' chạy được mà ⛔ không phải khai nguồn`);
   }
 });
 
@@ -547,12 +547,12 @@ test('★★★ S7 tin báo cho model PHẢI mang dấu "chỉ nghe" ngay trong 
   // ⚠️ Phải dựng CẶP client-server thật (InMemoryTransport): `guiThongBao` từ
   // chối đẩy khi chưa có phiên nào bắt tay, nên chặn `notification` suông thì
   // bài này đo NHẦM nhánh "chưa nối" và luôn xanh.
-  const { taoChannel } = await import('../src/mcp/channel.js');
+  const { createChannel } = await import('../src/mcp/channel.js');
   const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
   const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js');
 
   const nhan = [];
-  const kenh = taoChannel({ tenServer: 't', phienBan: '0', dangKyTool: () => {} });
+  const kenh = createChannel({ tenServer: 't', phienBan: '0', registerTools: () => {} });
   const client = new Client({ name: 'c', version: '1.0.0' }, { capabilities: {} });
   client.fallbackNotificationHandler = async (n) => { nhan.push(n); };
   const [tC, tS] = InMemoryTransport.createLinkedPair();
@@ -564,13 +564,13 @@ test('★★★ S7 tin báo cho model PHẢI mang dấu "chỉ nghe" ngay trong 
   await new Promise((r) => setTimeout(r, 30));
   assert.equal(nhan.length, 2, 'không đẩy được thì bài này không chứng minh gì');
 
-  assert.ok(nhan[0].params.content.startsWith(NHAN_CHI_NGHE), 'dấu phải ở ĐẦU content');
+  assert.ok(nhan[0].params.content.startsWith(LISTEN_ONLY_LABEL), 'dấu phải ở ĐẦU content');
   assert.equal(nhan[0].params.meta.chi_nghe, '1');
   // Đối chứng: lượt ĐƯỢC NÓI ⛔ không được dính nhãn.
-  assert.ok(!nhan[1].params.content.includes(NHAN_CHI_NGHE), 'lượt host bị gắn nhãn là trợ lý tự câm');
+  assert.ok(!nhan[1].params.content.includes(LISTEN_ONLY_LABEL), 'lượt host bị gắn nhãn là trợ lý tự câm');
   assert.equal(nhan[1].params.meta.chi_nghe, undefined, '`_metaSach` phải BỎ HẲN khoá rỗng');
 
-  assert.ok(NHAN_CHI_NGHE.length < 80, `nhãn ${NHAN_CHI_NGHE.length} ký tự — nhân với ~450 lượt/ngày`);
+  assert.ok(LISTEN_ONLY_LABEL.length < 80, `nhãn ${LISTEN_ONLY_LABEL.length} ký tự — nhân với ~450 lượt/ngày`);
   await kenh.dong();
 });
 

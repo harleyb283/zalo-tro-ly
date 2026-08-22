@@ -31,8 +31,8 @@ import {
   danhChoLuotNhac, layLichDanhChoChuaRoGui, layNhacBatBienVo, sinhSoNhac, taoNhacTheoDuoi,
 } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { dayHangDoiCho } from '../src/mcp/channel.js';
-import { dangKyTool } from '../src/mcp/tools.js';
+import { pushPendingQueue } from '../src/mcp/channel.js';
+import { registerTools } from '../src/mcp/tools.js';
 import { taoBoDemLoiGui } from '../src/index.js';
 import { datLaiThrottle, datThrottle, guiDmHost, guiVaoNhom } from '../src/zalo/send.js';
 
@@ -81,7 +81,7 @@ function dungTool(db) {
     },
   };
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(schema, fn) { if (schema?.shape?.method?.value === 'tools/call') xuLy = fn; },
   }, {
     db,
@@ -125,7 +125,7 @@ test('T3a ★★★ dòng `da_day` mồ côi PHẢI được đẩy bù (đây l
     'tiền đề: đường cũ không thấy dòng da_day');
 
   const day = [];
-  const kq = await dayHangDoiCho({
+  const kq = await pushPendingQueue({
     db, queueTtlMs: 30 * 60_000,
     layHangDoiCho, capNhatHangDoi,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
@@ -142,20 +142,20 @@ test('T3a-2 ★★★ quá TTL -> het_han VÀ CÓ DM host (đánh dấu rồi im
     noiDung: 'còn sống ko', tsTao: new Date(Date.now() - 3 * 3600_000).toISOString(),
   });
 
-  const baoHost = [];
-  await dayHangDoiCho({
+  const notifyHost = [];
+  await pushPendingQueue({
     db, queueTtlMs: 30 * 60_000,
     layHangDoiCho, capNhatHangDoi,
     guiThongBao: async () => true,
-    baoHetHan: async (s) => { baoHost.push(s); },
+    baoHetHan: async (s) => { notifyHost.push(s); },
   });
 
   assert.equal(
     db.prepare('SELECT trang_thai t FROM hang_doi_hoi WHERE request_id = ?').get('r-cu').t,
     TRANG_THAI_HANG_DOI.HET_HAN,
   );
-  assert.equal(baoHost.length, 1, 'quá hạn mà KHÔNG báo -> anh không bao giờ biết câu hỏi đã rơi');
-  assert.match(baoHost[0], /còn sống ko/, 'phải nói RÕ câu nào bị rơi, không nói chung chung');
+  assert.equal(notifyHost.length, 1, 'quá hạn mà KHÔNG báo -> anh không bao giờ biết câu hỏi đã rơi');
+  assert.match(notifyHost[0], /còn sống ko/, 'phải nói RÕ câu nào bị rơi, không nói chung chung');
   dongDb(db);
 });
 

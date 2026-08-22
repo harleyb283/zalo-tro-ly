@@ -39,7 +39,7 @@ import {
   TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_DUYET,
   TRANG_THAI_DUYET,
 } from '../src/lib/hang_so.js';
-import { dangKyTool, TOOL_DOI_TRANG_THAI, LOP } from '../src/mcp/tools.js';
+import { registerTools, STATE_CHANGING_TOOLS, LOP } from '../src/mcp/tools.js';
 import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
 import { thanHam, khoiGiua } from './_cat_ma.js';
 
@@ -94,14 +94,14 @@ function dbCoNhac() {
 }
 
 /**
- * Dựng bộ tool. `daBao` gom mọi dòng BÁO HOST — tiêm qua `kho.baoHost` nên
+ * Dựng bộ tool. `daBao` gom mọi dòng BÁO HOST — tiêm qua `kho.notifyHost` nên
  * ⛔ không chạm `notify_host.js` thật (thứ chạy được lệnh shell).
  */
 function dungTool(db, doiCauHinh = {}) {
   const daGui = [];
   const daBao = [];
   let xuLy;
-  dangKyTool({
+  registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
   }, {
     db,
@@ -117,7 +117,7 @@ function dungTool(db, doiCauHinh = {}) {
     docSucKhoe: () => ({ trangThai: 'OK' }),
     cauHinh: { ...CAU_HINH, ...doiCauHinh },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
-    kho: { baoHost: async (_c, msg) => { daBao.push(String(msg)); } },
+    kho: { notifyHost: async (_c, msg) => { daBao.push(String(msg)); } },
   });
   return {
     daGui,
@@ -374,7 +374,7 @@ test('★★★ V9 MỌI tool đổi trạng thái đều ĐI QUA tầng ghi v�
   const src = fs.readFileSync(path.join(process.cwd(), 'src/mcp/tools.js'), 'utf8');
   const bang = khoiGiua(src, 'switch (ten) {', 'default:');
   const thieu = [];
-  for (const ten of TOOL_DOI_TRANG_THAI) {
+  for (const ten of STATE_CHANGING_TOOLS) {
     // Tìm nhánh `case <hằng>:` rồi soi ĐÚNG nhánh đó.
     const hang = Object.entries({ TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_GHI })
       .flatMap(([tenNhom, nhom]) => Object.entries(nhom)
@@ -425,7 +425,7 @@ test('★★★ V10 NGHIỆM THU⑧a: chỉ thị NGƯỜI LẠ CÓ khai nguồn
 
 test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách nghiệp vụ (im trong nhóm ⛔ KHÔNG ĐỔI)', async () => {
   // 🔴 EM ĐÃ TỰ TAY LÀM SAI ĐÚNG CHỖ NÀY rồi rút ra, ghi lại để ⛔ đừng ai lặp:
-  // cho `tra_loi` vào `TOOL_NGHIEP_VU_KHI_CHI_NGHE` là **xoá ngầm** luật "im
+  // cho `tra_loi` vào `BUSINESS_TOOLS_LISTEN_ONLY` là **xoá ngầm** luật "im
   // trong nhóm trừ khi host tag" — luật anh ⛔ KHÔNG hề đụng tới ở GĐ5.
   const { db } = dbCoNhac();
   const { goi, daGui } = dungTool(db);
@@ -435,7 +435,7 @@ test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách ngh
   assert.equal(r.ok, false, '🔴 KHAI NGUỒN LÀ NÓI ĐƯỢC TRONG NHÓM — luật im lặng bị xoá ngầm');
   assert.equal(r.lop, LOP.DANH_SACH_TRANG);
   assert.deepEqual(daGui, [], '🔴 có tin đi ra ở lượt lẽ ra phải im');
-  assert.ok(!TOOL_DOI_TRANG_THAI.includes(TEN_TOOL.TRA_LOI),
+  assert.ok(!STATE_CHANGING_TOOLS.includes(TEN_TOOL.TRA_LOI),
     "🔴 'tra_loi' lọt vào danh sách nghiệp vụ — xem lại chú thích ⛔ ĐỪNG THÊM trong tools.js");
   dongDb(db);
 });
