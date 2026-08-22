@@ -20,7 +20,7 @@ import {
   _datLaiChoTest,
 } from '../src/zalo/listener.js';
 import { SU_KIEN, HANH_DONG_GATE } from '../src/lib/hang_so.js';
-import { quyetDinh, LY_DO as LY_DO_GATE } from '../src/policy/gate.js';
+import { decideGate, LY_DO as LY_DO_GATE } from '../src/policy/gate.js';
 
 const HOST = '9876543210';
 const CHAT_ID = '9990000000001';
@@ -273,7 +273,7 @@ test('B4d hai tầng phối hợp: người KHÔNG phải host tag trợ lý -> 
   const tin = nhan.tin[0];
   assert.equal(tin.hasHostMention, true, 'normalize chỉ trả lời "có tag trợ lý không"');
 
-  const kq = quyetDinh(tin, CAU_HINH);
+  const kq = decideGate(tin, CAU_HINH);
   // 🔴 ĐỔI v9: người lạ tag trợ lý nay được NGHE (tạo lượt) chứ không bị vứt.
   // Phần "gate lọc người gửi, normalize không lọc" vẫn nguyên — chỉ khác là
   // gate nay trả `nghe` thay vì `drop`, và `nghe` KHÔNG có đường ra Zalo.
@@ -282,7 +282,7 @@ test('B4d hai tầng phối hợp: người KHÔNG phải host tag trợ lý -> 
   assert.notEqual(kq.action, HANH_DONG_GATE.ALLOW, '⛔ người lạ TUYỆT ĐỐI không được `allow`');
 
   // Đối chứng: cùng tin đó nhưng host gửi thì mới qua.
-  const kqHost = quyetDinh({ ...tin, userId: HOST }, CAU_HINH);
+  const kqHost = decideGate({ ...tin, userId: HOST }, CAU_HINH);
   assert.equal(kqHost.action, HANH_DONG_GATE.ALLOW);
 });
 

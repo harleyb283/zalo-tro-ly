@@ -22,7 +22,7 @@ import test from 'node:test';
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { taskOwnerHost, timViecMoCua2, _xoaPhamViChoTest } from '../src/store/query.js';
-import { quyetDinh, LY_DO } from '../src/policy/gate.js';
+import { decideGate, LY_DO } from '../src/policy/gate.js';
 import { confirmSchedule, cancelSchedule } from '../src/lich/schedule.js';
 import { closeFollowUp, createFollowUp } from '../src/lich/follow_up.js';
 import {
@@ -164,7 +164,7 @@ test('★★ Q7 thiếu dữ liệu -> đóng, ⛔ không ném', () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ G1 gate nhận bối cảnh -> `nghe` KÈM idViecMoCua (⛔ KHÔNG phải `allow`)', () => {
-  const kq = quyetDinh(tin({}), CAU_HINH, { idViecMoCua: 'NHAC1' });
+  const kq = decideGate(tin({}), CAU_HINH, { idViecMoCua: 'NHAC1' });
   assert.equal(kq.action, HANH_DONG_GATE.NGHE,
     '🔴 `allow` là mở toàn quyền — cửa 2 chỉ mở quyền NÓI');
   assert.equal(kq.payload.lyDo, LY_DO.NGUOI_PHU_TRACH_DAP_VIEC);
@@ -172,7 +172,7 @@ test('★★★ G1 gate nhận bối cảnh -> `nghe` KÈM idViecMoCua (⛔ KHÔ
 });
 
 test('★★★ G2 KHÔNG có bối cảnh -> lượt chỉ nghe thuần (fail-closed)', () => {
-  const kq = quyetDinh(tin({}), CAU_HINH);
+  const kq = decideGate(tin({}), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.NGHE);
   assert.equal(kq.payload.lyDo, LY_DO.NGHE_NGUOI_KHAC);
   assert.equal(kq.payload.idViecMoCua, undefined, 'vắng hẳn = cửa đóng, ⛔ không phải rỗng');
@@ -190,20 +190,20 @@ test('★★★ G3 bối cảnh ⛔ KHÔNG cứu được 4 nhánh DROP', () => 
   ];
   const ch = { ...CAU_HINH, groups: [CAU_HINH.groups[0], { chatId: NHOM_KHAC, ten: 'x', traLoiKhiTag: false }] };
   for (const [ten, t] of ca) {
-    assert.equal(quyetDinh(t, ch, bc).action, HANH_DONG_GATE.DROP, `🔴 bối cảnh mở được: ${ten}`);
+    assert.equal(decideGate(t, ch, bc).action, HANH_DONG_GATE.DROP, `🔴 bối cảnh mở được: ${ten}`);
   }
 });
 
 test('★★★ G4 ⛔ KHÔNG có cửa 2 trong DM — kể cả ĐÚNG người phụ trách', () => {
   // Anh chốt: mở DM là ai từng bị nhắc một việc cũng nhắn riêng được cho trợ lý.
-  const kq = quyetDinh(tin({ chatId: DM_HOST, userId: PHU_TRACH }), CAU_HINH, { idViecMoCua: 'NHAC1' });
+  const kq = decideGate(tin({ chatId: DM_HOST, userId: PHU_TRACH }), CAU_HINH, { idViecMoCua: 'NHAC1' });
   assert.equal(kq.action, HANH_DONG_GATE.DROP);
   assert.equal(kq.payload.lyDo, LY_DO.KHONG_PHAI_HOST);
   assert.equal(kq.payload.idViecMoCua, undefined);
 });
 
 test('★★★ G5 HOST vẫn đi đường cũ, ⛔ bối cảnh không đổi gì', () => {
-  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: true }), CAU_HINH, { idViecMoCua: 'NHAC1' });
+  const kq = decideGate(tin({ userId: HOST, hasHostMention: true }), CAU_HINH, { idViecMoCua: 'NHAC1' });
   assert.equal(kq.action, HANH_DONG_GATE.ALLOW);
   assert.equal(kq.payload.lyDo, LY_DO.HOST_TAG_TRONG_NHOM);
 });

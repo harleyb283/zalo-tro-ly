@@ -26,7 +26,7 @@ import {
 } from '../src/store/write.js';
 import { pushPendingQueue, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
 import { readLatencyLog, createLatencyLog, createWorkPollLoop, CLIENT_POLL_TICK_MS } from '../src/index.js';
-import { quyetDinh, LY_DO } from '../src/policy/gate.js';
+import { decideGate, LY_DO } from '../src/policy/gate.js';
 import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI,
 } from '../src/lib/hang_so.js';
@@ -340,21 +340,21 @@ test('★★ Đ4 ghi sổ HỎNG ⛔ không được làm chết lượt trả l
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ G1 người khác trong nhóm đã duyệt -> NGHE (trước v9: vứt)', () => {
-  const kq = quyetDinh(tin({ userId: NGUOI_LA, hasHostMention: false }), CAU_HINH);
+  const kq = decideGate(tin({ userId: NGUOI_LA, hasHostMention: false }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.NGHE);
   assert.equal(kq.payload.lyDo, LY_DO.NGHE_NGUOI_KHAC);
   assert.equal(kq.payload.chatId, NHOM, 'lượt nghe VẪN đọc được đúng chỗ nó đang nghe');
 });
 
 test('★★★ G2 người khác TAG trợ lý -> vẫn chỉ NGHE, ⛔ TUYỆT ĐỐI không allow', () => {
-  const kq = quyetDinh(tin({ userId: NGUOI_LA, hasHostMention: true }), CAU_HINH);
+  const kq = decideGate(tin({ userId: NGUOI_LA, hasHostMention: true }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.NGHE);
   assert.notEqual(kq.action, HANH_DONG_GATE.ALLOW,
     '🔴 người lạ tag mà được `allow` là mất trắng luật "chỉ host điều khiển"');
 });
 
 test('★★★ G3 host TAG trong nhóm -> ALLOW y hệt hôm nay', () => {
-  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: true }), CAU_HINH);
+  const kq = decideGate(tin({ userId: HOST, hasHostMention: true }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.ALLOW);
   assert.equal(kq.payload.lyDo, LY_DO.HOST_TAG_TRONG_NHOM);
 });
@@ -372,7 +372,7 @@ test('★★★ G4 BỐN NHÁNH DROP GIỮ NGUYÊN — ⛔ không nới một c�
       tin({ userId: NGUOI_LA, tuToi: true, hasHostMention: false }), LY_DO.TIN_CUA_TRO_LY],
   ];
   for (const [ten, t, lyDo] of ca) {
-    const kq = quyetDinh(t, CAU_HINH);
+    const kq = decideGate(t, CAU_HINH);
     assert.equal(kq.action, HANH_DONG_GATE.DROP, `🔴 ĐÃ NỚI cho: ${ten}`);
     assert.equal(kq.payload.lyDo, lyDo, ten);
     assert.equal(kq.payload.chatId, undefined, `${ten}: drop ⛔ không được lộ chatId`);
@@ -382,7 +382,7 @@ test('★★★ G4 BỐN NHÁNH DROP GIỮ NGUYÊN — ⛔ không nới một c�
 test('★★★ G5 nhóm ngoài allowlist: NGƯỜI LẠ lẫn HOST đều DROP', () => {
   for (const uid of [NGUOI_LA, HOST]) {
     for (const tag of [true, false]) {
-      const kq = quyetDinh(tin({ chatId: NHOM_LA, userId: uid, hasHostMention: tag }), CAU_HINH);
+      const kq = decideGate(tin({ chatId: NHOM_LA, userId: uid, hasHostMention: tag }), CAU_HINH);
       assert.equal(kq.action, HANH_DONG_GATE.DROP, `nhóm lạ, uid=${uid}, tag=${tag}`);
     }
   }
@@ -391,7 +391,7 @@ test('★★★ G5 nhóm ngoài allowlist: NGƯỜI LẠ lẫn HOST đều DROP'
 test('★★★ G6 nhóm tắt trả lời: KHÔNG tốn lượt model nào (kể cả host tag)', () => {
   // Nhóm tắt là lựa chọn "trợ lý không tham gia nhóm này" ⇒ ⛔ cũng không nghe.
   for (const uid of [NGUOI_LA, HOST]) {
-    const kq = quyetDinh(tin({ chatId: NHOM_TAT, userId: uid, hasHostMention: true }), CAU_HINH);
+    const kq = decideGate(tin({ chatId: NHOM_TAT, userId: uid, hasHostMention: true }), CAU_HINH);
     assert.equal(kq.action, HANH_DONG_GATE.DROP, `nhóm tắt, uid=${uid}`);
     assert.equal(kq.payload.lyDo, LY_DO.NHOM_TAT_TRA_LOI);
   }
@@ -401,7 +401,7 @@ test('★★★ G7 host gõ mà KHÔNG tag -> vẫn DROP (chặn tiếng vọng 
   // ⚠️ Em ĐÃ viết nhánh `nghe` ở đây rồi phải gỡ: trợ lý dùng chung tài khoản
   // với host, nên tin trợ lý tự gửi quay lại với tuToi=true VÀ isHost=true —
   // thứ duy nhất chặn nó là đúng dòng "không tag" này.
-  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: false }), CAU_HINH);
+  const kq = decideGate(tin({ userId: HOST, hasHostMention: false }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.DROP);
   assert.equal(kq.payload.lyDo, LY_DO.KHONG_TAG);
 });

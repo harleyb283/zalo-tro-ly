@@ -209,7 +209,7 @@ export interface ThamSoLichSu {
 export type HanhDongGate = 'allow' | 'drop' | 'reply';
 
 /**
- * Kết quả của `quyetDinh()` trong gate.js.
+ * Kết quả của `decideGate()` trong gate.js.
  * ⚠️ gate.js là HÀM THUẦN: không mạng, không I/O, không ghi DB.
  * Nó chỉ QUYẾT ĐỊNH; caller mới thực thi.
  *

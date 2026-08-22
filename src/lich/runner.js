@@ -74,11 +74,11 @@ function _docCoArgv(argv, ten) {
  * ⇒ Phải có TÍN HIỆU DƯƠNG. Ba nguồn, ưu tiên từ trên xuống:
  *   ① `p.cheDo` — chỗ gọi truyền thẳng. Hôm nay `index.js` chưa truyền, nhưng
  *      để sẵn thì ngày ai đó nối chỉ mất một dòng, không phải sửa file này.
- *   ② `env.ZTL_CHE_DO` — đúng biến `chotCheDo()` đọc.
+ *   ② `env.ZTL_CHE_DO` — đúng biến `resolveRunMode()` đọc.
  *   ③ `argv --che-do` — đúng cờ `index.js` đọc, và `bo_chay` chạy TRONG tiến
  *      trình daemon nên `process.argv` ở đây CHÍNH LÀ argv của daemon.
  *
- * ⚠️ CHỖ CHƯA KÍN, nói thẳng: `chotCheDo()` còn đọc nguồn thứ tư là
+ * ⚠️ CHỖ CHƯA KÍN, nói thẳng: `resolveRunMode()` còn đọc nguồn thứ tư là
  * `cauHinh.cheDo` (file config), mà `bo_chay` KHÔNG cầm `cauHinh`. Host chỉ khai
  * chế độ trong file config (không dùng cờ, không dùng env) ⇒ hàm này trả `false`
  * ⇒ lời nhắc rơi về câu dự phòng như hôm nay. **Hỏng về phía an toàn** (mất

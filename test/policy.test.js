@@ -25,7 +25,7 @@ import {
   groupRepliesOnTag,
   findHostByDm,
 } from '../src/policy/access.js';
-import { CHO_PHEP_DM, LY_DO as LY_DO_GATE, quyetDinh } from '../src/policy/gate.js';
+import { CHO_PHEP_DM, LY_DO as LY_DO_GATE, decideGate } from '../src/policy/gate.js';
 import {
   LY_DO as LY_DO_LEAK,
   sweepStale,
@@ -250,7 +250,7 @@ test('A15 tra cứu: isHost / nhóm / dm', () => {
 // B. GATE — im lặng là mặc định
 // ═══════════════════════════════════════════════════════════════════════════
 
-const bo = (t) => quyetDinh(t, CH);
+const bo = (t) => decideGate(t, CH);
 
 test('B1 host tag trong nhóm được nghe -> ALLOW', () => {
   const kq = bo(tinGia());
@@ -309,7 +309,7 @@ test('B8 tiếng vọng lời của chính trợ lý (không tag) -> DROP, khôn
 test('B9 thiếu chatId / thiếu tin -> DROP, không nổ', () => {
   assert.equal(bo(tinGia({ chatId: null })).payload.lyDo, LY_DO_GATE.THIEU_DU_LIEU);
   assert.equal(bo(null).payload.lyDo, LY_DO_GATE.THIEU_DU_LIEU);
-  assert.equal(quyetDinh(tinGia(), null).payload.lyDo, LY_DO_GATE.THIEU_DU_LIEU);
+  assert.equal(decideGate(tinGia(), null).payload.lyDo, LY_DO_GATE.THIEU_DU_LIEU);
 });
 
 test('B10 DM của host -> ALLOW mà KHÔNG cần tag (DM không có mentions)', () => {
@@ -331,7 +331,7 @@ test('B12 gate là HÀM THUẦN — không sửa tin, không sửa config', () =
   const t = tinGia();
   const banSaoTin = JSON.parse(JSON.stringify(t));
   const banSaoCh = JSON.parse(JSON.stringify(CH));
-  quyetDinh(t, CH);
+  decideGate(t, CH);
   assert.deepEqual(t, banSaoTin);
   assert.deepEqual(JSON.parse(JSON.stringify(CH)), banSaoCh);
 });

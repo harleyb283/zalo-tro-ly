@@ -25,7 +25,7 @@ import {
   upsertConversation, enqueueOutbound,
 } from '../src/store/write.js';
 import {
-  CHE_DO, chotCheDo, HUONG_TRA_LOI, PHIEN_BAN_SCHEMA, TEN_TOOL, TRANG_THAI_GUI, VAI,
+  CHE_DO, resolveRunMode, HUONG_TRA_LOI, PHIEN_BAN_SCHEMA, TEN_TOOL, TRANG_THAI_GUI, VAI,
 } from '../src/lib/hang_so.js';
 import { createSourceLedger } from '../src/policy/leak_guard.js';
 import { registerTools } from '../src/mcp/tools.js';
@@ -101,7 +101,7 @@ function phien(db, rid = 'r1') {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ D1 KHÔNG khai gì -> cheDo = "mot-tien-trinh", vai daemon', () => {
-  const c = chotCheDo({}, {}, {});
+  const c = resolveRunMode({}, {}, {});
   assert.equal(c.cheDo, CHE_DO.MOT_TIEN_TRINH,
     '🔴 mặc định đổi = daemon thật đang phục vụ anh đổi hành vi ngay lần restart kế tiếp');
   assert.equal(c.laClient, false);
@@ -112,32 +112,32 @@ test('★★★ D2 cheDo LẠ -> CẢNH BÁO rồi về mặc định, ⛔ KHÔN
   // Gõ sai một chữ mà cả trợ lý không khởi động được là phạt nặng hơn lỗi.
   // Và rơi về mặc định là rơi về ĐÚNG hành vi hôm nay — hướng an toàn.
   for (const xau of ['linh-tinh', 'TACH', 'client', 123, true]) {
-    assert.equal(chotCheDo({}, { cheDo: xau }, {}).cheDo, CHE_DO.MOT_TIEN_TRINH);
+    assert.equal(resolveRunMode({}, { cheDo: xau }, {}).cheDo, CHE_DO.MOT_TIEN_TRINH);
   }
 });
 
 test('★★★ D3 ở "mot-tien-trinh" thì vai LUÔN daemon, kể cả khi ép vai client', () => {
   // Một tiến trình làm hết. Cho `vai=client` ăn ở chế độ này là trợ lý im lặng
   // không gửi được gì cả — không có daemon nào rút outbox.
-  const c = chotCheDo({}, { vai: VAI.CLIENT }, {});
+  const c = resolveRunMode({}, { vai: VAI.CLIENT }, {});
   assert.equal(c.laClient, false);
   assert.equal(c.vai, VAI.DAEMON);
 });
 
 test('★★★ D4 "tach" mà THIẾU vai -> daemon (⛔ không phải client)', () => {
   // Rơi nhầm vào client là không ai giữ Zalo, không ai chạy bộ hẹn giờ.
-  assert.equal(chotCheDo({}, { cheDo: CHE_DO.TACH }, {}).vai, VAI.DAEMON);
-  assert.equal(chotCheDo({}, { cheDo: CHE_DO.TACH, vai: 'lung tung' }, {}).vai, VAI.DAEMON);
+  assert.equal(resolveRunMode({}, { cheDo: CHE_DO.TACH }, {}).vai, VAI.DAEMON);
+  assert.equal(resolveRunMode({}, { cheDo: CHE_DO.TACH, vai: 'lung tung' }, {}).vai, VAI.DAEMON);
 });
 
 test('★★ D5 thứ tự ưu tiên: cờ > env > config', () => {
-  assert.equal(chotCheDo({ cheDo: CHE_DO.TACH }, {}, {}).cheDo, CHE_DO.TACH, 'config phải có tác dụng');
+  assert.equal(resolveRunMode({ cheDo: CHE_DO.TACH }, {}, {}).cheDo, CHE_DO.TACH, 'config phải có tác dụng');
   assert.equal(
-    chotCheDo({ cheDo: CHE_DO.TACH }, {}, { ZTL_CHE_DO: CHE_DO.MOT_TIEN_TRINH }).cheDo,
+    resolveRunMode({ cheDo: CHE_DO.TACH }, {}, { ZTL_CHE_DO: CHE_DO.MOT_TIEN_TRINH }).cheDo,
     CHE_DO.MOT_TIEN_TRINH, 'env phải thắng config',
   );
   assert.equal(
-    chotCheDo({ cheDo: CHE_DO.MOT_TIEN_TRINH }, { cheDo: CHE_DO.TACH }, { ZTL_CHE_DO: CHE_DO.MOT_TIEN_TRINH }).cheDo,
+    resolveRunMode({ cheDo: CHE_DO.MOT_TIEN_TRINH }, { cheDo: CHE_DO.TACH }, { ZTL_CHE_DO: CHE_DO.MOT_TIEN_TRINH }).cheDo,
     CHE_DO.TACH, 'cờ dòng lệnh phải thắng tất cả',
   );
 });

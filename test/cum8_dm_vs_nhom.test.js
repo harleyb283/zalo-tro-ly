@@ -34,7 +34,7 @@ import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/
 import { groupMembers, conversationKind, reminderTagUids } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC } from '../src/lib/hang_so.js';
 import { decideReplyRoute } from '../src/policy/leak_guard.js';
-import { quyetDinh } from '../src/policy/gate.js';
+import { decideGate } from '../src/policy/gate.js';
 import { confirmSchedule, createSchedule } from '../src/lich/schedule.js';
 import { createFollowUp } from '../src/lich/follow_up.js';
 import { runOneTick, runFollowUpTick } from '../src/lich/runner.js';
@@ -552,8 +552,8 @@ test('★★★ E4 gate: DM KHÔNG cần tag mới kích hoạt, NHÓM thì CẦ
     groups: [{ chatId: NHOM, ten: 'N', traLoiKhiTag: true }],
   };
   const t = (chatId) => ({ chatId, userId: HOST, tuToi: false, hasHostMention: false, msgType: 'chat.text', noiDung: 'hi' });
-  assert.equal(quyetDinh(t(DM), ch).action, 'allow', 'DM đòi tag = đóng cửa vĩnh viễn (UserMessage không có mentions)');
-  assert.equal(quyetDinh(t(NHOM), ch).action, 'drop', 'nhóm mà không cần tag = trợ lý chen vào mọi câu chuyện');
+  assert.equal(decideGate(t(DM), ch).action, 'allow', 'DM đòi tag = đóng cửa vĩnh viễn (UserMessage không có mentions)');
+  assert.equal(decideGate(t(NHOM), ch).action, 'drop', 'nhóm mà không cần tag = trợ lý chen vào mọi câu chuyện');
 });
 
 test('★★★ E5 leak_guard: DM là MỘT NGUỒN RIÊNG, không lẫn với nhóm', () => {

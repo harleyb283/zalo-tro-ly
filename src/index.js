@@ -36,7 +36,7 @@ import { randomUUID } from 'node:crypto';
 
 import { ensureParentDir, expandPath } from './lib/paths.js';
 import {
-  CHE_DO, chotCheDo, GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, HANH_DONG_GATE,
+  CHE_DO, resolveRunMode, GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, HANH_DONG_GATE,
   LOAI_HOI_THOAI, SU_KIEN,
   TRANG_THAI_GUI, TRANG_THAI_HANG_DOI, TRANG_THAI_SUC_KHOE,
 } from './lib/hang_so.js';
@@ -44,7 +44,7 @@ import { toId } from './lib/ids.js';
 import { safeLogText } from './lib/redact.js';
 
 import { readConfig, configPath, findGroup, findHostByDm } from './policy/access.js';
-import { quyetDinh } from './policy/gate.js';
+import { decideGate } from './policy/gate.js';
 import { timViecMoCua2 } from './store/query.js';
 import { sweepStale, recordSources, createSourceLedger } from './policy/leak_guard.js';
 
@@ -308,7 +308,7 @@ export function handleMessage(p, tin) {
       log(`cửa 2: không tra được lời nhắc (COI NHƯ ĐÓNG): ${safeLogText(e)}`);
     }
   }
-  const kq = quyetDinh(tin, cauHinh, boiCanhCua2);
+  const kq = decideGate(tin, cauHinh, boiCanhCua2);
   // ═══ 🔴 v9 — BA KẾT QUẢ, KHÔNG CÒN HAI ═══
   //   'drop'  -> không tỉnh (bốn nhánh đã liệt kê trong gate.js)
   //   'nghe'  -> tỉnh, ⛔ KHÔNG được nói ra Zalo, ⛔ không được chạy tool ghi
@@ -1027,8 +1027,8 @@ export async function drainOutbox(p) {
 export async function main(argv = process.argv) {
   const co = docCo(argv);
 
-  /** @type {ReturnType<typeof chotCheDo>} */
-  let che = chotCheDo({}, co, process.env);
+  /** @type {ReturnType<typeof resolveRunMode>} */
+  let che = resolveRunMode({}, co, process.env);
   /** @type {{nha: () => void}|null} */
   let khoa = null;
   let db = null;
@@ -1065,7 +1065,7 @@ export async function main(argv = process.argv) {
     // ⚠️ Chốt TRƯỚC pid-lock: vai client đi một đường khởi động HOÀN TOÀN KHÁC
     // (không pid-lock, không Zalo, không bộ hẹn giờ). Đọc config trước là an
     // toàn — `readConfig` chỉ đọc file và validate, không có tác dụng phụ nào.
-    che = chotCheDo(cauHinh, co, process.env);
+    che = resolveRunMode(cauHinh, co, process.env);
     if (che.laClient) {
       log(`chế độ "${che.cheDo}" · vai "${che.vai}"`);
       return await chayClient(co, log, cauHinh);

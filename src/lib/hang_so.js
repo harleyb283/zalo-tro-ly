@@ -565,7 +565,7 @@ export const VAI = Object.freeze({
  * @param {Record<string,string|undefined>} [env]
  * @returns {{cheDo: string, vai: string, laClient: boolean, laDaemon: boolean}}
  */
-export function chotCheDo(cauHinh = {}, co = {}, env = process.env) {
+export function resolveRunMode(cauHinh = {}, co = {}, env = process.env) {
   const canhBao = (msg) => process.stderr.write(`[lib/hang_so] ${msg}\n`);
   const hopLe = Object.values(CHE_DO);
 

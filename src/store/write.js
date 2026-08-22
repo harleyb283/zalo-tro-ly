@@ -795,8 +795,8 @@ export function listApprovalRequests(db, tuyChon = {}) {
  * người duyệt bấm "ok" rồi một việc chạy ngay — mà họ chưa kịp đọc kỹ. Nó cũng
  * ⛔ không nhận `db.exec`, ⛔ không nhận callback, ⛔ không import gì để chạy được.
  */
-export function resolveApproval(db, id, quyetDinh, phuThuoc = {}) {
-  const den = quyetDinh === true || quyetDinh === TRANG_THAI_DUYET.DA_DUYET
+export function resolveApproval(db, id, decideGate, phuThuoc = {}) {
+  const den = decideGate === true || decideGate === TRANG_THAI_DUYET.DA_DUYET
     ? TRANG_THAI_DUYET.DA_DUYET : TRANG_THAI_DUYET.TU_CHOI;
   const kq = db.prepare(
     `UPDATE yeu_cau_duyet

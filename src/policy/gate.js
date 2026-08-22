@@ -45,7 +45,7 @@ export const LY_DO = Object.freeze({
 
 /**
  * Cho phép host điều khiển trợ lý qua DM (không đòi tag).
- * Xem khối "HAI ĐIỀU CHƯA XÁC MINH" trong docstring `quyetDinh()`.
+ * Xem khối "HAI ĐIỀU CHƯA XÁC MINH" trong docstring `decideGate()`.
  * Đặt `false` để quay về đúng chữ của stub G0 (chỉ kích hoạt bằng tag trong nhóm).
  */
 export const CHO_PHEP_DM = true;
@@ -109,7 +109,7 @@ function _nghe(chatId, lyDo, idViec) {
  *   đúng: mọi caller cũ không truyền gì thì hành vi y hệt v9).
  * @returns {GateResult}
  */
-export function quyetDinh(tin, cauHinh, boiCanh) {
+export function decideGate(tin, cauHinh, boiCanh) {
   if (!tin || !cauHinh) return _bo(LY_DO.THIEU_DU_LIEU);
 
   const chatId = toId(tin.chatId, 'gate.chatId');
