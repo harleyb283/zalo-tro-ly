@@ -15,7 +15,7 @@
  *    tự-tag lại muốn tên đó biến mất. Cả hai đều đúng ở chỗ của nó ⇒ xoá hôm
  *    nay thì mai bản kia điền lại. Luật phải nằm ở TẦNG ĐỌC.
  *
- * 🔴 VÌ SAO ĐÁNG SỬA: `groupMembers` là nguồn tên cho `baoDamTag`. Bot còn
+ * 🔴 VÌ SAO ĐÁNG SỬA: `groupMembers` là nguồn tên cho `ensureMention`. Bot còn
  *    trong đó ⇒ trợ lý có thể tự tag CHÍNH NÓ trong nhóm người thật ⇒ tự đánh
  *    thức chính nó ⇒ vòng lặp tự kích hoạt.
  *
@@ -32,7 +32,7 @@ import test from 'node:test';
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, upsertConversation } from '../src/store/write.js';
 import { groupMembers, setAssistantUid, getAssistantUid } from '../src/store/query.js';
-import { baoDamTag } from '../src/zalo/send.js';
+import { ensureMention } from '../src/zalo/send.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { thanHam } from './_cat_ma.js';
 
@@ -60,7 +60,7 @@ function dbTam({ uidBot = BOT } = {}) {
   const tin = (msgId, userId, ten, ts, tuyChon) => writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung: 'nói gì đó', contentRaw: null,
-    tsZalo: ts, tuToi: false, coTagHost: false,
+    tsZalo: ts, tuToi: false, hasHostMention: false,
   }, tuyChon);
   tin('m-hai', HAI, 'Minh Hải', 1_700_000_000_000);
   tin('m-quyet', QUYET, 'Pham Quyet', 1_700_000_001_000);
@@ -144,15 +144,15 @@ test('N5 🔴 uid "0" của NGƯỜI THẬT không bị xoá oan', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// 3. baoDamTag — LỚP CHẶN THỨ HAI
+// 3. ensureMention — LỚP CHẶN THỨ HAI
 // ═══════════════════════════════════════════════════════════════════════
 
-test('N6 🔴 baoDamTag biết uid bot -> KHÔNG dựng mention cho chính nó', () => {
+test('N6 🔴 ensureMention biết uid bot -> KHÔNG dựng mention cho chính nó', () => {
   const dsNguoi = [
     { uid: BOT, ten: 'Hảis Assistant' },     // cố tình CHƯA lọc ở tầng trên
     { uid: TRONG, ten: 'Trọng Nguyễn' },
   ];
-  const kq = baoDamTag('chốt giúp địa điểm nhé', dsNguoi, [BOT, TRONG], BOT);
+  const kq = ensureMention('chốt giúp địa điểm nhé', dsNguoi, [BOT, TRONG], BOT);
   assert.equal(kq.daThem.includes(BOT), false, 'không được tự tag mình');
   assert.equal(kq.khongTraRa.includes(BOT), false, 'từ chối chứ không phải "tra không ra"');
   assert.deepEqual(kq.daThem, [TRONG], 'người thật vẫn phải được tag');
@@ -160,20 +160,20 @@ test('N6 🔴 baoDamTag biết uid bot -> KHÔNG dựng mention cho chính nó',
   assert.ok(kq.text.startsWith('@Trọng Nguyễn '));
 });
 
-test('N7 baoDamTag KHÔNG biết uid bot -> hành xử như cũ', () => {
+test('N7 ensureMention KHÔNG biết uid bot -> hành xử như cũ', () => {
   const dsNguoi = [{ uid: BOT, ten: 'Hảis Assistant' }, { uid: TRONG, ten: 'Trọng Nguyễn' }];
   for (const v of [undefined, null, '', '0']) {
-    const kq = baoDamTag('nội dung', dsNguoi, [BOT, TRONG], v);
+    const kq = ensureMention('nội dung', dsNguoi, [BOT, TRONG], v);
     assert.deepEqual(kq.daThem.sort(), [BOT, TRONG].sort(),
       `uid=${String(v)} là KHÔNG BIẾT -> không được lọc ai`);
   }
 });
 
-test('N8 baoDamTag: bot đã được model tự tag sẵn thì cũng không tính là hợp lệ', () => {
-  // `dungMentions` tra tên từ `dsNguoi`; bot đã bị gạt khỏi `dsNguoi` nên cụm
+test('N8 ensureMention: bot đã được model tự tag sẵn thì cũng không tính là hợp lệ', () => {
+  // `buildMentions` tra tên từ `dsNguoi`; bot đã bị gạt khỏi `dsNguoi` nên cụm
   // "@Hảis Assistant" model viết ra rơi vào `khongKhop` — CHỮ TRẦN, không phải
   // mention thật, nên không đánh thức được ai.
-  const kq = baoDamTag('@Hảis Assistant xem hộ', [{ uid: BOT, ten: 'Hảis Assistant' }], [], BOT);
+  const kq = ensureMention('@Hảis Assistant xem hộ', [{ uid: BOT, ten: 'Hảis Assistant' }], [], BOT);
   assert.equal(kq.daCoSan.includes(BOT), false);
   assert.equal(kq.daThem.length, 0);
 });
@@ -251,7 +251,7 @@ test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot
       writeMessage(db, {
         chatId: NHOM, msgId, cliMsgId: null, userId: uid, tenLucGui: ten,
         msgType: 'chat.text', noiDung: 'x', contentRaw: null,
-        tsZalo: ts, tuToi: false, coTagHost: false,
+        tsZalo: ts, tuToi: false, hasHostMention: false,
       });   // KHÔNG truyền doTroLyTao -> cờ 0, đúng như listener ghi
     }
     const co1 = db.prepare('SELECT COUNT(*) c FROM tin_nhan WHERE user_id = ? AND do_tro_ly_tao = 1')

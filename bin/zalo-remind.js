@@ -49,10 +49,10 @@ import { readConfig, hostDmChatId, hostUserIds, findGroup } from '../src/policy/
 import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { GIOI_HAN } from '../src/lib/hang_so.js';
-import { dangNhapBangCookie, LoiPhienZalo } from '../src/zalo/session.js';
+import { loginWithCookie, ZaloSessionError } from '../src/zalo/session.js';
 import { isDaemonRunning } from '../src/ops/health.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
-import { guiDmHost, guiVaoNhom, catAnToan } from '../src/zalo/send.js';
+import { sendHostDm, sendToGroup, truncateSafely } from '../src/zalo/send.js';
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
 const err = (s = '') => process.stderr.write(`${s}\n`);
@@ -201,13 +201,13 @@ export async function main(argv) {
     return MA.THAM_SO;
   }
 
-  // ⚠️ `catAnToan()` trả về OBJECT `{text, daCat, originalLength}`, KHÔNG phải chuỗi.
+  // ⚠️ `truncateSafely()` trả về OBJECT `{text, daCat, originalLength}`, KHÔNG phải chuỗi.
   //    Dùng nhầm như chuỗi thì `.slice` không tồn tại và script chết ở đúng
   //    bước cuối — bản unit test không bắt được vì nó không đi qua main().
-  // ⚠️ Ở đây CHỈ dùng để XEM TRƯỚC. Bước gửi thật (`guiDmHost`/`guiVaoNhom`
+  // ⚠️ Ở đây CHỈ dùng để XEM TRƯỚC. Bước gửi thật (`sendHostDm`/`sendToGroup`
   //    trong send.js) đã tự cắt rồi; cắt hai lần là dán hai lần cái đuôi
   //    "…[cắt bớt]".
-  const xemTruoc = catAnToan(noiDung, GIOI_HAN.DO_DAI_TIN_TOI_DA);
+  const xemTruoc = truncateSafely(noiDung, GIOI_HAN.DO_DAI_TIN_TOI_DA);
 
   if (t.kiemTra) {
     // Kiểm được TẤT CẢ trừ đúng bước chạm mạng: cấu hình đọc được, đích hợp lệ,
@@ -260,9 +260,9 @@ export async function main(argv) {
     // ⚠️ Xem cảnh báo đầu file: đây là lần đăng nhập THỨ HAI trong khi daemon
     // có thể đang chạy. Cùng cookie/imei/UA nên NHIỀU KHẢ NĂNG Zalo coi là cùng
     // thiết bị — nhưng chưa đo được.
-    api = await dangNhapBangCookie(cauHinh);
+    api = await loginWithCookie(cauHinh);
   } catch (e) {
-    if (e instanceof LoiPhienZalo) {
+    if (e instanceof ZaloSessionError) {
       err(`⛔ ${e.message}`);
       // Lỗi MẠNG không phải bằng chứng cookie chết ⇒ KHÔNG trả mã "cần quét QR".
       // Trả nhầm mã ở đây là cron/người vận hành đi quét QR oan, và quét QR khi
@@ -276,8 +276,8 @@ export async function main(argv) {
   try {
     // Truyền NGUYÊN VĂN: send.js tự cắt và báo lại `daCat`.
     const kq = dich.loai === 'nhom'
-      ? await guiVaoNhom(api, dich.chatId, noiDung)
-      : await guiDmHost(api, dich.chatId, noiDung);
+      ? await sendToGroup(api, dich.chatId, noiDung)
+      : await sendHostDm(api, dich.chatId, noiDung);
     if (!t.imLang) {
       out(`✅ Đã nhắc ${dich.loai === 'dm' ? 'DM host' : `nhóm ${dich.nhan}`}`
         + `${kq.msgId ? ` (msgId ${kq.msgId})` : ''}${kq.daCat ? ' — nội dung đã bị cắt' : ''}`);

@@ -65,7 +65,7 @@ const CAU_HINH = {
 const tin = (p) => ({
   chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: HOST, tenLucGui: 'ai đó',
   msgType: 'chat.text', noiDung: 'xin chào', contentRaw: null,
-  tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: true, ...p,
+  tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: true, ...p,
 });
 
 function dbTam() {
@@ -340,21 +340,21 @@ test('★★ Đ4 ghi sổ HỎNG ⛔ không được làm chết lượt trả l
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ G1 người khác trong nhóm đã duyệt -> NGHE (trước v9: vứt)', () => {
-  const kq = quyetDinh(tin({ userId: NGUOI_LA, coTagHost: false }), CAU_HINH);
+  const kq = quyetDinh(tin({ userId: NGUOI_LA, hasHostMention: false }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.NGHE);
   assert.equal(kq.payload.lyDo, LY_DO.NGHE_NGUOI_KHAC);
   assert.equal(kq.payload.chatId, NHOM, 'lượt nghe VẪN đọc được đúng chỗ nó đang nghe');
 });
 
 test('★★★ G2 người khác TAG trợ lý -> vẫn chỉ NGHE, ⛔ TUYỆT ĐỐI không allow', () => {
-  const kq = quyetDinh(tin({ userId: NGUOI_LA, coTagHost: true }), CAU_HINH);
+  const kq = quyetDinh(tin({ userId: NGUOI_LA, hasHostMention: true }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.NGHE);
   assert.notEqual(kq.action, HANH_DONG_GATE.ALLOW,
     '🔴 người lạ tag mà được `allow` là mất trắng luật "chỉ host điều khiển"');
 });
 
 test('★★★ G3 host TAG trong nhóm -> ALLOW y hệt hôm nay', () => {
-  const kq = quyetDinh(tin({ userId: HOST, coTagHost: true }), CAU_HINH);
+  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: true }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.ALLOW);
   assert.equal(kq.payload.lyDo, LY_DO.HOST_TAG_TRONG_NHOM);
 });
@@ -363,13 +363,13 @@ test('★★★ G4 BỐN NHÁNH DROP GIỮ NGUYÊN — ⛔ không nới một c�
   // Router liệt kê đích danh bốn nhánh này. Mỗi nhánh một dòng canh.
   const ca = [
     ['nhóm NGOÀI allowlist',
-      tin({ chatId: NHOM_LA, userId: NGUOI_LA, coTagHost: false }), LY_DO.NHOM_NGOAI_ALLOWLIST],
+      tin({ chatId: NHOM_LA, userId: NGUOI_LA, hasHostMention: false }), LY_DO.NHOM_NGOAI_ALLOWLIST],
     ['nhóm traLoiKhiTag = false',
-      tin({ chatId: NHOM_TAT, userId: NGUOI_LA, coTagHost: false }), LY_DO.NHOM_TAT_TRA_LOI],
+      tin({ chatId: NHOM_TAT, userId: NGUOI_LA, hasHostMention: false }), LY_DO.NHOM_TAT_TRA_LOI],
     ['DM của NGƯỜI LẠ',
-      tin({ chatId: DM_HOST, userId: NGUOI_LA, coTagHost: false }), LY_DO.KHONG_PHAI_HOST],
+      tin({ chatId: DM_HOST, userId: NGUOI_LA, hasHostMention: false }), LY_DO.KHONG_PHAI_HOST],
     ['tiếng vọng của chính trợ lý',
-      tin({ userId: NGUOI_LA, tuToi: true, coTagHost: false }), LY_DO.TIN_CUA_TRO_LY],
+      tin({ userId: NGUOI_LA, tuToi: true, hasHostMention: false }), LY_DO.TIN_CUA_TRO_LY],
   ];
   for (const [ten, t, lyDo] of ca) {
     const kq = quyetDinh(t, CAU_HINH);
@@ -382,7 +382,7 @@ test('★★★ G4 BỐN NHÁNH DROP GIỮ NGUYÊN — ⛔ không nới một c�
 test('★★★ G5 nhóm ngoài allowlist: NGƯỜI LẠ lẫn HOST đều DROP', () => {
   for (const uid of [NGUOI_LA, HOST]) {
     for (const tag of [true, false]) {
-      const kq = quyetDinh(tin({ chatId: NHOM_LA, userId: uid, coTagHost: tag }), CAU_HINH);
+      const kq = quyetDinh(tin({ chatId: NHOM_LA, userId: uid, hasHostMention: tag }), CAU_HINH);
       assert.equal(kq.action, HANH_DONG_GATE.DROP, `nhóm lạ, uid=${uid}, tag=${tag}`);
     }
   }
@@ -391,7 +391,7 @@ test('★★★ G5 nhóm ngoài allowlist: NGƯỜI LẠ lẫn HOST đều DROP'
 test('★★★ G6 nhóm tắt trả lời: KHÔNG tốn lượt model nào (kể cả host tag)', () => {
   // Nhóm tắt là lựa chọn "trợ lý không tham gia nhóm này" ⇒ ⛔ cũng không nghe.
   for (const uid of [NGUOI_LA, HOST]) {
-    const kq = quyetDinh(tin({ chatId: NHOM_TAT, userId: uid, coTagHost: true }), CAU_HINH);
+    const kq = quyetDinh(tin({ chatId: NHOM_TAT, userId: uid, hasHostMention: true }), CAU_HINH);
     assert.equal(kq.action, HANH_DONG_GATE.DROP, `nhóm tắt, uid=${uid}`);
     assert.equal(kq.payload.lyDo, LY_DO.NHOM_TAT_TRA_LOI);
   }
@@ -401,7 +401,7 @@ test('★★★ G7 host gõ mà KHÔNG tag -> vẫn DROP (chặn tiếng vọng 
   // ⚠️ Em ĐÃ viết nhánh `nghe` ở đây rồi phải gỡ: trợ lý dùng chung tài khoản
   // với host, nên tin trợ lý tự gửi quay lại với tuToi=true VÀ isHost=true —
   // thứ duy nhất chặn nó là đúng dòng "không tag" này.
-  const kq = quyetDinh(tin({ userId: HOST, coTagHost: false }), CAU_HINH);
+  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: false }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.DROP);
   assert.equal(kq.payload.lyDo, LY_DO.KHONG_TAG);
 });
@@ -422,8 +422,8 @@ function dungTool(db, tuyChon = {}) {
     cauHinh: CAU_HINH,
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
     guiTin: {
-      guiVaoNhom: async (_a, c, t) => { daGui.push({ noi: 'nhom', c, t }); return { msgId: '9996000000001' }; },
-      guiDmHost: async (_a, c, t) => { daGui.push({ noi: 'dm', c, t }); return { msgId: '9996000000002' }; },
+      sendToGroup: async (_a, c, t) => { daGui.push({ noi: 'nhom', c, t }); return { msgId: '9996000000001' }; },
+      sendHostDm: async (_a, c, t) => { daGui.push({ noi: 'dm', c, t }); return { msgId: '9996000000002' }; },
     },
     ...tuyChon,
   });
@@ -536,7 +536,7 @@ test('★★★ S5 `bo_qua` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG TH�
 test('★★★ S6 `bo_qua` KHÔNG có đường nào chạm mạng', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'src/mcp/tools.js'), 'utf8');
   const than = thanHam(src, 'function _boQua(');
-  for (const cam of ['guiTin', 'api', 'guiVaoNhom', 'guiDmHost', 'xepHangGuiRa', '_guiTheoChinhSach']) {
+  for (const cam of ['guiTin', 'api', 'sendToGroup', 'sendHostDm', 'xepHangGuiRa', '_guiTheoChinhSach']) {
     assert.ok(!than.includes(cam), `_boQua chạm '${cam}' — nó phải KHÔNG CÓ đường gửi, không phải "có mà không dùng"`);
   }
 });

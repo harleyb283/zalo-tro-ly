@@ -11,7 +11,7 @@
  * 🔴 KHÔNG dùng `createReminder` của Zalo. Anh đã cắt phương án đó.
  *
  * ✅ TAG NGƯỜI: dùng lại nguyên tầng mention có sẵn ở `zalo/send.js`
- *    (`dungMentions` — NFC, `len` GỒM ký tự '@', tra uid qua `groupMembers`).
+ *    (`buildMentions` — NFC, `len` GỒM ký tự '@', tra uid qua `groupMembers`).
  *    KHÔNG viết lại. Ở đây chỉ làm phần ngược: uid -> tên, để ghép chuỗi `@Tên`
  *    vào đầu tin cho tầng kia nhận ra.
  *    🔴 Uid không tra ra tên ⇒ BỎ tag đó, ghi cảnh báo. CẤM bịa tên, vì tên bịa
@@ -26,7 +26,7 @@ import path from 'node:path';
 
 import { CHE_DO, GIOI_HAN_LICH, TRANG_THAI_HANG_DOI } from '../lib/hang_so.js';
 import { safeLogText } from '../lib/redact.js';
-import { baoDamTag } from '../zalo/send.js';
+import { ensureMention } from '../zalo/send.js';
 
 import { taoBoCanhOutbox } from './canh_outbox.js';
 
@@ -155,10 +155,10 @@ async function _chayLuoiOutbox(p, bayGio) {
     return await bo.chayMotNhip({
       db: p.db,
       bayGioMs: bayGio,
-      // ⛔ CHỈ có đường DM host. Cố ý KHÔNG truyền `guiVaoNhom` xuống đây —
+      // ⛔ CHỈ có đường DM host. Cố ý KHÔNG truyền `sendToGroup` xuống đây —
       // thiếu đường thì không ai lỡ tay gọi nhầm.
-      notifyHost: (p.guiDmHost && p.dmHostChatId)
-        ? (loiNhan) => p.guiDmHost(p.api, p.dmHostChatId, loiNhan, {
+      notifyHost: (p.sendHostDm && p.dmHostChatId)
+        ? (loiNhan) => p.sendHostDm(p.api, p.dmHostChatId, loiNhan, {
             uidTroLy: p.uidTroLy ?? null, ghiLai: p.ghiLai, laDm: true,
           })
         : null,
@@ -224,7 +224,7 @@ export function uidSangTen(dsNguoi, uids) {
  * Dựng nội dung tin nhắc: tiền tố trễ + bảo đảm tag + nội dung.
  *
  * 🔴 KHÔNG còn tự dán `@Tên` nữa — luật "mention phải có mặt ĐÚNG MỘT LẦN" nay
- * nằm ở MỘT chỗ duy nhất: `baoDamTag()` trong `zalo/send.js`. Bản cũ ở đây dán
+ * nằm ở MỘT chỗ duy nhất: `ensureMention()` trong `zalo/send.js`. Bản cũ ở đây dán
  * tiền tố VÔ ĐIỀU KIỆN, không đọc `noiDung`, nên nội dung đã có sẵn `@Trọng Nguyễn`
  * thì tin đi ra thành "@Trọng Nguyễn @Trọng Nguyễn ơi…" (anh gặp thật 20/08).
  *
@@ -235,7 +235,7 @@ export function uidSangTen(dsNguoi, uids) {
  *            daCoSan: string[], trungTen: string[], khongKhop: string[]}}
  */
 export function dungNoiDung({ noiDung, tienTo = '', dsNguoi = [], tagUserIds = [] }) {
-  const kq = baoDamTag(String(noiDung ?? ''), dsNguoi, tagUserIds);
+  const kq = ensureMention(String(noiDung ?? ''), dsNguoi, tagUserIds);
   const { ten } = uidSangTen(dsNguoi, kq.daThem);
   return {
     text: `${tienTo}${kq.text}`,
@@ -251,13 +251,13 @@ export function dungNoiDung({ noiDung, tienTo = '', dsNguoi = [], tagUserIds = [
 /**
  * Nhắn riêng host: lời nhắc vừa dừng vì HẾT LƯỢT, không phải vì xong việc.
  *
- * Đi qua `p.guiDmHost` + `p.dmHostChatId` — hai thứ vòng chạy đã có sẵn, nên
+ * Đi qua `p.sendHostDm` + `p.dmHostChatId` — hai thứ vòng chạy đã có sẵn, nên
  * không phải nối thêm phụ thuộc nào ở `index.js`.
  * KHÔNG BAO GIỜ ném: đây là tin phụ trợ, hỏng thì cũng không được làm chết
  * vòng nhắc.
  */
 async function _baoHetLuot(p, d, cho) {
-  if (typeof p.guiDmHost !== 'function' || !p.dmHostChatId) {
+  if (typeof p.sendHostDm !== 'function' || !p.dmHostChatId) {
     _log(`lời nhắc ${d.id} hết lượt nhưng KHÔNG có đường DM host -> host sẽ không biết`);
     return;
   }
@@ -279,7 +279,7 @@ async function _baoHetLuot(p, d, cho) {
   const chuaCoBangChung = !d.msg_id_da_gui;
 
   try {
-    await p.guiDmHost(
+    await p.sendHostDm(
       p.api,
       p.dmHostChatId,
       `⏹️ Đã dùng hết ${tran} lượt nhắc và DỪNG: "${d.noi_dung}"\n`
@@ -302,7 +302,7 @@ async function _baoHetLuot(p, d, cho) {
  *
  * @param {{
  *   db: any, api: any, bayGioMs?: number,
- *   guiVaoNhom: Function, guiDmHost: Function,
+ *   sendToGroup: Function, sendHostDm: Function,
  *   groupMembers: (db: any, chatId: string) => Array<{uid: string, ten: string}>,
  *   ghiLai?: (tin: any) => void,
  *   uidTroLy?: string|null,
@@ -340,8 +340,8 @@ export async function chayMotNhip(p) {
           + `nhưng em vừa dậy lúc ${dinhDangVn(bayGio, l.mui_gio)}.\n`
           + 'Em KHÔNG gửi vào nhóm (nhắc muộn còn tệ hơn không nhắc). '
           + 'Anh muốn gửi bây giờ thì bảo em.';
-        if (p.dmHostChatId && p.guiDmHost) {
-          await p.guiDmHost(p.api, p.dmHostChatId, loiNhan, {
+        if (p.dmHostChatId && p.sendHostDm) {
+          await p.sendHostDm(p.api, p.dmHostChatId, loiNhan, {
             ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           }).catch((e) => _log(`không DM được host về lịch quá hạn: ${safeLogText(e)}`));
         } else {
@@ -381,10 +381,10 @@ export async function chayMotNhip(p) {
       }
 
       const kq = laDm
-        ? await p.guiDmHost(p.api, String(l.chat_id_dich), nd.text, {
+        ? await p.sendHostDm(p.api, String(l.chat_id_dich), nd.text, {
             ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           })
-        : await p.guiVaoNhom(p.api, String(l.chat_id_dich), nd.text, {
+        : await p.sendToGroup(p.api, String(l.chat_id_dich), nd.text, {
             dsNguoi, ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           });
 
@@ -422,7 +422,7 @@ export async function chayMotNhip(p) {
  * mạng. Hai nhịp timer chồng nhau không thể gửi hai tin vào nhóm người thật.
  *
  * @param {{db: any, api: any, bayGioMs?: number,
- *          guiVaoNhom: Function, guiDmHost: Function,
+ *          sendToGroup: Function, sendHostDm: Function,
  *          groupMembers: Function, queryHistory?: Function,
  *          guiThongBao?: ((p: any) => Promise<boolean>)|null,
  *          enqueueQuestion?: Function, ghiLai?: Function, uidTroLy?: string|null}} p
@@ -730,8 +730,8 @@ async function _guiNhac(p, d, bayGioMs) {
     }
 
     const kq = laDm
-      ? await p.guiDmHost(p.api, String(d.chat_id_dich), nd.text, { ghiLai: p.ghiLai, uidTroLy: p.uidTroLy })
-      : await p.guiVaoNhom(p.api, String(d.chat_id_dich), nd.text, {
+      ? await p.sendHostDm(p.api, String(d.chat_id_dich), nd.text, { ghiLai: p.ghiLai, uidTroLy: p.uidTroLy })
+      : await p.sendToGroup(p.api, String(d.chat_id_dich), nd.text, {
         dsNguoi, ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
       });
     p.db.prepare('UPDATE lich_hen SET msg_id_da_gui = $m, cho_model_tu_ms = NULL WHERE id = $id')

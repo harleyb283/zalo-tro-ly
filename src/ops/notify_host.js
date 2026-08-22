@@ -292,14 +292,14 @@ export async function notifyHost(cauHinh, thongDiep, phuThuoc = {}) {
       try {
         // Nạp muộn: `bin/zalo-health.js` không bao giờ đi vào nhánh này, và
         // nó cũng không nên kéo theo cả zca-js chỉ để đọc một file JSON.
-        const { guiDmHost } = await import('../zalo/send.js');
+        const { sendHostDm } = await import('../zalo/send.js');
         // 🔴 v11 — `ghiLai` PHẢI đi kèm. Thiếu nó thì tin trợ lý vừa gửi ⛔
         // KHÔNG vào kho: đọc lại lịch sử chỉ thấy câu anh hỏi, ⛔ không thấy
         // câu em đáp — và cảnh báo (thứ đáng tra cứu nhất khi có sự cố) là
         // loại tin ⛔ mất trắng nhiều nhất, vì nó đi thẳng đường này.
         // ⚠️ Chỗ gọi ⛔ không truyền `ghiLai` thì `send.js` vẫn kêu lên stderr
         // như cũ — ⛔ không im lặng nuốt.
-        await guiDmHost(phuThuoc.api, dm, `[${tieuDe}] ${sach}`, {
+        await sendHostDm(phuThuoc.api, dm, `[${tieuDe}] ${sach}`, {
           ghiLai: phuThuoc.ghiLai,
           uidTroLy: phuThuoc.uidTroLy ?? null,
         });

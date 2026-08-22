@@ -46,20 +46,20 @@ import { toId } from '../lib/ids.js';
 import { TRANG_THAI_SUC_KHOE } from '../lib/hang_so.js';
 
 /** Phiên bản định dạng file session.json — đổi cấu trúc thì tăng số này. */
-export const PHIEN_BAN_SESSION = 1;
+export const SESSION_VERSION = 1;
 
 /**
  * Lỗi có mang sẵn MÃ SỨC KHOẺ, để G8 khỏi phải đoán bằng cách dò chuỗi
  * thông điệp. Dò chuỗi là kiểu hỏng câm khi ai đó sửa lời văn.
  */
-export class LoiPhienZalo extends Error {
+export class ZaloSessionError extends Error {
   /**
    * @param {string} thongDiep
    * @param {import('../types.d.ts').MaTrangThaiSucKhoe} maSucKhoe
    */
   constructor(thongDiep, maSucKhoe) {
     super(thongDiep);
-    this.name = 'LoiPhienZalo';
+    this.name = 'ZaloSessionError';
     this.maSucKhoe = maSucKhoe;
   }
 }
@@ -78,7 +78,7 @@ function log(...phan) {
  *
  * @returns {{selfListen: boolean, checkUpdate: boolean, logging: boolean}}
  */
-export function tuyChonZalo() {
+export function zaloClientOptions() {
   return {
     selfListen: true,
     checkUpdate: false,  // 🔴 chặn gọi mạng npm + log stdout mỗi lần login
@@ -94,7 +94,7 @@ export function tuyChonZalo() {
  * @param {string} duongDanSession
  * @returns {Promise<object|null>} null = chưa có phiên hoặc phiên không dùng được
  */
-export async function docPhien(duongDanSession) {
+export async function readSession(duongDanSession) {
   const p = expandPath(duongDanSession);
   if (!fs.existsSync(p)) return null;
 
@@ -127,11 +127,11 @@ export async function docPhien(duongDanSession) {
  * @param {{cookie: unknown[], imei: string, userAgent: string, language?: string, userId?: string|null, ten?: string|null}} duLieuPhien
  * @returns {Promise<void>}
  */
-export async function luuPhien(duongDanSession, duLieuPhien) {
+export async function saveSession(duongDanSession, duLieuPhien) {
   const p = expandPath(duongDanSession);
 
   if (!duLieuPhien?.cookie || !duLieuPhien?.imei || !duLieuPhien?.userAgent) {
-    throw new Error('luuPhien(): thiếu cookie / imei / userAgent — từ chối ghi phiên khuyết');
+    throw new Error('saveSession(): thiếu cookie / imei / userAgent — từ chối ghi phiên khuyết');
   }
 
   let taoLuc = new Date().toISOString();
@@ -143,7 +143,7 @@ export async function luuPhien(duongDanSession, duLieuPhien) {
   }
 
   const ban = {
-    phienBan: PHIEN_BAN_SESSION,
+    phienBan: SESSION_VERSION,
     taoLuc,
     capNhat: new Date().toISOString(),
     userId: duLieuPhien.userId ?? null,
@@ -168,7 +168,7 @@ export async function luuPhien(duongDanSession, duLieuPhien) {
  * @param {any} api
  * @returns {unknown[]|null}
  */
-export function layCookieHienThoi(api) {
+export function currentCookie(api) {
   try {
     const jar = api.getCookie();
     const s = jar?.toJSON?.();
@@ -208,7 +208,7 @@ export function layCookieHienThoi(api) {
  * @param {unknown} e
  * @returns {'TAM_THOI'|'XAC_THUC'}
  */
-export function phanLoaiLoiDangNhap(e) {
+export function classifyLoginError(e) {
   const ma = String(/** @type {any} */ (e)?.code ?? '');
   const chuoi = `${ma} ${String(/** @type {any} */ (e)?.message ?? e)}`.toLowerCase();
 
@@ -230,20 +230,20 @@ export function phanLoaiLoiDangNhap(e) {
 }
 
 /**
- * Lỗi từ `zalo.login()` -> `LoiPhienZalo` đã PHÂN LOẠI.
+ * Lỗi từ `zalo.login()` -> `ZaloSessionError` đã PHÂN LOẠI.
  *
  * Tách thành hàm THUẦN để test được mà không phải chạm mạng — chỗ quyết định
  * "có bảo anh đi quét QR hay không" là chỗ đáng canh nhất trong cả file này,
  * nhét nó trong `try/catch` của hàm có mạng thì không bài test nào với tới.
  *
  * @param {unknown} e
- * @returns {LoiPhienZalo}
+ * @returns {ZaloSessionError}
  */
-export function loiDangNhapThatBai(e) {
-  if (phanLoaiLoiDangNhap(e) === 'TAM_THOI') {
+export function loginFailedError(e) {
+  if (classifyLoginError(e) === 'TAM_THOI') {
     // 🔴 KHÔNG bảo anh quét QR ở đây. Chưa có bằng chứng nào nói cookie chết,
     // mà quét QR nhầm thì ĐÁ VĂNG phiên đang khoẻ.
-    return new LoiPhienZalo(
+    return new ZaloSessionError(
       `${cleanError('Đăng nhập Zalo thất bại vì lỗi MẠNG/HẠ TẦNG', e).message}\n  ` +
       'CHƯA KẾT LUẬN được cookie còn sống hay không — dấu hiệu là lỗi mạng, ' +
       'không phải lỗi xác thực.\n  ' +
@@ -253,7 +253,7 @@ export function loiDangNhapThatBai(e) {
       TRANG_THAI_SUC_KHOE.KHONG_BIET,
     );
   }
-  return new LoiPhienZalo(
+  return new ZaloSessionError(
     `${cleanError('Đăng nhập Zalo bằng cookie thất bại', e).message}\n  ${GIAI_THICH_COOKIE_CHET}`,
     TRANG_THAI_SUC_KHOE.CAN_QR,
   );
@@ -275,24 +275,24 @@ const GIAI_THICH_COOKIE_CHET = [
  * Đăng nhập bằng cookie đã lưu. KHÔNG cần QR, KHÔNG mở QR.
  *
  * 🔴 Hàm này TUYỆT ĐỐI không bao giờ tự mở QR: nó chạy trong tiến trình nền,
- *    không có ai đứng đó quét. Không đăng nhập được thì ném LoiPhienZalo với
+ *    không có ai đứng đó quét. Không đăng nhập được thì ném ZaloSessionError với
  *    maSucKhoe = 'CAN_QR' để G8 đặt health rồi thoát mã 3.
  *
  * @param {import('../types.d.ts').CauHinh} cauHinh
  * @returns {Promise<any>} đối tượng API của zca-js
  */
-export async function dangNhapBangCookie(cauHinh) {
+export async function loginWithCookie(cauHinh) {
   const duongDanSession = cauHinh?.duongDan?.session;
   if (!duongDanSession) {
-    throw new Error('dangNhapBangCookie(): thiếu cauHinh.duongDan.session');
+    throw new Error('loginWithCookie(): thiếu cauHinh.duongDan.session');
   }
 
-  const phien = await docPhien(duongDanSession);
+  const phien = await readSession(duongDanSession);
   if (!phien) {
     // ⚠️ Ca này ĐÚNG là cần quét QR, nhưng câu chữ phải nói rõ là "CHƯA TỪNG
     // đăng nhập", KHÔNG phải "cookie đã chết". Hai chuyện khác hẳn nhau: một
     // cái là chưa cài xong, cái kia là phiên đang chạy vừa hỏng.
-    throw new LoiPhienZalo(
+    throw new ZaloSessionError(
       `CHƯA TỪNG ĐĂNG NHẬP trên máy này — không có file phiên ở ${expandPath(duongDanSession)}.\n  ` +
       'Đây KHÔNG phải cookie hết hạn; chỉ là chưa cài xong.\n  ' +
       'Chạy TAY:  node bin/zalo-login.js  để quét QR lần đầu.',
@@ -314,7 +314,7 @@ export async function dangNhapBangCookie(cauHinh) {
     }
   }
 
-  const zalo = new Zalo(tuyChonZalo());
+  const zalo = new Zalo(zaloClientOptions());
 
   let api;
   try {
@@ -325,7 +325,7 @@ export async function dangNhapBangCookie(cauHinh) {
       language: phien.language || 'vi',
     });
   } catch (e) {
-    throw loiDangNhapThatBai(e);
+    throw loginFailedError(e);
   }
 
   const uid = toId(api.getOwnId?.(), 'session.getOwnId');
@@ -334,9 +334,9 @@ export async function dangNhapBangCookie(cauHinh) {
   // Cookie Zalo XOAY trong lúc dùng. Không ghi lại bản mới thì lần khởi động
   // sau vẫn nạp bản cũ — chạy được một thời gian rồi chết mà không rõ vì sao.
   try {
-    const cookieMoi = layCookieHienThoi(api);
+    const cookieMoi = currentCookie(api);
     if (cookieMoi) {
-      await luuPhien(duongDanSession, {
+      await saveSession(duongDanSession, {
         cookie: cookieMoi,
         imei: phien.imei,
         userAgent: phien.userAgent,
@@ -367,15 +367,15 @@ export async function dangNhapBangCookie(cauHinh) {
  * @param {{qrPath: string, userAgent?: string, language?: string, khiCoSuKien?: (loai: string, duLieu: any) => void}} tuyChon
  * @returns {Promise<{api: any, cookie: unknown[], imei: string, userAgent: string, language: string}>}
  */
-export async function dangNhapBangQr(tuyChon) {
+export async function loginWithQr(tuyChon) {
   const { LoginQRCallbackEventType } = await import('zca-js');
 
-  if (!tuyChon?.qrPath) throw new Error('dangNhapBangQr(): bắt buộc có qrPath');
+  if (!tuyChon?.qrPath) throw new Error('loginWithQr(): bắt buộc có qrPath');
   const qrPath = expandPath(tuyChon.qrPath);
   const language = tuyChon.language || 'vi';
   const bao = tuyChon.khiCoSuKien ?? (() => {});
 
-  const zalo = new Zalo(tuyChonZalo());
+  const zalo = new Zalo(zaloClientOptions());
 
   /** @type {{cookie: unknown[], imei: string, userAgent: string}|null} */
   let thongTin = null;
@@ -423,7 +423,7 @@ export async function dangNhapBangQr(tuyChon) {
   // tái tạo được — đáng.
   if (!thongTin) {
     const ctx = api.getContext?.();
-    const cookie = layCookieHienThoi(api);
+    const cookie = currentCookie(api);
     if (!ctx?.imei || !ctx?.userAgent || !cookie) {
       throw new Error(
         'Đăng nhập QR xong nhưng KHÔNG lấy được imei/userAgent/cookie. ' +
@@ -480,7 +480,7 @@ export async function keepAlive(api) {
  * @param {boolean} bat
  * @returns {Promise<void>}
  */
-export async function apDungAnTrangThai(api, bat) {
+export async function applyHiddenStatus(api, bat) {
   if (!bat) {
     log('anTrangThai = false → KHÔNG đụng cài đặt tài khoản (không tự bật lại hiện online)');
     return;
@@ -511,10 +511,10 @@ export async function apDungAnTrangThai(api, bat) {
  * @param {any} api
  * @returns {Promise<{userId: string, ten: string}>}
  */
-export async function layThongTinToi(api) {
+export async function fetchSelfInfo(api) {
   // getOwnId() là ĐỒNG BỘ trong zca-js 2.1.2 — await cũng không sao nhưng
   // đừng tưởng nó là Promise mà đi bắt .catch().
-  const userId = toId(api.getOwnId?.(), 'session.layThongTinToi.getOwnId');
+  const userId = toId(api.getOwnId?.(), 'session.fetchSelfInfo.getOwnId');
   if (!userId) throw new Error('Không đọc được user_id của tài khoản đang đăng nhập');
 
   let ten = '';
@@ -538,7 +538,7 @@ export async function layThongTinToi(api) {
  * @param {any} api
  * @returns {Promise<Array<{chatId: string, ten: string}>>}
  */
-export async function layDanhSachNhom(api) {
+export async function fetchGroupList(api) {
   let ids = [];
   try {
     const ds = await api.getAllGroups();
@@ -558,7 +558,7 @@ export async function layDanhSachNhom(api) {
       const tt = await api.getGroupInfo(lo);
       const map = tt?.gridInfoMap ?? {};
       for (const gid of lo) {
-        const cid = toId(gid, 'session.layDanhSachNhom.groupId');
+        const cid = toId(gid, 'session.fetchGroupList.groupId');
         if (cid) ra.push({ chatId: cid, ten: map[gid]?.name ?? '' });
       }
     } catch (e) {
@@ -566,7 +566,7 @@ export async function layDanhSachNhom(api) {
       // dùng còn chép được vào config, chỉ thiếu tên.
       log(`⚠️ lô ${i / CO_LO + 1} không lấy được tên nhóm: ${safeLogText(e)}`);
       for (const gid of lo) {
-        const cid = toId(gid, 'session.layDanhSachNhom.groupId');
+        const cid = toId(gid, 'session.fetchGroupList.groupId');
         if (cid) ra.push({ chatId: cid, ten: '' });
       }
     }

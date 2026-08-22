@@ -211,8 +211,8 @@ test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () 
   const guiDm = [];
   const kq = await chayMotNhip({
     db, api: {},
-    guiVaoNhom: async (...a) => { guiNhom.push(a); return { msgId: '1' }; },
-    guiDmHost: async (...a) => { guiDm.push(a); return { msgId: '2' }; },
+    sendToGroup: async (...a) => { guiNhom.push(a); return { msgId: '1' }; },
+    sendHostDm: async (...a) => { guiDm.push(a); return { msgId: '2' }; },
     groupMembers: () => [],
     dmHostChatId: 'dm-host',
   });
@@ -247,8 +247,8 @@ test('E2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
   const gui = [];
   const p = {
     db, api: {},
-    guiVaoNhom: async () => { await new Promise((r) => setTimeout(r, 5)); gui.push(1); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => { await new Promise((r) => setTimeout(r, 5)); gui.push(1); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   };
   await Promise.all([chayMotNhip(p), chayMotNhip(p)]);
@@ -264,8 +264,8 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
   chotLich(db, { id: ma, ma, nguoiDat: HOST });
   const kq = await chayMotNhip({
     db, api: {},
-    guiVaoNhom: async () => { throw new Error('mạng hỏng'); },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => { throw new Error('mạng hỏng'); },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   });
   assert.equal(kq.loi, 1);
@@ -300,13 +300,13 @@ test('F3 ★ uid không tra ra tên -> BỎ tag đó, tin vẫn gửi được',
   assert.deepEqual(kq.khongTraRa, ['999']);
 });
 
-test('F4 ★ chuỗi @Tên do bộ chạy dựng phải TAG ĐƯỢC THẬT qua dungMentions', async () => {
+test('F4 ★ chuỗi @Tên do bộ chạy dựng phải TAG ĐƯỢC THẬT qua buildMentions', async () => {
   // Bài nối hai tầng: nếu tên dựng ra mà tầng mention không nhận thì tin gửi đi
   // có chữ "@Anh A" nhưng KHÔNG tag ai — hỏng câm, nhìn tin vẫn thấy bình thường.
-  const { dungMentions } = await import('../src/zalo/send.js');
+  const { buildMentions } = await import('../src/zalo/send.js');
   const ds = [{ uid: '111', ten: 'Anh A' }];
   const nd = dungNoiDung({ noiDung: 'họp nhé', dsNguoi: ds, tagUserIds: ['111'] });
-  const mt = dungMentions(nd.text, ds);
+  const mt = buildMentions(nd.text, ds);
   assert.equal(mt.mentions.length, 1);
   assert.equal(mt.mentions[0].uid, '111');
   assert.equal(mt.mentions[0].pos, 0);
@@ -320,8 +320,8 @@ test('F5 gửi vào nhóm có truyền dsNguoi xuống tầng gửi', async () =
   let tuyChon = null;
   await chayMotNhip({
     db, api: {},
-    guiVaoNhom: async (_a, _c, _t, tc) => { tuyChon = tc; return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, _t, tc) => { tuyChon = tc; return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [{ uid: '111', ten: 'Anh A' }],
   });
   assert.deepEqual(tuyChon.dsNguoi, [{ uid: '111', ten: 'Anh A' }]);
@@ -377,7 +377,7 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
     ['./lich/bo_chay.js', ['batLich', 'chayMotNhip', 'NHIP_MS']],
     ['./lib/hang_so.js', ['GIOI_HAN_QUET']],
     ['./store/query.js', ['groupMembers']],
-    ['./zalo/send.js', ['guiVaoNhom', 'guiDmHost']],
+    ['./zalo/send.js', ['sendToGroup', 'sendHostDm']],
     ['./ops/notify_host.js', ['primaryHostDm']],
   ];
   for (const [duongDan, ten] of can) {

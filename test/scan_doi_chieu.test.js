@@ -52,7 +52,7 @@ function them(db, msgId, tsZalo, v = {}) {
   writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId: '555', tenLucGui: 'A',
     msgType: 'chat.text', noiDung: `tin ${msgId}`, contentRaw: null,
-    tsZalo, tuToi: false, coTagHost: false, ...v,
+    tsZalo, tuToi: false, hasHostMention: false, ...v,
   });
 }
 

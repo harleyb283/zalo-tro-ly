@@ -33,14 +33,14 @@ import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { isRunningTests } from '../src/ops/notify_host.js';
 import {
-  dangNhapBangCookie,
-  dangNhapBangQr,
-  docPhien,
-  luuPhien,
-  layThongTinToi,
-  layDanhSachNhom,
-  apDungAnTrangThai,
-  LoiPhienZalo,
+  loginWithCookie,
+  loginWithQr,
+  readSession,
+  saveSession,
+  fetchSelfInfo,
+  fetchGroupList,
+  applyHiddenStatus,
+  ZaloSessionError,
 } from '../src/zalo/session.js';
 
 const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -230,11 +230,11 @@ LƯU Ý VẬN HÀNH
 // ═══════════════════════════════════════════════════════════════════════
 
 async function lenhDungPhienSanCo(cauHinh, { canNhom }) {
-  const api = await dangNhapBangCookie(cauHinh);
-  const toi = await layThongTinToi(api);
-  const phien = await docPhien(cauHinh.duongDan.session);
+  const api = await loginWithCookie(cauHinh);
+  const toi = await fetchSelfInfo(api);
+  const phien = await readSession(cauHinh.duongDan.session);
   inThongTinTaiKhoan(toi, phien);
-  if (canNhom) inDanhSachNhom(await layDanhSachNhom(api));
+  if (canNhom) inDanhSachNhom(await fetchGroupList(api));
   return { api, toi };
 }
 
@@ -248,7 +248,7 @@ async function lenhQuetQr(cauHinh, tuyChon) {
   out('═══ QUÉT QR ĐĂNG NHẬP ZALO ═══');
   out('  Đang xin mã QR từ Zalo…');
 
-  const kq = await dangNhapBangQr({
+  const kq = await loginWithQr({
     qrPath,
     khiCoSuKien: (loai, dl) => {
       if (loai === 'QR_DA_TAO') {
@@ -274,9 +274,9 @@ async function lenhQuetQr(cauHinh, tuyChon) {
     },
   });
 
-  const toi = await layThongTinToi(kq.api);
+  const toi = await fetchSelfInfo(kq.api);
 
-  await luuPhien(duongDanSession, {
+  await saveSession(duongDanSession, {
     cookie: kq.cookie,
     imei: kq.imei,
     userAgent: kq.userAgent,
@@ -295,7 +295,7 @@ async function lenhQuetQr(cauHinh, tuyChon) {
     out('     mọi người, trên mọi thiết bị — kể cả khi dùng Zalo trên điện thoại.');
     const dongY = await hoiCo('     Ẩn trạng thái online + đã xem cho tài khoản này?');
     if (dongY) {
-      await apDungAnTrangThai(kq.api, true);
+      await applyHiddenStatus(kq.api, true);
       out('     → đã ẩn.');
     } else {
       out('     → giữ nguyên. Trợ lý vẫn chạy được, chỉ là kém kín đáo hơn.');
@@ -303,9 +303,9 @@ async function lenhQuetQr(cauHinh, tuyChon) {
     }
   }
 
-  const phien = await docPhien(duongDanSession);
+  const phien = await readSession(duongDanSession);
   inThongTinTaiKhoan(toi, phien);
-  inDanhSachNhom(await layDanhSachNhom(kq.api));
+  inDanhSachNhom(await fetchGroupList(kq.api));
 
   out('');
   out('═══ BƯỚC TIẾP THEO ═══');
@@ -329,7 +329,7 @@ export async function main(argv) {
     try {
       await lenhDungPhienSanCo(cauHinh, { canNhom: t.nhom });
     } catch (e) {
-      if (e instanceof LoiPhienZalo) {
+      if (e instanceof ZaloSessionError) {
         err('');
         err(`⛔ ${e.message}`);
         process.exitCode = 3;   // 3 = CAN_QR, khớp thiết kế 5.1
@@ -341,7 +341,7 @@ export async function main(argv) {
   }
 
   if (!t.force) {
-    const phien = await docPhien(cauHinh.duongDan.session);
+    const phien = await readSession(cauHinh.duongDan.session);
     if (phien) {
       out('Đã có file phiên — thử dùng lại trước khi quét QR…');
       try {

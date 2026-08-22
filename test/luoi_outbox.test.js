@@ -348,8 +348,8 @@ function nhipThat(db, them = {}) {
   return {
     db,
     api: {},
-    guiVaoNhom: them.guiVaoNhom ?? (async () => ({ msgId: 'x' })),
-    guiDmHost: them.guiDmHost ?? (async () => ({ msgId: 'y' })),
+    sendToGroup: them.sendToGroup ?? (async () => ({ msgId: 'x' })),
+    sendHostDm: them.sendHostDm ?? (async () => ({ msgId: 'y' })),
     groupMembers: () => [],
     guiThongBao: null,
     enqueueQuestion: () => {},
@@ -364,8 +364,8 @@ test('O8 — chayNhipTheoDuoi TỰ chạy lưới outbox, không cần index.js 
   const vaoNhom = [];
   const dmHost = [];
   const p = nhipThat(db, {
-    guiVaoNhom: async (...a) => { vaoNhom.push(a); return { msgId: 'x' }; },
-    guiDmHost: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
+    sendToGroup: async (...a) => { vaoNhom.push(a); return { msgId: 'x' }; },
+    sendHostDm: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
     // Mốc khởi động của bộ canh mặc định = nhịp đầu tiên -> đốt một nhịp gian ân.
   });
 
@@ -390,7 +390,7 @@ test('O8b — CÔNG TẮC RIÊNG: ZTL_LUOI_OUTBOX=0 tắt được, và mặc đ
     const dmHost = [];
     const p = nhipThat(db, {
       canhOutbox: b,
-      guiDmHost: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
+      sendHostDm: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
     });
 
     process.env.ZTL_LUOI_OUTBOX = '0';
@@ -425,7 +425,7 @@ test('O8c — 🔴 công tắc CHỈ nghe ĐÚNG biến của mình, không nghe
     xepHang(db, { giaMs: NGUONG_KET_MS });
     const dmHost = [];
     const p = nhipThat(db, {
-      guiDmHost: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
+      sendHostDm: async (...a) => { dmHost.push(a); return { msgId: 'y' }; },
     });
     await chayNhipTheoDuoi({ ...p, bayGioMs: T0 });
     await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS });

@@ -33,7 +33,7 @@ import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { registerTools } from '../src/mcp/tools.js';
-import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
+import { resetThrottle, setThrottle } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
 const HOST = '555000111';
@@ -49,8 +49,8 @@ process.on('exit', () => {
 });
 
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum6-'));
@@ -60,7 +60,7 @@ function dbTam() {
   writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ để em xem', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   return db;
 }
@@ -108,11 +108,11 @@ function dungTool(db, api, { guiHong = false } = {}) {
     api,
     docSucKhoe: () => ({ trangThai: 'OK' }),
     guiTin: {
-      guiVaoNhom: async (a, c, t) => {
+      sendToGroup: async (a, c, t) => {
         if (guiHong) throw new Error('mạng rớt');
         return a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId }));
       },
-      guiDmHost: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
+      sendHostDm: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
     },
     chinhSach: {
       decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
@@ -125,8 +125,8 @@ function dungTool(db, api, { guiHong = false } = {}) {
 async function motNhip(db, api, bayGioMs, { coModel = true } = {}) {
   return chayNhipTheoDuoi({
     db, api, bayGioMs, enqueueQuestion,
-    guiVaoNhom: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
-    guiDmHost: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
+    sendToGroup: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
+    sendHostDm: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
     groupMembers: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
     ...(coModel ? { guiThongBao: async () => true } : {}),
   });
@@ -407,8 +407,8 @@ test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứ
   };
   await chayNhipTheoDuoi({
     db, api, bayGioMs: Date.now(), enqueueQuestion,
-    guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
-    guiDmHost: async () => ({ msgId: 'x' }),
+    sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
+    sendHostDm: async () => ({ msgId: 'x' }),
     groupMembers: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
   });
   assert.equal(dong(db, d.id).msg_id_da_gui, null,
@@ -433,8 +433,8 @@ test('T6f ★★★ token có mặt NGAY khi hàng đợi vừa sinh ra', async 
       mocLucTaoHangDoi = dong(dbIn, d.id).cho_model_tu_ms;
       return enqueueQuestion(dbIn, x);
     },
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => true,
   });
@@ -510,8 +510,8 @@ test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội 
   const t0 = Date.now();
   const p = {
     db, api, enqueueQuestion,
-    guiVaoNhom: async () => { throw new Error('rớt mạng'); },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => { throw new Error('rớt mạng'); },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => true,
   };

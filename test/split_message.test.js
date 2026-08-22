@@ -124,10 +124,10 @@ test('🔴 A10 đếm theo ĐIỂM MÃ, emoji không làm chia sớm gấp đôi
   assert.equal(r.soPhan, 1, 'đếm bằng .length thì bài này sẽ ra 2 tin');
 });
 
-test('A11 KHÔNG cắt chồng với catAnToan — hai hàm khác việc', async () => {
-  const { catAnToan } = await import('../src/zalo/send.js');
+test('A11 KHÔNG cắt chồng với truncateSafely — hai hàm khác việc', async () => {
+  const { truncateSafely } = await import('../src/zalo/send.js');
   const dai = 'w'.repeat(9000);
-  assert.equal(catAnToan(dai, 4000).daCat, true, 'catAnToan = CẮT, mất đuôi');
+  assert.equal(truncateSafely(dai, 4000).daCat, true, 'truncateSafely = CẮT, mất đuôi');
   assert.equal(splitMessage(dai, { tran: 4000 }).daCat, false, 'splitMessage = CHIA, giữ đủ');
 });
 

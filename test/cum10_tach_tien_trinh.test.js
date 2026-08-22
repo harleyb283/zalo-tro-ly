@@ -53,7 +53,7 @@ function dbTam() {
   writeMessage(db, {
     chatId: NHOM, msgId: 'g1', cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'hỏi', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   return db;
 }
@@ -77,8 +77,8 @@ function dungClient(db) {
     },
     boTichLuy: createSourceLedger({ db }),
     guiTin: {
-      guiVaoNhom: async (...a) => { daGuiThang.push(a); return { msgId: 'x' }; },
-      guiDmHost: async (...a) => { daGuiThang.push(a); return { msgId: 'y' }; },
+      sendToGroup: async (...a) => { daGuiThang.push(a); return { msgId: 'x' }; },
+      sendHostDm: async (...a) => { daGuiThang.push(a); return { msgId: 'y' }; },
     },
     kho: { xepHangGuiRa: enqueueOutbound },   // ★ cửa gửi của client
   });
@@ -223,7 +223,7 @@ test('★★★ C2 NGHIỆM THU⑤: client mở DB CŨ HƠN -> thoát mã ≠0 k
 test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việc của daemon', () => {
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
   const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
-  for (const cam of ['giuKhoaPid', 'dangNhapBangCookie', 'batDauNghe', 'chayNhipTheoDuoi', 'chayMotNhip', 'keepAlive']) {
+  for (const cam of ['giuKhoaPid', 'loginWithCookie', 'startListening', 'chayNhipTheoDuoi', 'chayMotNhip', 'keepAlive']) {
     assert.ok(!kh.includes(cam), `vai client gọi \`${cam}\` — đó là việc của daemon`);
   }
   // ⚠️ Neo vào ĐÚNG khối `registerTools`. Bản đầu em canh `/api: null/` trên cả
@@ -297,8 +297,8 @@ test('★★★ X3 chế độ MỘT TIẾN TRÌNH: gửi THẲNG, ⛔ không x�
     },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
     guiTin: {
-      guiVaoNhom: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: '9996000000001' }; },
-      guiDmHost: async () => ({ msgId: 'y' }),
+      sendToGroup: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: '9996000000001' }; },
+      sendHostDm: async () => ({ msgId: 'y' }),
     },
     // ⛔ KHÔNG có `kho.xepHangGuiRa` — đúng như hôm nay.
   });

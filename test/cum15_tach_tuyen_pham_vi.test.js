@@ -62,7 +62,7 @@ function dbTam() {
   const tin = (chatId, msgId, noiDung) => writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung, contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   tin(DM_HOST, 'd1', 'anh hỏi riêng');
   tin(NHOM_A, 'a1', 'chuyện nhóm A');

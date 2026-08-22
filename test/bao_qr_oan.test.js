@@ -23,11 +23,11 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  phanLoaiLoiDangNhap, loiDangNhapThatBai, dangNhapBangCookie,
+  classifyLoginError, loginFailedError, loginWithCookie,
 } from '../src/zalo/session.js';
 import { isDaemonRunning, pidFilePath, writeHealth, readHealth } from '../src/ops/health.js';
 import { phanDinh, MA } from '../bin/zalo-health.js';
-import { taoWatchdog, WS } from '../src/zalo/watchdog.js';
+import { createWatchdog, WS } from '../src/zalo/watchdog.js';
 import { main as remindMain, MA as MA_REMIND } from '../bin/zalo-remind.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 
@@ -62,26 +62,26 @@ const ttGia = (ma, { tuLuc = Date.now(), lyDo = '' } = {}) => ({
 test('A1 lỗi MẠNG được nhận ra qua mã lỗi hệ thống', () => {
   for (const ma of ['ENOTFOUND', 'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EAI_AGAIN']) {
     const e = Object.assign(new Error('gì đó'), { code: ma });
-    assert.equal(phanLoaiLoiDangNhap(e), 'TAM_THOI', ma);
+    assert.equal(classifyLoginError(e), 'TAM_THOI', ma);
   }
 });
 
 test('A2 lỗi MẠNG nhận ra qua lời văn (thư viện hay nuốt mã lỗi)', () => {
   for (const s of ['fetch failed', 'socket hang up', 'request timed out', 'Bad Gateway',
     'HTTP status 503', 'network error']) {
-    assert.equal(phanLoaiLoiDangNhap(new Error(s)), 'TAM_THOI', s);
+    assert.equal(classifyLoginError(new Error(s)), 'TAM_THOI', s);
   }
 });
 
 test('A3 lỗi KHÔNG có dấu hiệu mạng -> XAC_THUC (nghiêng về phía nhắc anh, không im lặng)', () => {
   // zca-js ném đúng một câu "Đăng nhập thất bại" cho mọi nguyên nhân xác thực.
-  assert.equal(phanLoaiLoiDangNhap(new Error('Đăng nhập thất bại')), 'XAC_THUC');
-  assert.equal(phanLoaiLoiDangNhap(new Error('')), 'XAC_THUC');
-  assert.equal(phanLoaiLoiDangNhap(null), 'XAC_THUC');
+  assert.equal(classifyLoginError(new Error('Đăng nhập thất bại')), 'XAC_THUC');
+  assert.equal(classifyLoginError(new Error('')), 'XAC_THUC');
+  assert.equal(classifyLoginError(null), 'XAC_THUC');
 });
 
 test('🔴 A4 lỗi mạng -> KHONG_BIET và câu chữ CẤM quét QR', () => {
-  const loi = loiDangNhapThatBai(Object.assign(new Error('x'), { code: 'ETIMEDOUT' }));
+  const loi = loginFailedError(Object.assign(new Error('x'), { code: 'ETIMEDOUT' }));
   assert.equal(loi.maSucKhoe, TRANG_THAI_SUC_KHOE.KHONG_BIET,
     'mạng chớp mà ghi CAN_QR là đẩy anh đi quét QR oan');
   assert.match(loi.message, /ĐỪNG quét QR/);
@@ -91,7 +91,7 @@ test('🔴 A4 lỗi mạng -> KHONG_BIET và câu chữ CẤM quét QR', () => {
 });
 
 test('A5 lỗi xác thực -> CAN_QR, giữ nguyên bài giải thích cookie chết', () => {
-  const loi = loiDangNhapThatBai(new Error('Đăng nhập thất bại'));
+  const loi = loginFailedError(new Error('Đăng nhập thất bại'));
   assert.equal(loi.maSucKhoe, TRANG_THAI_SUC_KHOE.CAN_QR);
   assert.match(loi.message, /bind theo ĐỊA CHỈ IP/);
 });
@@ -99,7 +99,7 @@ test('A5 lỗi xác thực -> CAN_QR, giữ nguyên bài giải thích cookie ch
 test('🔴 A6 CHƯA TỪNG đăng nhập -> vẫn CAN_QR (đúng) nhưng KHÔNG được nói "cookie chết"', async () => {
   const ch = cauHinhGia();
   await assert.rejects(
-    () => dangNhapBangCookie(ch),
+    () => loginWithCookie(ch),
     (e) => {
       assert.equal(e.maSucKhoe, TRANG_THAI_SUC_KHOE.CAN_QR);
       assert.match(e.message, /CHƯA TỪNG ĐĂNG NHẬP/);
@@ -179,7 +179,7 @@ test('C5 chưa có health.json + daemon KHÔNG chạy -> nói rõ đây không p
 /** Watchdog với websocket ĐÃ ĐÓNG -> `motNhip()` sẽ chạy trọn vòng nối lại. */
 function wdHong(khiCanNoiLai) {
   const ghi = [];
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => ({ listener: { ws: { readyState: WS.CLOSED } } }),
     cauHinh: cauHinhGia(),
     backoffMs: [1, 1, 1, 1, 1],
@@ -204,7 +204,7 @@ test('🔴 D1 nối lại 5 lần đều hỏng vì MẠNG -> KHONG_BIET, không
 
 test('🔴 D3 khiHetCach NHẬN ĐƯỢC mã đã phán, để caller khỏi DM câu "quét QR" cứng', async () => {
   const nhan = [];
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => ({ listener: { ws: { readyState: WS.CLOSED } } }),
     cauHinh: cauHinhGia(),
     backoffMs: [1, 1, 1, 1, 1],

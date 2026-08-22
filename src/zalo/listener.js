@@ -10,18 +10,18 @@
  *    của zca-js KHÔNG được rò ra khỏi normalize.js.
  *  · 🔴 `isGroup` SAI với DM (zca-js issue #25): trả true cả khi thu hồi
  *    trong tin riêng. Phải đối chiếu `threadId` với danh sách nhóm,
- *    KHÔNG tin cờ isGroup. → `normalize.loaiHoiThoai()`.
+ *    KHÔNG tin cờ isGroup. → `normalize.inferConversationKind()`.
  *  · stdout là kênh giao thức MCP ⇒ mọi tiếng động đi `process.stderr`.
  *
  * ═══ 🔴 HAI ĐIỀU G8 PHẢI BIẾT KHI NỐI DÂY ═══
  *
- * 1. `batDauNghe()` CHỈ GẮN HANDLER — nó KHÔNG gọi `api.listener.start()`.
+ * 1. `startListening()` CHỈ GẮN HANDLER — nó KHÔNG gọi `api.listener.start()`.
  *    Mở websocket là việc của bước ⑥ trong `src/index.js`, vì gọi `start()`
  *    hai lần sẽ mở HAI kết nối và mọi tin bị ghi ĐÔI. Quên gọi `start()` thì
  *    hệ chết CÂM (không sự kiện nào, không lỗi nào) ⇒ file này ghi một dòng
- *    stderr nhắc ngay lúc gắn xong, và `lanCuoiNhanSuKien()` sẽ mãi trả null
+ *    stderr nhắc ngay lúc gắn xong, và `lastEventAt()` sẽ mãi trả null
  *    để watchdog tầng 2 bắt được.
- *    Muốn tự mở luôn thì gọi `batDauNghe(api, cauHinh, boPhat, { tuBatDau: true })`.
+ *    Muốn tự mở luôn thì gọi `startListening(api, cauHinh, boPhat, { tuBatDau: true })`.
  *
  * 2. LỖI TRONG HANDLER KHÔNG ĐƯỢC LÀM CHẾT TIẾN TRÌNH. Một tin dị dạng làm
  *    `normalize` ném lỗi mà không ai bắt thì EventEmitter đẩy nó thành
@@ -41,16 +41,16 @@
 import { SU_KIEN } from '../lib/hang_so.js';
 import { cleanError } from '../lib/redact.js';
 import {
-  chuanHoaTinNhan,
-  chuanHoaThuHoi,
-  chuanHoaReaction,
-  chuanHoaSuKienNhom,
+  normalizeMessage,
+  normalizeRecall,
+  normalizeReaction,
+  normalizeGroupEvent,
 } from './normalize.js';
 
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
 
 /** Tên 4 sự kiện của zca-js mà gói này gắn. Đúng 4, không hơn. */
-export const SU_KIEN_ZCA = Object.freeze({
+export const ZCA_EVENTS = Object.freeze({
   MESSAGE: 'message',
   UNDO: 'undo',
   REACTION: 'reaction',
@@ -60,7 +60,7 @@ export const SU_KIEN_ZCA = Object.freeze({
 /**
  * Trạng thái module. Cố ý để ở cấp module (không phải class): cả pack chỉ
  * chạy MỘT phiên Zalo trong MỘT tiến trình — pid-lock ở `index.js` bảo đảm
- * điều đó — và `lanCuoiNhanSuKien()` trong hợp đồng là hàm trần, không có
+ * điều đó — và `lastEventAt()` trong hợp đồng là hàm trần, không có
  * chỗ nào truyền instance vào.
  * @type {{api: any, boPhat: any, gan: Array<[string, Function]>}|null}
  */
@@ -165,9 +165,9 @@ function _layUidTroLy(api) {
  *
  * 🔴 ĐÂY LÀ CHỖ ĐÃ SINH RA BUG "TRỢ LÝ CÂM VĨNH VIỄN" — đọc trước khi sửa.
  *
- * `coTagHost()` hỏi: *"tin này có tag TRỢ LÝ không"*. Trong `mentions`, `uid`
+ * `hasHostMention()` hỏi: *"tin này có tag TRỢ LÝ không"*. Trong `mentions`, `uid`
  * là **người BỊ tag** — tức tài khoản BOT. Host là người ĐI tag, nằm ở
- * `uidFrom`. Bản trước chỉ truyền `{ hostUserIds }` nên `coTagHost` rơi vào
+ * `uidFrom`. Bản trước chỉ truyền `{ hostUserIds }` nên `hasHostMention` rơi vào
  * nhánh lùi và đi so `mentions[].uid` với uid HOST ⇒ **không bao giờ khớp**
  * ⇒ `co_tag_host` luôn 0 ⇒ spec B không bao giờ kích hoạt được.
  *
@@ -178,7 +178,7 @@ function _layUidTroLy(api) {
  * mã nguồn 4 lần; đây là lần thứ 4.
  *
  * 🔴 KHÔNG lấy được uid bot ⇒ FAIL-CLOSED: cố ý truyền `hostUserIds` RỖNG để
- * **triệt nhánh lùi** trong `normalize.coTagHost()`. Rỗng ⇒ luôn `false` ⇒
+ * **triệt nhánh lùi** trong `normalize.hasHostMention()`. Rỗng ⇒ luôn `false` ⇒
  * trợ lý im lặng. Lùi về so với host là tái tạo lại đúng con bug này, nên
  * thà câm còn hơn câm-mà-tưởng-là-chạy.
  *
@@ -191,7 +191,7 @@ function _dungBoiCanh(api, hostUserIds) {
   if (uidTroLy !== null) return { hostUserIds, uidTroLy };
 
   _canhBao(
-    'KHÔNG đọc được uid tài khoản bot (api.getOwnId) -> FAIL-CLOSED: coTagHost sẽ '
+    'KHÔNG đọc được uid tài khoản bot (api.getOwnId) -> FAIL-CLOSED: hasHostMention sẽ '
       + 'LUÔN false, trợ lý KHÔNG BAO GIỜ trả lời trong nhóm. Vẫn nghe và vẫn ghi '
       + 'lịch sử bình thường. CỐ Ý không lùi về so với uid host — nhánh đó chính là '
       + 'bug đã làm trợ lý câm.',
@@ -199,7 +199,7 @@ function _dungBoiCanh(api, hostUserIds) {
   return { hostUserIds: [] };
 }
 
-export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
+export function startListening(api, cauHinh, boPhat, tuyChon = {}) {
   const bo = api?.listener;
   if (!bo || typeof bo.on !== 'function' || typeof bo.off !== 'function') {
     throw cleanError('api.listener không dùng được (thiếu .on/.off) — chưa đăng nhập Zalo?');
@@ -212,11 +212,11 @@ export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
     if (_dangGan.api === api) {
       // Gắn hai lần lên CÙNG một api = mỗi tin vào DB hai lần. Ném cho to
       // tiếng ngay lúc khởi động, đừng để phát hiện qua dữ liệu trùng.
-      throw cleanError('batDauNghe() đã chạy rồi trên chính api này — gắn hai lần là ghi tin ĐÔI');
+      throw cleanError('startListening() đã chạy rồi trên chính api này — gắn hai lần là ghi tin ĐÔI');
     }
     // api MỚI (watchdog vừa đăng nhập lại): gỡ dây cũ rồi mới nối dây mới.
     _canhBao('phát hiện api mới -> gỡ 4 listener của phiên cũ trước khi gắn lại');
-    dungNghe(_dangGan.api);
+    stopListening(_dangGan.api);
   }
 
   const hostUserIds = (cauHinh?.hosts ?? [])
@@ -224,19 +224,19 @@ export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
     .filter((x) => x !== null && x !== '');
   if (hostUserIds.length === 0) {
     // Không chặn chạy: spec F cho phép chạy như daemon ghi lịch sử thuần
-    // (`--khong-mcp`). Nhưng phải nói ra, vì lúc đó coTagHost LUÔN false và
+    // (`--khong-mcp`). Nhưng phải nói ra, vì lúc đó hasHostMention LUÔN false và
     // trợ lý sẽ không bao giờ trả lời — im lặng ở đây trông y hệt "bot hỏng".
-    _canhBao('config KHÔNG có host nào -> coTagHost luôn false, trợ lý sẽ không bao giờ được kích hoạt');
+    _canhBao('config KHÔNG có host nào -> hasHostMention luôn false, trợ lý sẽ không bao giờ được kích hoạt');
   }
 
   const boiCanh = _dungBoiCanh(api, hostUserIds);
 
   /** @type {Array<[string, Function]>} */
   const gan = [
-    [SU_KIEN_ZCA.MESSAGE, _boc(SU_KIEN_ZCA.MESSAGE, SU_KIEN.TIN_NHAN, chuanHoaTinNhan, boPhat, boiCanh)],
-    [SU_KIEN_ZCA.UNDO, _boc(SU_KIEN_ZCA.UNDO, SU_KIEN.THU_HOI, chuanHoaThuHoi, boPhat, boiCanh)],
-    [SU_KIEN_ZCA.REACTION, _boc(SU_KIEN_ZCA.REACTION, SU_KIEN.REACTION, chuanHoaReaction, boPhat, boiCanh)],
-    [SU_KIEN_ZCA.GROUP_EVENT, _boc(SU_KIEN_ZCA.GROUP_EVENT, SU_KIEN.SU_KIEN_NHOM, chuanHoaSuKienNhom, boPhat, boiCanh)],
+    [ZCA_EVENTS.MESSAGE, _boc(ZCA_EVENTS.MESSAGE, SU_KIEN.TIN_NHAN, normalizeMessage, boPhat, boiCanh)],
+    [ZCA_EVENTS.UNDO, _boc(ZCA_EVENTS.UNDO, SU_KIEN.THU_HOI, normalizeRecall, boPhat, boiCanh)],
+    [ZCA_EVENTS.REACTION, _boc(ZCA_EVENTS.REACTION, SU_KIEN.REACTION, normalizeReaction, boPhat, boiCanh)],
+    [ZCA_EVENTS.GROUP_EVENT, _boc(ZCA_EVENTS.GROUP_EVENT, SU_KIEN.SU_KIEN_NHOM, normalizeGroupEvent, boPhat, boiCanh)],
   ];
   for (const [ten, fn] of gan) bo.on(ten, fn);
 
@@ -257,7 +257,7 @@ export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
 }
 
 /**
- * Gỡ đúng 4 handler mà `batDauNghe()` đã gắn.
+ * Gỡ đúng 4 handler mà `startListening()` đã gắn.
  *
  * ⚠️ CỐ Ý KHÔNG gọi `api.listener.stop()`: đóng websocket là quyết định vòng
  * đời của `index.js` (G8). Gói này chỉ chịu trách nhiệm phần dây của nó — gỡ
@@ -266,11 +266,11 @@ export function batDauNghe(api, cauHinh, boPhat, tuyChon = {}) {
  * @param {any} api
  * @returns {void}
  */
-export function dungNghe(api) {
+export function stopListening(api) {
   if (!_dangGan) return;
   const muc = _dangGan;
   if (api && muc.api !== api) {
-    _canhBao('dungNghe() nhận api KHÁC api đang gắn -> bỏ qua, không gỡ nhầm dây của phiên khác');
+    _canhBao('stopListening() nhận api KHÁC api đang gắn -> bỏ qua, không gỡ nhầm dây của phiên khác');
     return;
   }
   const bo = muc.api?.listener;
@@ -292,12 +292,12 @@ export function dungNghe(api) {
  * là một trong hai tầng — tầng 1 mới là thứ đọc trạng thái websocket.
  * @returns {number|null}
  */
-export function lanCuoiNhanSuKien() {
+export function lastEventAt() {
   return _lanCuoi;
 }
 
 /** Đang gắn dây hay không (dùng cho test + `trang_thai`). */
-export function dangNghe() {
+export function isListening() {
   return _dangGan !== null;
 }
 

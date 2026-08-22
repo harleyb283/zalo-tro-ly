@@ -375,7 +375,7 @@ test('🔴 C8 tầng 1 (DM Zalo) chạy khi có api — ca chết câm vẫn bá
   // send.js được nạp muộn trong notifyHost; ở đây kiểm qua kết quả trả về.
   const kq = await notifyHost(cauHinhGia(), 'listener chết', {
     api,
-    // guiDmHost thật sẽ ném vì api giả -> chứng minh nó CÓ thử tầng 1 rồi mới
+    // sendHostDm thật sẽ ném vì api giả -> chứng minh nó CÓ thử tầng 1 rồi mới
     // xuống tầng 2, chứ không bỏ qua.
   });
   assert.ok(kq.chiTiet.some((d) => d.startsWith('tầng 1')), JSON.stringify(kq.chiTiet));
@@ -542,23 +542,23 @@ test('D5 hosts rỗng / thiếu dmChatId -> báo rõ cách sửa', () => {
     /dmChatId/);
 });
 
-test('🔴 D5b catAnToan trả OBJECT chứ không phải chuỗi — và remind KHÔNG cắt hai lần', async () => {
-  // Bug thật, bắt được bằng chạy CLI chứ unit test không thấy: `catAnToan()`
+test('🔴 D5b truncateSafely trả OBJECT chứ không phải chuỗi — và remind KHÔNG cắt hai lần', async () => {
+  // Bug thật, bắt được bằng chạy CLI chứ unit test không thấy: `truncateSafely()`
   // trả `{text, daCat, originalLength}`, dùng như chuỗi thì `.slice` không tồn tại
   // và script chết đúng ở bước cuối.
-  const { catAnToan } = await import('../src/zalo/send.js');
-  const r = catAnToan('abc', 100);
+  const { truncateSafely } = await import('../src/zalo/send.js');
+  const r = truncateSafely('abc', 100);
   assert.equal(typeof r, 'object');
   assert.equal(typeof r.text, 'string');
   assert.equal(r.daCat, false);
-  assert.equal(catAnToan('x'.repeat(500), 100).daCat, true);
+  assert.equal(truncateSafely('x'.repeat(500), 100).daCat, true);
 
   // Và bước GỬI (send.js) đã tự cắt rồi ⇒ remind phải truyền NGUYÊN VĂN,
   // không thì dán hai lần cái đuôi "…[cắt bớt]".
   const s = fs.readFileSync(path.join(process.cwd(), 'bin/zalo-remind.js'), 'utf8');
-  assert.match(s, /guiDmHost\(api, dich\.chatId, noiDung\)/,
+  assert.match(s, /sendHostDm\(api, dich\.chatId, noiDung\)/,
     'phải truyền noiDung gốc, không truyền bản đã cắt');
-  assert.match(s, /guiVaoNhom\(api, dich\.chatId, noiDung\)/);
+  assert.match(s, /sendToGroup\(api, dich\.chatId, noiDung\)/);
 });
 
 test('D6 mã thoát của remind khác nhau và OK = 0', () => {

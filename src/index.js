@@ -62,9 +62,9 @@ import {
   upsertPerson,
 } from './store/write.js';
 
-import { batDauNghe, dungNghe } from './zalo/listener.js';
-import { apDungAnTrangThai, dangNhapBangCookie, keepAlive } from './zalo/session.js';
-import { taoWatchdog } from './zalo/watchdog.js';
+import { startListening, stopListening } from './zalo/listener.js';
+import { applyHiddenStatus, loginWithCookie, keepAlive } from './zalo/session.js';
+import { createWatchdog } from './zalo/watchdog.js';
 
 import { writeHealth } from './ops/health.js';
 import { notifyHost } from './ops/notify_host.js';
@@ -1048,7 +1048,7 @@ export async function main(argv = process.argv) {
       wd?.dung();
     } catch { /* nuốt */ }
     try {
-      if (api) dungNghe(api);
+      if (api) stopListening(api);
     } catch { /* nuốt */ }
     try {
       if (db) closeDb(db);
@@ -1106,7 +1106,7 @@ export async function main(argv = process.argv) {
 
     // ④ login bằng COOKIE — KHÔNG BAO GIỜ mở QR ở đây
     try {
-      api = await dangNhapBangCookie(cauHinh);
+      api = await loginWithCookie(cauHinh);
     } catch (e) {
       // 🔴 TÔN TRỌNG MÃ `session.js` VỪA PHÂN LOẠI.
       // Bản cũ ở đây là một ternary vô nghĩa — hai nhánh đều trả CAN_QR — nên
@@ -1144,7 +1144,7 @@ export async function main(argv = process.argv) {
     }
 
     // ⑤ ẩn trạng thái
-    await apDungAnTrangThai(api, cauHinh.anTrangThai).catch((e) =>
+    await applyHiddenStatus(api, cauHinh.anTrangThai).catch((e) =>
       log(`ẩn trạng thái thất bại (đi tiếp): ${safeLogText(e)}`),
     );
 
@@ -1287,7 +1287,7 @@ export async function main(argv = process.argv) {
       soMoPhien,
       tuCauHinhNhomMoi,
     });
-    batDauNghe(api, cauHinh, boPhat, { tuBatDau: true });
+    startListening(api, cauHinh, boPhat, { tuBatDau: true });
     log('đã gắn 4 listener và bật websocket');
 
     // ⑦ keepAlive
@@ -1299,16 +1299,16 @@ export async function main(argv = process.argv) {
 
     // ⑧ watchdog — `() => api` chứ không phải `api`: nối lại xong thì api là
     // đối tượng MỚI, giữ cứng tham chiếu cũ là soi một socket chết vĩnh viễn.
-    wd = taoWatchdog({
+    wd = createWatchdog({
       api: () => api,
       cauHinh,
       kiemKeepAlive: () => keepAlive(api),
       khiCanNoiLai: async () => {
         try {
-          dungNghe(api);
+          stopListening(api);
         } catch { /* nuốt */ }
-        api = await dangNhapBangCookie(cauHinh);
-        batDauNghe(api, cauHinh, boPhat, { tuBatDau: true });
+        api = await loginWithCookie(cauHinh);
+        startListening(api, cauHinh, boPhat, { tuBatDau: true });
       },
       ghiSucKhoe: (tt) => {
         try {
@@ -1405,7 +1405,7 @@ export async function main(argv = process.argv) {
     {
       const { batLich, chayMotNhip, chayNhipTheoDuoi, NHIP_MS } = await import('./lich/bo_chay.js');
       const { groupMembers, queryHistory } = await import('./store/query.js');
-      const { guiVaoNhom, guiDmHost } = await import('./zalo/send.js');
+      const { sendToGroup, sendHostDm } = await import('./zalo/send.js');
       const { primaryHostDm } = await import('./ops/notify_host.js');
       const { sinhSoNhac } = await import('./lich/theo_duoi.js');
       if (batLich()) {
@@ -1432,7 +1432,7 @@ export async function main(argv = process.argv) {
         hen.push(
           setInterval(() => {
             chayMotNhip({
-              db, api, guiVaoNhom, guiDmHost, groupMembers,
+              db, api, sendToGroup, sendHostDm, groupMembers,
               uidTroLy,
               dmHostChatId: primaryHostDm(cauHinh),
               ghiLai: ghiLaiTin,
@@ -1443,7 +1443,7 @@ export async function main(argv = process.argv) {
             // v4 — lời nhắc THEO ĐUỔI. Cùng nhịp, nhưng đường riêng: lịch một
             // lần hỏng thì lời nhắc theo đuổi vẫn chạy và ngược lại.
             chayNhipTheoDuoi({
-              db, api, guiVaoNhom, guiDmHost, groupMembers, queryHistory,
+              db, api, sendToGroup, sendHostDm, groupMembers, queryHistory,
               uidTroLy,
               ghiLai: ghiLaiTin,
               // Có phiên Claude thì giao model viết câu (câu hôm nay phải khác
@@ -1496,7 +1496,7 @@ export async function main(argv = process.argv) {
     // ⑬ v7 — RÚT OUTBOX. Chỉ ở chế độ TÁCH: đây là chỗ DUY NHẤT chạm Zalo,
     // và là chỗ throttle được thi hành TOÀN CỤC (xem chú thích ở `rutOutbox`).
     if (che.cheDo === CHE_DO.TACH) {
-      const { guiVaoNhom, guiDmHost } = await import('./zalo/send.js');
+      const { sendToGroup, sendHostDm } = await import('./zalo/send.js');
       const { groupMembers } = await import('./store/query.js');
       const { takePendingOutbound, claimOutbound, writeSendResult } = await import('./store/write.js');
       const { conversationKind } = await import('./store/query.js');
@@ -1518,8 +1518,8 @@ export async function main(argv = process.argv) {
             };
             void uids;
             return laDm
-              ? guiDmHost(api, chatId, text, tuyChon)
-              : guiVaoNhom(api, chatId, text, tuyChon);
+              ? sendHostDm(api, chatId, text, tuyChon)
+              : sendToGroup(api, chatId, text, tuyChon);
           },
         }).catch((e) => log(`[daemon] rút outbox lỗi (đã nuốt): ${safeLogText(e)}`));
       }, 2000));

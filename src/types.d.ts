@@ -63,7 +63,7 @@ export interface TinChuanHoa {
    * có trường `mentions` hay phải dò chuỗi? G2 phải kiểm bằng payload THẬT
    * và báo Router kết quả. KHÔNG được đoán rồi im.
    */
-  coTagHost: boolean;
+  hasHostMention: boolean;
 
   /**
    * ★ v2 — REPLY/QUOTE: tin này đang trả lời tin nào.

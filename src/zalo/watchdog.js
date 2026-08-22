@@ -2,7 +2,7 @@
  * ═══════════════════════════════════════════════════════════════════════
  * G8 — WATCHDOG 2 TẦNG. CHỦ SỞ HỮU: G8. Gói khác KHÔNG sửa file này.
  *
- * 🔴 BA TRẠNG THÁI, KHÔNG PHẢI HAI. `listenerSong()` trả true | false | null.
+ * 🔴 BA TRẠNG THÁI, KHÔNG PHẢI HAI. `isListenerAlive()` trả true | false | null.
  *      · null bị nhồi thành "chết" ⇒ đăng nhập lại VÔ HẠN
  *      · null bị nhồi thành "sống" ⇒ watchdog chết CÂM đúng lúc cần nhất
  *    ⇒ null PHẢI ánh xạ sang TRANG_THAI_SUC_KHOE.KHONG_BIET.
@@ -38,7 +38,7 @@
  * G2 đọc `.d.ts` và xác minh `Listener` phát 16 sự kiện, có sẵn `closed` /
  * `error` / `connected`. Đây là tín hiệu đáng tin hơn hẳn việc dò thuộc tính
  * nội bộ, nên watchdog lắng nghe thêm và coi `closed` là bằng chứng CHẾT trực
- * tiếp. Thêm chứ không thay: `listenerSong()` vẫn giữ đúng hợp đồng 3 trạng thái.
+ * tiếp. Thêm chứ không thay: `isListenerAlive()` vẫn giữ đúng hợp đồng 3 trạng thái.
  *
  * ⛔ stdout dành riêng cho giao thức MCP — mọi log đi stderr.
  * ═══════════════════════════════════════════════════════════════════════
@@ -50,8 +50,8 @@ import {
   TRANG_THAI_SUC_KHOE,
 } from '../lib/hang_so.js';
 import { safeLogText } from '../lib/redact.js';
-import { lanCuoiNhanSuKien } from './listener.js';
-import { phanLoaiLoiDangNhap } from './session.js';
+import { lastEventAt } from './listener.js';
+import { classifyLoginError } from './session.js';
 
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
 /** @typedef {import('../types.d.ts').TrangThaiSucKhoe} TrangThaiSucKhoe */
@@ -60,7 +60,7 @@ import { phanLoaiLoiDangNhap } from './session.js';
 export const WS = Object.freeze({ CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
 
 /** Số chu kỳ liên tiếp phải cùng dấu hiệu thì Tầng 2 mới dám kết luận. */
-export const SO_CHU_KY_NGHI_NGO = 2;
+export const SUSPICION_CYCLES = 2;
 
 function _log(msg) {
   process.stderr.write(`[zalo/watchdog] ${msg}\n`);
@@ -73,7 +73,7 @@ function _log(msg) {
  * @param {any} api
  * @returns {{song: boolean|null, lyDo: string}}
  */
-export function docTrangThaiWs(api) {
+export function readWsState(api) {
   try {
     const bo = api?.listener;
     if (!bo || typeof bo !== 'object') {
@@ -115,8 +115,8 @@ export function docTrangThaiWs(api) {
  * @param {any} api
  * @returns {boolean|null} true=sống · false=chết · null=KHÔNG BIẾT
  */
-export function listenerSong(api) {
-  return docTrangThaiWs(api).song;
+export function isListenerAlive(api) {
+  return readWsState(api).song;
 }
 
 /**
@@ -160,7 +160,7 @@ function _nghi(ms, co) {
  * @returns {{batDau: () => void, dung: () => void, motNhip: () => Promise<void>,
  *            dangNoiLai: () => boolean, soNghiNgo: () => number}}
  */
-export function taoWatchdog(phuThuoc) {
+export function createWatchdog(phuThuoc) {
   const layApi =
     typeof phuThuoc?.api === 'function' ? phuThuoc.api : () => phuThuoc?.api;
   const cauHinh = phuThuoc?.cauHinh ?? {};
@@ -266,7 +266,7 @@ export function taoWatchdog(phuThuoc) {
           return;
         } catch (e) {
           loiCuoi = e;
-          if (phanLoaiLoiDangNhap(e) === 'TAM_THOI') soLanTamThoi += 1;
+          if (classifyLoginError(e) === 'TAM_THOI') soLanTamThoi += 1;
           _log(`nối lại lần ${i + 1} thất bại: ${safeLogText(e)}`);
         }
       }
@@ -314,7 +314,7 @@ export function taoWatchdog(phuThuoc) {
     }
 
     // ── Tầng 1 — trạng thái websocket ────────────────────────────────
-    const { song, lyDo } = docTrangThaiWs(layApi());
+    const { song, lyDo } = readWsState(layApi());
     if (song === false) {
       ghi(TRANG_THAI_SUC_KHOE.LISTENER_CHET, `Tầng 1: ${lyDo}`);
       await noiLai(`Tầng 1: ${lyDo}`);
@@ -328,7 +328,7 @@ export function taoWatchdog(phuThuoc) {
     }
 
     // ── Tầng 2 — im lặng bất thường ──────────────────────────────────
-    const lanCuoi = lanCuoiNhanSuKien();
+    const lanCuoi = lastEventAt();
     const imLang = Date.now() - (lanCuoi ?? mocBatDau);
     if (imLang <= imLangMs) {
       soNghiNgo = 0;
@@ -349,9 +349,9 @@ export function taoWatchdog(phuThuoc) {
     const moTa =
       `im lặng ${Math.round(imLang / 1000)}s > ${Math.round(imLangMs / 1000)}s, ` +
       `keepAlive=${keepAliveOk === null ? 'không kiểm' : keepAliveOk}, ` +
-      `chu kỳ nghi ngờ ${soNghiNgo}/${SO_CHU_KY_NGHI_NGO}`;
+      `chu kỳ nghi ngờ ${soNghiNgo}/${SUSPICION_CYCLES}`;
 
-    if (soNghiNgo < SO_CHU_KY_NGHI_NGO) {
+    if (soNghiNgo < SUSPICION_CYCLES) {
       // ⚠️ CHƯA hành động. Nhóm im 15 phút là chuyện hoàn toàn bình thường —
       // nối lại vì im lặng một nhịp là tự đá phiên của chính mình.
       ghi(TRANG_THAI_SUC_KHOE.KHONG_BIET, `Tầng 2 nghi ngờ: ${moTa}`);

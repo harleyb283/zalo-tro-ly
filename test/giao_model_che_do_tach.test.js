@@ -72,8 +72,8 @@ function nhip(db, them = {}) {
   const p = {
     db,
     api: {},
-    guiVaoNhom: async (_a, c, t) => { vaoNhom.push({ c, t }); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, c, t) => { vaoNhom.push({ c, t }); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: null,
     enqueueQuestion,

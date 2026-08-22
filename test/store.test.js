@@ -64,7 +64,7 @@ function tinGia(v = {}) {
     contentRaw: null,
     tsZalo: 1_700_000_000_000,
     tuToi: false,
-    coTagHost: false,
+    hasHostMention: false,
     ...v,
   };
 }
@@ -180,7 +180,7 @@ test('B4 boolean và undefined — 2 kiểu node:sqlite KHÔNG bind được', (
     /cannot be bound/,
   );
   // Còn writeMessage() thì nuốt được cả hai.
-  writeMessage(db, tinGia({ chatId: '111', msgId: 'bool', tuToi: true, coTagHost: true }));
+  writeMessage(db, tinGia({ chatId: '111', msgId: 'bool', tuToi: true, hasHostMention: true }));
   writeMessage(db, tinGia({ chatId: '111', msgId: 'undef', cliMsgId: undefined, tenLucGui: undefined }));
   const r = db.prepare("SELECT tu_toi, co_tag_host FROM tin_nhan WHERE msg_id='bool'").get();
   assert.equal(Number(r.tu_toi), 1);

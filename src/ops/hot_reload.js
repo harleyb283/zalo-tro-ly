@@ -11,13 +11,13 @@
  *
  *    ✅ `groups`        — mọi chỗ đọc nó đều gọi `findGroup(cauHinh, chatId)` tại
  *                         thời điểm có tin, ⛔ không ai giữ sẵn mảng cũ. Đã soi
- *                         từng chỗ: access.js:findGroup · normalize.js:loaiHoiThoai
+ *                         từng chỗ: access.js:findGroup · normalize.js:inferConversationKind
  *                         · mcp/tools.js · bin/zalo-remind.js.
  *    ✅ `cauTrungTinh`  — chuỗi, đọc lúc cần.
  *    ✅ `kenhPhu` · `tranSoClient` · `nghiSauGio` — van chỉnh tay, đọc lúc cần.
  *
- *    ⛔ `hosts`     — `batDauNghe()` chụp `hostUserIds` MỘT LẦN lúc gắn listener
- *                     (zalo/listener.js:222). Gán đè ở đây thì `coTagHost` vẫn
+ *    ⛔ `hosts`     — `startListening()` chụp `hostUserIds` MỘT LẦN lúc gắn listener
+ *                     (zalo/listener.js:222). Gán đè ở đây thì `hasHostMention` vẫn
  *                     tính theo danh sách CŨ ⇒ nạp "thành công" mà hành vi
  *                     không đổi. Im lặng sai còn tệ hơn không làm.
  *    ⛔ `duongDan`  — DB đã mở, pid-lock đã giữ theo đường dẫn cũ.

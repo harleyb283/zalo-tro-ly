@@ -29,8 +29,8 @@ import { expandPath } from '../src/lib/paths.js';
 import { isRunningTests } from '../src/ops/notify_host.js';
 import { checkEnvironment, buildConfig, parseGroupChoice } from '../src/ops/setup.js';
 import {
-  dangNhapBangCookie, dangNhapBangQr, docPhien, luuPhien,
-  layThongTinToi, layDanhSachNhom, apDungAnTrangThai,
+  loginWithCookie, loginWithQr, readSession, saveSession,
+  fetchSelfInfo, fetchGroupList, applyHiddenStatus,
 } from '../src/zalo/session.js';
 
 const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,11 +94,11 @@ async function main() {
   let api = null;
   let toi = null;
 
-  const phienCu = await docPhien(F_SESSION).catch(() => null);
+  const phienCu = await readSession(F_SESSION).catch(() => null);
   if (phienCu) {
     try {
-      api = await dangNhapBangCookie({ duongDan: { session: F_SESSION } });
-      toi = await layThongTinToi(api);
+      api = await loginWithCookie({ duongDan: { session: F_SESSION } });
+      toi = await fetchSelfInfo(api);
       out(`✅ Đang đăng nhập sẵn: ${toi.ten ?? '(không rõ tên)'} — không cần quét QR lại.`);
     } catch {
       out('⚠️ Phiên cũ không dùng được nữa, phải quét QR lại.');
@@ -113,7 +113,7 @@ async function main() {
     await hoi('   Bấm Enter khi đã sẵn sàng… ');
 
     const qrPath = path.join(THU_MUC_DL, 'qr.png');
-    const kq = await dangNhapBangQr({
+    const kq = await loginWithQr({
       qrPath,
       khiCoSuKien: (loai, dl) => {
         if (loai === 'QR_DA_TAO') { out(`   Ảnh QR: ${dl.qrPath}`); moAnh(dl.qrPath); }
@@ -123,8 +123,8 @@ async function main() {
       },
     });
     api = kq.api;
-    toi = await layThongTinToi(api);
-    await luuPhien(F_SESSION, {
+    toi = await fetchSelfInfo(api);
+    await saveSession(F_SESSION, {
       cookie: kq.cookie, imei: kq.imei, userAgent: kq.userAgent,
       language: kq.language, userId: toi.userId, ten: toi.ten,
     });
@@ -133,7 +133,7 @@ async function main() {
 
   // ── ④ Chọn nhóm ─────────────────────────────────────────────────────
   out('\n── Bước 4/5 — chọn nhóm cho trợ lý nghe ──');
-  const nhom = await layDanhSachNhom(api);
+  const nhom = await fetchGroupList(api);
   if (!nhom.length) {
     out('   (Tài khoản này chưa ở trong nhóm nào. Không sao — sau này được thêm vào');
     out('    nhóm mới thì trợ lý tự hỏi bạn.)');
@@ -209,7 +209,7 @@ async function main() {
   out('   ⚠️ Đây là cài đặt của CẢ TÀI KHOẢN Zalo, áp cho mọi người và mọi thiết bị,');
   out('      kể cả khi bạn dùng Zalo trên điện thoại.');
   if (await hoiCo('   Bật ẩn?')) {
-    await apDungAnTrangThai(api, true).catch(() => out('   (không bật được, bỏ qua)'));
+    await applyHiddenStatus(api, true).catch(() => out('   (không bật được, bỏ qua)'));
     out('   ✅ Đã ẩn.');
   } else {
     out('   -> Giữ nguyên.');

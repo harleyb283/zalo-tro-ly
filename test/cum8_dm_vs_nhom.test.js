@@ -39,7 +39,7 @@ import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayMotNhip, chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { registerTools } from '../src/mcp/tools.js';
-import { baoDamTag, datLaiThrottle, datThrottle, guiDmHost, guiVaoNhom } from '../src/zalo/send.js';
+import { ensureMention, resetThrottle, setThrottle, sendHostDm, sendToGroup } from '../src/zalo/send.js';
 
 /**
  * ⚠️ ID BỊA. Ca hỏng thật 21/08 xảy ra trên một id DM khác — ⛔ KHÔNG chép id
@@ -58,8 +58,8 @@ process.on('exit', () => {
 });
 
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum8-'));
@@ -74,7 +74,7 @@ function tin(db, chatId, msgId) {
   writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'nội dung cũ', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
 }
 
@@ -113,7 +113,7 @@ function dungTool(db, api, { hosts, cauTrungTinh = 'Em nhắn riêng anh rồi �
       groups: [{ chatId: NHOM, ten: 'Nhóm thử', ghiLichSu: true, traLoiKhiTag: true }],
     },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
-    guiTin: { guiVaoNhom, guiDmHost },      // ★ tầng gửi THẬT
+    guiTin: { sendToGroup, sendHostDm },      // ★ tầng gửi THẬT
     ...(huong ? { chinhSach: { decideReplyRoute: () => huong } } : {}),
   });
   return async (n, a) => JSON.parse((await xuLy({ params: { name: n, arguments: a } })).content[0].text);
@@ -159,7 +159,7 @@ test('★★★ A2 NGHIỆM THU②: câu hỏi đến từ NHÓM -> vẫn Thread
 });
 
 test('★★★ A3 tin DÀI trong DM -> MỌI phần đều ThreadType.User', async () => {
-  // Đường chia nhỏ (`guiNhieuPhan`) là một đường gửi RIÊNG, có `laDm` riêng.
+  // Đường chia nhỏ (`sendInParts`) là một đường gửi RIÊNG, có `laDm` riêng.
   // Vá đường tin ngắn mà quên đường này thì lỗi y hệt, chỉ lộ khi anh hỏi một
   // câu cần trả lời dài — tức đúng lúc nội dung đáng giá nhất.
   const db = dbTam();
@@ -177,7 +177,7 @@ test('★★★ A3 tin DÀI trong DM -> MỌI phần đều ThreadType.User', as
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B — CÂU TRUNG TÍNH (nhánh DM_HOST) cũng gọi thẳng guiVaoNhom
+// B — CÂU TRUNG TÍNH (nhánh DM_HOST) cũng gọi thẳng sendToGroup
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ B1 nơi hỏi CHÍNH LÀ DM host -> BỎ câu trung tính (đáp án đã tới đúng chỗ)', async () => {
@@ -249,7 +249,7 @@ test('★★ B3 hỏi trong NHÓM, đáp án chéo -> câu trung tính vào nhó
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ C1 `groupMembers` với một chat DM KHÔNG rỗng — nó trả về chính host', () => {
-  // Đây là cái bẫy: ai cũng tưởng DM thì danh sách rỗng nên `baoDamTag` vô hại.
+  // Đây là cái bẫy: ai cũng tưởng DM thì danh sách rỗng nên `ensureMention` vô hại.
   // Đo thật thì nó trả `[{uid: host, ten: 'Chủ máy'}]`.
   const db = dbTam();
   tin(db, DM, 'd1');
@@ -259,12 +259,12 @@ test('★★★ C1 `groupMembers` với một chat DM KHÔNG rỗng — nó tr�
   closeDb(db);
 });
 
-test('★★★ C2 `baoDamTag` CHÈN "@Tên" dạng chữ trần — nên KHÔNG được chạy cho DM', () => {
+test('★★★ C2 `ensureMention` CHÈN "@Tên" dạng chữ trần — nên KHÔNG được chạy cho DM', () => {
   const db = dbTam();
   tin(db, DM, 'd1');
-  const kq = baoDamTag('Dạ em trả lời anh', groupMembers(db, DM), [HOST], null);
+  const kq = ensureMention('Dạ em trả lời anh', groupMembers(db, DM), [HOST], null);
   assert.match(kq.text, /^@Chủ máy /,
-    'bài này ghi lại HÀNH VI THẬT của baoDamTag — nó chèn chữ, không tự biết DM');
+    'bài này ghi lại HÀNH VI THẬT của ensureMention — nó chèn chữ, không tự biết DM');
   closeDb(db);
 });
 
@@ -347,7 +347,7 @@ test('★★★ C5 LỚP 1/3 — `reminderTagUids` đã tự trả rỗng cho DM
 });
 
 test('★★★ C6 LỚP 2/3 — trong DM KHÔNG chạy cưỡng chế tag, nên KHÔNG có cảnh báo tag', async () => {
-  // Model viết "@Ai Đó" trong DM. Nếu `_traLoi` vẫn chạy `baoDamTag` thì nó sinh
+  // Model viết "@Ai Đó" trong DM. Nếu `_traLoi` vẫn chạy `ensureMention` thì nó sinh
   // cảnh báo "@Ai Đó không khớp ai trong nhóm — người được nhắc KHÔNG nhận thông
   // báo". Câu đó VÔ NGHĨA trong DM (ở đó không tag được ai, kể cả người có thật),
   // và cảnh báo sai lặp lại là thứ làm model thôi tin cả cảnh báo đúng.
@@ -378,19 +378,19 @@ test('★★ C6b đối chiếu: trong NHÓM thì "@Ai Đó" VẪN phải sinh c
   closeDb(db);
 });
 
-test('★★★ C7 LỚP 3/3 — `guiDmHost` KHÔNG dựng mentions dù có ĐỦ danh sách người', async () => {
+test('★★★ C7 LỚP 3/3 — `sendHostDm` KHÔNG dựng mentions dù có ĐỦ danh sách người', async () => {
   // Gọi thẳng tầng gửi với `dsNguoi` đầy đủ — bỏ qua hai lớp trên. Đây là ca
   // duy nhất tách được lớp cuối: nếu `send.js` bỏ điều kiện ThreadType thì nó
   // sẽ nhét `mentions` vào một tin DM, mà zca-js bỏ hết mentions trong DM ⇒
   // vừa thừa dữ liệu vừa che mất lỗi thật.
   const { tin: ra, api } = banGui();
-  await guiDmHost(api, DM, '@Chủ máy ơi', { dsNguoi: [{ uid: HOST, ten: 'Chủ máy' }] });
+  await sendHostDm(api, DM, '@Chủ máy ơi', { dsNguoi: [{ uid: HOST, ten: 'Chủ máy' }] });
   assert.equal(ra.length, 1);
   assert.equal(ra[0].loaiThread, ThreadType.User);
   assert.equal(ra[0].mentions, undefined, 'dựng mentions cho một thread DM là dữ liệu thừa gửi lên Zalo');
 
   // Đối chiếu: cùng dữ liệu đó vào NHÓM thì PHẢI có mentions.
-  await guiVaoNhom(api, NHOM, '@Chủ máy ơi', { dsNguoi: [{ uid: HOST, ten: 'Chủ máy' }] });
+  await sendToGroup(api, NHOM, '@Chủ máy ơi', { dsNguoi: [{ uid: HOST, ten: 'Chủ máy' }] });
   assert.ok(Array.isArray(ra[1].mentions) && ra[1].mentions.length === 1,
     'mất mentions trong nhóm = lời nhắc chỉ còn là chữ, không ai nhận thông báo');
 });
@@ -416,8 +416,8 @@ test('★★★ C8 khi đích là DM, `_traLoi` KHÔNG truyền dsNguoi xuống 
     },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
     guiTin: {
-      guiVaoNhom: async (_a, _c, _t, tc) => { bat.push({ duong: 'nhom', tc }); return { msgId: 'm' }; },
-      guiDmHost: async (_a, _c, _t, tc) => { bat.push({ duong: 'dm', tc }); return { msgId: 'm' }; },
+      sendToGroup: async (_a, _c, _t, tc) => { bat.push({ duong: 'nhom', tc }); return { msgId: 'm' }; },
+      sendHostDm: async (_a, _c, _t, tc) => { bat.push({ duong: 'dm', tc }); return { msgId: 'm' }; },
     },
   });
   const goi = async (n, a) => JSON.parse((await xuLy({ params: { name: n, arguments: a } })).content[0].text);
@@ -444,7 +444,7 @@ test('★★★ D1 lịch MỘT LẦN vào DM -> bộ chạy gửi bằng Thread
   chotLich(db, { id: 'L1', ma: 'L1', nguoiDat: HOST });
   const { tin: ra, api } = banGui();
   await chayMotNhip({
-    db, api, guiVaoNhom, guiDmHost, groupMembers: () => [], bayGioMs: Date.now(),
+    db, api, sendToGroup, sendHostDm, groupMembers: () => [], bayGioMs: Date.now(),
   });
   assert.equal(ra.length, 1, 'lịch tới hạn mà không gửi gì = hỏng CÂM');
   assert.equal(ra[0].loaiThread, ThreadType.User, `gửi bằng ${ten(ra[0].loaiThread)}`);
@@ -462,7 +462,7 @@ test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User',
 
   const { tin: ra, api } = banGui();
   await chayNhipTheoDuoi({
-    db, api, guiVaoNhom, guiDmHost, groupMembers: () => [], bayGioMs: Date.now(), enqueueQuestion,
+    db, api, sendToGroup, sendHostDm, groupMembers: () => [], bayGioMs: Date.now(), enqueueQuestion,
   });
   assert.equal(ra.length, 1);
   assert.equal(ra[0].loaiThread, ThreadType.User, `gửi bằng ${ten(ra[0].loaiThread)}`);
@@ -551,7 +551,7 @@ test('★★★ E4 gate: DM KHÔNG cần tag mới kích hoạt, NHÓM thì CẦ
     hosts: [{ userId: HOST, ten: 'Anh', dmChatId: DM }],
     groups: [{ chatId: NHOM, ten: 'N', traLoiKhiTag: true }],
   };
-  const t = (chatId) => ({ chatId, userId: HOST, tuToi: false, coTagHost: false, msgType: 'chat.text', noiDung: 'hi' });
+  const t = (chatId) => ({ chatId, userId: HOST, tuToi: false, hasHostMention: false, msgType: 'chat.text', noiDung: 'hi' });
   assert.equal(quyetDinh(t(DM), ch).action, 'allow', 'DM đòi tag = đóng cửa vĩnh viễn (UserMessage không có mentions)');
   assert.equal(quyetDinh(t(NHOM), ch).action, 'drop', 'nhóm mà không cần tag = trợ lý chen vào mọi câu chuyện');
 });

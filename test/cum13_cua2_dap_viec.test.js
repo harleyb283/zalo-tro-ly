@@ -30,7 +30,7 @@ import {
 } from '../src/lib/hang_so.js';
 import { registerTools, TOOL_NOI_KHI_CUA2, TRAN_NOI_CUA2, LOP } from '../src/mcp/tools.js';
 import { nhanCua2, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
-import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
+import { resetThrottle, setThrottle } from '../src/zalo/send.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
 const NHOM = '9990000000001';
@@ -57,8 +57,8 @@ test.beforeEach(() => { _xoaPhamViChoTest(); });
 // ⚠️ Nới throttle: bài này đi qua tầng gửi THẬT (chỉ giả `api.sendMessage`),
 // mà throttle mặc định là 1,2 giây/tin. ⛔ Không chạm mạng — chỉ là bộ đếm.
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 const CAU_HINH = {
   cauTrungTinh: 'Em nhắn riêng anh rồi ạ.',
@@ -72,7 +72,7 @@ const CAU_HINH = {
 const tin = (p) => ({
   chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: PHU_TRACH, tenLucGui: 'Người phụ trách',
   msgType: 'chat.text', noiDung: 'sắp xong rồi anh', contentRaw: null,
-  tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false, ...p,
+  tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false, ...p,
 });
 
 /** Dựng DB có MỘT lời nhắc đang theo đuổi, giao cho `PHU_TRACH` ở `NHOM`. */
@@ -203,7 +203,7 @@ test('★★★ G4 ⛔ KHÔNG có cửa 2 trong DM — kể cả ĐÚNG người
 });
 
 test('★★★ G5 HOST vẫn đi đường cũ, ⛔ bối cảnh không đổi gì', () => {
-  const kq = quyetDinh(tin({ userId: HOST, coTagHost: true }), CAU_HINH, { idViecMoCua: 'NHAC1' });
+  const kq = quyetDinh(tin({ userId: HOST, hasHostMention: true }), CAU_HINH, { idViecMoCua: 'NHAC1' });
   assert.equal(kq.action, HANH_DONG_GATE.ALLOW);
   assert.equal(kq.payload.lyDo, LY_DO.HOST_TAG_TRONG_NHOM);
 });
@@ -347,7 +347,7 @@ test('★★★ T2c `xinHostDuyet` KHÔNG mở thêm quyền nào — bật ở 
 
 test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, phải LÙI về DM', async () => {
   // 🔴 `groupMembers` suy danh sách từ `tin_nhan.ten_luc_gui`. Host chưa
-  // nhắn lần nào ⇒ không tra ra tên ⇒ `baoDamTag` bỏ qua TRONG IM LẶNG ⇒ câu
+  // nhắn lần nào ⇒ không tra ra tên ⇒ `ensureMention` bỏ qua TRONG IM LẶNG ⇒ câu
   // "anh duyệt cho em nhé" KHÔNG tới ai, mà nhìn từ ngoài thì mọi thứ ổn.
   const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
@@ -376,7 +376,7 @@ test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, ph�
 });
 
 test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag bừa, PHẢI lùi', async () => {
-  // 🔴 `baoDamTag` cố ý KHÔNG dán `@Tên` khi tên trùng nhiều người — dán một
+  // 🔴 `ensureMention` cố ý KHÔNG dán `@Tên` khi tên trùng nhiều người — dán một
   // cụm mơ hồ chỉ tạo chữ không tag được ai. Nhưng khi đó lời xin cũng KHÔNG
   // tới host ⇒ phải lùi y như ca "chưa từng nhắn". Đường lùi chỉ xét
   // `khongTraRa` mà quên `trungTen` là bỏ sót đúng một nửa số ca hỏng.
@@ -408,7 +408,7 @@ test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag b�
 });
 
 test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM không có mention)', async () => {
-  // DM không có cơ chế mention, nên `baoDamTag` ⛔ không chạy ở đó. Chạy đường
+  // DM không có cơ chế mention, nên `ensureMention` ⛔ không chạy ở đó. Chạy đường
   // lùi cho một lượt DM là gửi cho host TIN THỨ HAI vào đúng chỗ vừa gửi.
   const { db, id } = dbCoNhac();
   // Lượt DM: `chat_id_hoi` chính là DM host.
@@ -479,7 +479,7 @@ test('★★★ T2e TAG ĂN thì ⛔ KHÔNG lùi (⛔ không gửi hai tin vô c
 
 test('★★★ T2f trần độ dài đo phần MODEL VIẾT — tag do code chèn ⛔ không bị cắt', async () => {
   // Router lo tin bị cắt cụt vì phần tag. Trả lời bằng ĐO: trần chặn ở
-  // `thamSo.text` (model viết), còn cụm "@Tên" do `baoDamTag` chèn SAU đó —
+  // `thamSo.text` (model viết), còn cụm "@Tên" do `ensureMention` chèn SAU đó —
   // nên tổng vượt trần vẫn đi ra NGUYÊN VẸN, ⛔ không ai cắt gì cả.
   const { db, id } = dbCoNhac();
   const { goi, daGoiApi } = dungTool(db);
@@ -683,8 +683,8 @@ test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
     kho: { taskOwnerHost: () => HOST },   // vô hiệu lớp trong cùng
     guiTin: {
-      guiVaoNhom: async () => ({ msgId: 'x' }),
-      guiDmHost: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'y' }; },
+      sendToGroup: async () => ({ msgId: 'x' }),
+      sendHostDm: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'y' }; },
     },
   });
   const goi = async (n, a) => JSON.parse((await xuLy({ params: { name: n, arguments: a } })).content[0].text);
@@ -771,7 +771,7 @@ test('★★★ W3 ĐẦU-CUỐI: HOST gửi -> lượt đầy đủ, ⛔ KHÔNG
   const { xuLyMotTin } = await import('../src/index.js');
   const { db, id } = dbCoNhac({ nguoiPhuTrach: HOST });   // host CHÍNH LÀ người phụ trách
   const { p } = boDauCuoi(db);
-  xuLyMotTin(p, tin({ msgId: 'w3', userId: HOST, coTagHost: true }));
+  xuLyMotTin(p, tin({ msgId: 'w3', userId: HOST, hasHostMention: true }));
   await new Promise((r) => setTimeout(r, 25));
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w3'").get();
   assert.equal(dong.chi_nghe, 0, 'host phải là lượt đầy đủ');

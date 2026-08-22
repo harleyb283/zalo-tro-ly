@@ -64,7 +64,7 @@ function dbHaiNhom() {
   const tin = (chatId, msgId, userId, ten, noiDung) => writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung, contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   tin(NHOM_A, 'a1', HOST, 'Chủ máy', 'chuyện của nhóm A');
   tin(NHOM_A, 'a2', HOST, 'Chủ máy', 'thêm chuyện nhóm A');
@@ -296,8 +296,8 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
     },
     boTichLuy: createSourceLedger({ db }),
     guiTin: {
-      guiVaoNhom: async () => ({ msgId: '9996000000001' }),
-      guiDmHost: async () => ({ msgId: '9996000000002' }),
+      sendToGroup: async () => ({ msgId: '9996000000001' }),
+      sendHostDm: async () => ({ msgId: '9996000000002' }),
     },
   });
   const goi = async (n, a) => JSON.parse((await xuLy({ params: { name: n, arguments: a } })).content[0].text);

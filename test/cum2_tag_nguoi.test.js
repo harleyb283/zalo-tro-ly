@@ -28,7 +28,7 @@ import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { registerTools } from '../src/mcp/tools.js';
-import { datLaiThrottle, datThrottle, guiVaoNhom, guiDmHost } from '../src/zalo/send.js';
+import { resetThrottle, setThrottle, sendToGroup, sendHostDm } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
 const HOST = '555000111';
@@ -49,7 +49,7 @@ function dbTam({ tenTrong = 'Trọng Nguyễn' } = {}) {
   const tin = (msgId, userId, ten, ts) => writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung: 'nói gì đó', contentRaw: null,
-    tsZalo: ts, tuToi: false, coTagHost: false,
+    tsZalo: ts, tuToi: false, hasHostMention: false,
   });
   tin('m-host', HOST, 'Minh Hải', 1_700_000_000_000);
   tin('m-trong', TRONG, tenTrong, 1_700_000_001_000);
@@ -61,7 +61,7 @@ function doiTen(db, userId, tenMoi) {
   writeMessage(db, {
     chatId: NHOM, msgId: `m-doiten-${tenMoi}`, cliMsgId: null, userId, tenLucGui: tenMoi,
     msgType: 'chat.text', noiDung: 'đổi tên rồi', contentRaw: null,
-    tsZalo: 1_800_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_800_000_000_000, tuToi: false, hasHostMention: false,
   });
 }
 
@@ -105,7 +105,7 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
     boTichLuy: { ghiNhan() {}, lay: () => [NHOM], xoa() {}, soPhien: () => 0 },
     api,
     docSucKhoe: () => ({ trangThai: 'OK' }),
-    guiTin: { guiVaoNhom, guiDmHost },        // ★ tầng gửi THẬT -> mentions THẬT
+    guiTin: { sendToGroup, sendHostDm },        // ★ tầng gửi THẬT -> mentions THẬT
     chinhSach: {
       decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
@@ -132,8 +132,8 @@ function phienNhac(db, idNhac, requestId = 'req-nhac') {
 }
 
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 // ═══════════════════════════════════════════════════════════════════════
 // T2a — A2: tool nhận được tag, và câu xác nhận NÓI RÕ
@@ -192,8 +192,8 @@ test('T2b ★★★ đường (a): gói gửi model chứa TÊN HIỂN THỊ và
   const goi = [];
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: (d, c) => {
       const { groupMembers } = require_ds();
       return groupMembers(d, c);

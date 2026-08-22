@@ -497,7 +497,7 @@ export function taskOwnerHost(db, idViec) {
  * tra uid từ CHÍNH dòng lời nhắc rồi tự bảo đảm mention — không hỏi model.
  *
  * ⚠️ Trả về **uid**, KHÔNG trả tên. Tên phải tra ở tầng gửi, tại thời điểm gửi
- * (xem `baoDamTag` trong `zalo/send.js`) — đóng băng tên là mở đường cho ca
+ * (xem `ensureMention` trong `zalo/send.js`) — đóng băng tên là mở đường cho ca
  * "đổi tên hiển thị ⇒ mất tag trong im lặng".
  *
  * @param {any} db
@@ -732,7 +732,7 @@ export function groupMembers(db, chatId, uidTroLy) {
   for (const r of rows) {
     const uid = String(r.uid);
     // 🔴 Bot KHÔNG BAO GIỜ là "một thành viên đang nói", bất kể dữ liệu trông
-    // thế nào. Còn trong danh sách này thì `baoDamTag` có thể dán `@Tên bot`
+    // thế nào. Còn trong danh sách này thì `ensureMention` có thể dán `@Tên bot`
     // vào chính câu trả lời của bot ⇒ bot TỰ ĐÁNH THỨC CHÍNH NÓ ⇒ vòng lặp.
     if (boQua !== null && uid === boQua) continue;
     if (thay.has(uid)) continue;

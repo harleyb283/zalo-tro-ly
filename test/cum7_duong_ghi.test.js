@@ -78,8 +78,8 @@ function dungTool(db, { cueGhiNho } = {}) {
     api: { getOwnId: () => 'uid-bot' },
     docSucKhoe: () => ({ trangThai: 'OK' }),
     guiTin: {
-      guiVaoNhom: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: `m${daGui.length}` }; },
-      guiDmHost: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: `d${daGui.length}` }; },
+      sendToGroup: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: `m${daGui.length}` }; },
+      sendHostDm: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: `d${daGui.length}` }; },
     },
     chinhSach: {
       decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
@@ -418,8 +418,8 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
     api: { getOwnId: () => 'uid-bot' },
     docSucKhoe: () => ({ trangThai: 'OK' }),
     guiTin: {
-      guiVaoNhom: async () => { daGui.push(1); return { msgId: 'm1' }; },
-      guiDmHost: async () => ({ msgId: 'd1' }),
+      sendToGroup: async () => { daGui.push(1); return { msgId: 'm1' }; },
+      sendHostDm: async () => ({ msgId: 'd1' }),
     },
     chinhSach: {
       decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),

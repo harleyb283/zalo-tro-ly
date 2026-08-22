@@ -85,7 +85,7 @@ function _nghe(chatId, lyDo, idViec) {
  * kiểu này không có lỗi nào để lần ra.
  *
  * Nên ở đây `tuToi` KHÔNG tự nó làm rớt tin. Chống vòng lặp (trợ lý trả lời
- * rồi tự đọc lại lời mình) do luật `coTagHost` lo: tin do trợ lý soạn không
+ * rồi tự đọc lại lời mình) do luật `hasHostMention` lo: tin do trợ lý soạn không
  * mang `mentions` trỏ vào host nên rơi ở bước "không tag". `tuToi` chỉ dùng
  * làm lớp chặn PHỤ cho ca `tuToi && !host` (tài khoản chạy tool không nằm
  * trong `hosts`).
@@ -97,7 +97,7 @@ function _nghe(chatId, lyDo, idViec) {
  * 2. Vì (1) chưa chắc, file này CÓ MỞ đường DM: tin trong DM của host được
  *    cho qua mà KHÔNG đòi tag. Lý do không phải tiện tay:
  *      · `UserMessage` của zca-js KHÔNG có trường `mentions` (G2 xác minh từ
- *        .d.ts) ⇒ trong DM `coTagHost` LUÔN false ⇒ đòi tag trong DM là đóng
+ *        .d.ts) ⇒ trong DM `hasHostMention` LUÔN false ⇒ đòi tag trong DM là đóng
  *        cửa vĩnh viễn, không phải "chặt chẽ hơn".
  *      · DM chỉ có host và trợ lý ⇒ không có ai để mà rò sang.
  *    Muốn đóng lại thì đặt `CHO_PHEP_DM = false` — sửa đúng một dòng.
@@ -205,7 +205,7 @@ export function quyetDinh(tin, cauHinh, boiCanh) {
   // Trợ lý chạy trên CHÍNH TÀI KHOẢN của host, nên tin do TRỢ LÝ tự gửi quay
   // lại qua websocket với `tuToi = true` VÀ `laHostGui = true` ⇒ nó KHÔNG rơi
   // ở nhánh `tuToi && !laHostGui` phía trên. Thứ duy nhất chặn tiếng vọng đó
-  // là đúng dòng `coTagHost !== true` này (tin trợ lý soạn không mang mention
+  // là đúng dòng `hasHostMention !== true` này (tin trợ lý soạn không mang mention
   // trỏ vào host). Đổi nó thành `nghe` là **mỗi câu trợ lý nói ra lại đẻ thêm
   // một lượt model** — không thành vòng lặp vô hạn vì lượt nghe không gửi
   // được gì, nhưng là tiếng vọng có thật, và Router đã liệt kê tiếng vọng vào
@@ -216,7 +216,7 @@ export function quyetDinh(tin, cauHinh, boiCanh) {
   // KHÔNG mang cờ đó (`do_tro_ly_tao` chỉ có sau khi ghi DB, và A8 đã đo được
   // là nó thua cuộc đua 35,3 % số lần). ⇒ Chưa làm được, ⛔ không đoán.
   // ═══════════════════════════════════════════════════════════════════
-  if (tin.coTagHost !== true) return _bo(LY_DO.KHONG_TAG);
+  if (tin.hasHostMention !== true) return _bo(LY_DO.KHONG_TAG);
 
   return {
     action: HANH_DONG_GATE.ALLOW,

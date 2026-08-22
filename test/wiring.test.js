@@ -14,7 +14,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { MA_THOAT, ganXuLyTin, giuKhoaPid, xuLyMotTin } from '../src/index.js';
-import { WS, docTrangThaiWs, listenerSong, taoWatchdog } from '../src/zalo/watchdog.js';
+import { WS, readWsState, isListenerAlive, createWatchdog } from '../src/zalo/watchdog.js';
 import { openDb, closeDb } from '../src/store/db.js';
 import { validateConfig } from '../src/policy/access.js';
 import { upsertConversation } from '../src/store/write.js';
@@ -70,7 +70,7 @@ function tinGia(v = {}) {
   return {
     chatId: 'A', msgId: 'm1', cliMsgId: null, userId: '111', tenLucGui: 'Anh',
     msgType: 'chat.text', noiDung: 'xin chào', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: true, ...v,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: true, ...v,
   };
 }
 
@@ -112,7 +112,7 @@ test('B1 ★ chưa có cookie -> health=CAN_QR, thoát mã 3, KHÔNG treo, KHÔN
   assert.equal(health.trangThai, TRANG_THAI_SUC_KHOE.CAN_QR);
 
   // Bằng chứng KHÔNG tự mở QR: không có dòng nào của luồng quét QR
-  // (`dangNhapBangQr` in "Quét mã" / hiện QR). Chỉ được phép có lời NHẮC
+  // (`loginWithQr` in "Quét mã" / hiện QR). Chỉ được phép có lời NHẮC
   // chạy tay bin/zalo-login.js.
   assert.equal(/Đang chờ quét|hiện QR|qrcode/i.test(r.err), false, 'có dấu vết tự mở QR');
   assert.match(r.err, /bin\/zalo-login\.js/, 'phải chỉ đường chạy TAY');
@@ -124,33 +124,33 @@ test('B1 ★ chưa có cookie -> health=CAN_QR, thoát mã 3, KHÔNG treo, KHÔN
 
 const apiWs = (rs) => ({ listener: { ws: { readyState: rs }, on() {}, off() {} } });
 
-test('C1 listenerSong đọc readyState: OPEN=sống, CLOSED/CLOSING=chết', () => {
-  assert.equal(listenerSong(apiWs(WS.OPEN)), true);
-  assert.equal(listenerSong(apiWs(WS.CLOSED)), false);
-  assert.equal(listenerSong(apiWs(WS.CLOSING)), false);
+test('C1 isListenerAlive đọc readyState: OPEN=sống, CLOSED/CLOSING=chết', () => {
+  assert.equal(isListenerAlive(apiWs(WS.OPEN)), true);
+  assert.equal(isListenerAlive(apiWs(WS.CLOSED)), false);
+  assert.equal(isListenerAlive(apiWs(WS.CLOSING)), false);
 });
 
 test('C2 ★ KHÔNG đọc được trạng thái -> null (KHÔNG BIẾT), KHÔNG phải false', () => {
   // Đây là ca hợp đồng gọi là "_closeTimer trả null". Ba đường hỏng đều phải
   // đổ về null: đoán "chết" là nối lại vô hạn, đoán "sống" là chết câm.
-  assert.equal(listenerSong({}), null, 'không có listener');
-  assert.equal(listenerSong({ listener: { ws: { _closeTimer: null } } }), null,
+  assert.equal(isListenerAlive({}), null, 'không có listener');
+  assert.equal(isListenerAlive({ listener: { ws: { _closeTimer: null } } }), null,
     '_closeTimer KHÔNG được dùng làm tín hiệu sống — nó sai cả hai chiều');
-  assert.equal(listenerSong({ listener: { ws: { readyState: 'mở' } } }), null,
+  assert.equal(isListenerAlive({ listener: { ws: { readyState: 'mở' } } }), null,
     'readyState kiểu lạ');
-  assert.equal(listenerSong(apiWs(WS.CONNECTING)), null, 'đang nối, chưa kết luận');
-  assert.equal(listenerSong(null), null);
+  assert.equal(isListenerAlive(apiWs(WS.CONNECTING)), null, 'đang nối, chưa kết luận');
+  assert.equal(isListenerAlive(null), null);
 });
 
 test('C3 listener đã dừng (ws=null) -> chết', () => {
-  assert.equal(listenerSong({ listener: { ws: null } }), false);
-  assert.match(docTrangThaiWs({ listener: { ws: null } }).lyDo, /listener đã dừng/);
+  assert.equal(isListenerAlive({ listener: { ws: null } }), false);
+  assert.match(readWsState({ listener: { ws: null } }).lyDo, /listener đã dừng/);
 });
 
 test('C4 ★ KHÔNG BIẾT -> ghi KHONG_BIET và TUYỆT ĐỐI KHÔNG nối lại', async () => {
   const ghi = [];
   let soLanNoiLai = 0;
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => ({ listener: { ws: { _closeTimer: null } } }),
     cauHinh: validateConfig(chGia()),
     ghiSucKhoe: (tt) => ghi.push(tt.trangThai),
@@ -176,7 +176,7 @@ function chGia() {
 test('C5 ★ listener CHẾT -> phát hiện ngay 1 nhịp, thử đúng 5 lần rồi DỪNG', async () => {
   const ghi = [];
   const mocThu = [];
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => apiWs(WS.CLOSED),
     cauHinh: validateConfig(chGia()),
     ghiSucKhoe: (tt) => ghi.push(tt),
@@ -205,7 +205,7 @@ test('C6 ★ TRỌN VÒNG: thử ĐÚNG 5 lần, đúng thứ tự backoff, rồ
   const ghi = [];
   const mocThu = [];
   let hetCach = 0;
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => apiWs(WS.CLOSED),
     cauHinh: validateConfig(chGia()),
     // Tiêm backoff siêu ngắn nhưng GIỮ NGUYÊN TỈ LỆ để chứng minh trọn vòng
@@ -238,7 +238,7 @@ test('C6 ★ TRỌN VÒNG: thử ĐÚNG 5 lần, đúng thứ tự backoff, rồ
 test('C7 nối lại THÀNH CÔNG -> quay về OK, đếm nghi ngờ về 0', async () => {
   const ghi = [];
   let song = false;
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => apiWs(song ? WS.OPEN : WS.CLOSED),
     cauHinh: validateConfig({ ...chGia(), thoiGian: { ...chGia().thoiGian } }),
     ghiSucKhoe: (tt) => ghi.push(tt),
@@ -253,7 +253,7 @@ test('C7 nối lại THÀNH CÔNG -> quay về OK, đếm nghi ngờ về 0', as
 test('C8 ★ Tầng 2: im lặng 1 chu kỳ CHƯA hành động (nhóm im 15 phút là bình thường)', async () => {
   const ghi = [];
   let noiLai = 0;
-  const wd = taoWatchdog({
+  const wd = createWatchdog({
     api: () => apiWs(WS.OPEN),
     // imLangMs = 0 để mọi nhịp đều "im lặng quá ngưỡng".
     cauHinh: validateConfig({ ...chGia(), thoiGian: { ...chGia().thoiGian, imLangMs: 1 } }),

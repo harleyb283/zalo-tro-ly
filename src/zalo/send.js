@@ -17,7 +17,7 @@
  *   Small `f_13` · Big `f_18` · UnorderedList `lst_1` · OrderedList `lst_2`
  *   Indent `ind_$`
  * KHÔNG monospace, KHÔNG bảng, KHÔNG heading thật, KHÔNG link có nhãn.
- * ⇒ `chuyenMarkdown()` dịch sang những thứ CÓ THẬT, và **bỏ ký tự markdown**.
+ * ⇒ `markdownToZalo()` dịch sang những thứ CÓ THẬT, và **bỏ ký tự markdown**.
  *
  * ═══ 🔴 ĐƠN VỊ CỦA OFFSET — đo thật, và nói rõ chỗ chưa chắc ═══
  * Đo trên máy (20/08/2026), cùng một câu tiếng Việt:
@@ -91,7 +91,7 @@ function _nfc(s) {
  * @param {number} [tran]
  * @returns {{text: string, daCat: boolean, originalLength: number}}
  */
-export function catAnToan(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
+export function truncateSafely(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
   const s = _nfc(text);
   const goc = _doDai(s);
   if (goc <= tran) return { text: s, daCat: false, originalLength: goc };
@@ -191,7 +191,7 @@ function _mauCanhBao(dong) {
  * @param {string} md
  * @returns {{msg: string, styles: Array<{start:number,len:number,st:string}>}}
  */
-export function chuyenMarkdown(md) {
+export function markdownToZalo(md) {
   const nguon = _nfc(md);
   const dongVao = nguon.split('\n');
   /** @type {string[]} */
@@ -280,13 +280,13 @@ export function chuyenMarkdown(md) {
  *
  * Khớp THAM LAM theo tên dài nhất trước: "@An Bình" phải thắng "@An".
  *
- * @param {string} msg câu đã qua catAnToan + chuyenMarkdown (chuỗi SẼ gửi đi)
+ * @param {string} msg câu đã qua truncateSafely + markdownToZalo (chuỗi SẼ gửi đi)
  * @param {Array<{uid: string, ten: string}>} dsNguoi người có thật trong nhóm
  * @returns {{mentions: Array<{uid: string, pos: number, len: number}>, khongTraRa: string[],
  *            trungTen: string[], khongKhop: string[]}}
  *   `khongKhop` = cụm `@…` KHÔNG khớp ai (B4) — khác hẳn `khongTraRa` (tên TRÙNG nhiều người).
  */
-export function dungMentions(msg, dsNguoi) {
+export function buildMentions(msg, dsNguoi) {
   const ra = { mentions: [], khongTraRa: [], trungTen: [], khongKhop: [] };
   const s = _nfc(typeof msg === 'string' ? msg : '');
   if (!s || !Array.isArray(dsNguoi) || dsNguoi.length === 0) return ra;
@@ -376,7 +376,7 @@ export function dungMentions(msg, dsNguoi) {
  *     "@Trọng Nguyễn @Trọng Nguyễn ơi…". Anh đã gặp thật và đã phàn nàn.
  *   · `mcp/tools.js: tra_loi`    — KHÔNG có luật nào cả. Model viết gì gửi nấy,
  *     mà model viết "Trọng ơi" (chữ trần) ⇒ không tag được ai. Cũng gặp thật.
- *   · `send.js: dungMentions`    — chỉ DỊCH `@Tên` sẵn có thành mention, không
+ *   · `send.js: buildMentions`    — chỉ DỊCH `@Tên` sẵn có thành mention, không
  *     có trách nhiệm bảo đảm nó tồn tại.
  * Ba bản sao của một luật là mầm trôi lệch: vá một chỗ thì hai chỗ kia vẫn hỏng,
  * và triệu chứng quay lại dưới dạng khác. Từ đây CẢ BA gọi hàm này.
@@ -384,7 +384,7 @@ export function dungMentions(msg, dsNguoi) {
  * ═══ 🔑 HAI NGUYÊN TẮC, KHÔNG ĐƯỢC NỚI ═══
  * ① **uid là NGUỒN SỰ THẬT, tên tra LÚC GỬI.** Tên hiển thị Zalo đổi được bất cứ
  *    lúc nào; chuỗi tên đóng băng lúc TẠO lời nhắc thì vài ngày sau không còn
- *    khớp ai — và `dungMentions` sẽ bỏ qua trong im lặng. Vì vậy hàm này nhận
+ *    khớp ai — và `buildMentions` sẽ bỏ qua trong im lặng. Vì vậy hàm này nhận
  *    **uid** rồi tự tra tên từ `dsNguoi` của CHÍNH lúc gửi.
  * ② **KHÔNG giao model việc dựng mention.** Model là kênh chép chuỗi không đáng
  *    tin: nó diễn đạt lại, bỏ dấu `@`, dùng tên thân mật. Code phải tự bảo đảm.
@@ -407,7 +407,7 @@ export function dungMentions(msg, dsNguoi) {
  *   `trungTen`   uid có tên trùng người khác ⇒ cố ý không tag
  *   `khongKhop`  cụm `@…` trong text không khớp ai (B4 — thường là tên cũ)
  */
-export function baoDamTag(text, dsNguoi = [], uids = [], uidTroLy = null) {
+export function ensureMention(text, dsNguoi = [], uids = [], uidTroLy = null) {
   const s = _nfc(typeof text === 'string' ? text : '');
   const ra = { text: s, daThem: [], daCoSan: [], khongTraRa: [], trungTen: [], khongKhop: [] };
 
@@ -426,7 +426,7 @@ export function baoDamTag(text, dsNguoi = [], uids = [], uidTroLy = null) {
     }
   }
 
-  // uid -> tên, và đếm tên trùng. Cùng cách thường hoá với `dungMentions` để hai
+  // uid -> tên, và đếm tên trùng. Cùng cách thường hoá với `buildMentions` để hai
   // hàm không bao giờ bất đồng về "tên này là của ai".
   const tenTheoUid = new Map();
   const soNguoiCungTen = new Map();
@@ -440,8 +440,8 @@ export function baoDamTag(text, dsNguoi = [], uids = [], uidTroLy = null) {
     soNguoiCungTen.get(khoa).add(uid);
   }
 
-  // Ai đã được tag SẴN trong text — hỏi chính `dungMentions`, KHÔNG tự dò lại.
-  const daCo = dungMentions(s, dsNguoi);
+  // Ai đã được tag SẴN trong text — hỏi chính `buildMentions`, KHÔNG tự dò lại.
+  const daCo = buildMentions(s, dsNguoi);
   ra.khongKhop = daCo.khongKhop ?? [];
   const dangCoUid = new Set(daCo.mentions.map((m) => String(m.uid)));
 
@@ -460,19 +460,19 @@ export function baoDamTag(text, dsNguoi = [], uids = [], uidTroLy = null) {
   return ra;
 }
 
-export const THROTTLE_MAC_DINH = Object.freeze({
+export const DEFAULT_THROTTLE = Object.freeze({
   minKhoangCachMs: 1200,
   toiDaMoiPhut: 20,
 });
 
 /**
- * Cấu hình ĐANG CHẠY — `datThrottle()` sửa thẳng vào đây. Tách khỏi
- * `THROTTLE_MAC_DINH` vì bộ test phải nới throttle để chạy cho nhanh, mà nới
+ * Cấu hình ĐANG CHẠY — `setThrottle()` sửa thẳng vào đây. Tách khỏi
+ * `DEFAULT_THROTTLE` vì bộ test phải nới throttle để chạy cho nhanh, mà nới
  * xong thì không còn chỗ nào kiểm được giá trị GỐC có đủ chậm hay không
  * (bài test đầu tiên của em đã dính đúng lỗi đó: mutate rồi assert lên chính
  * cái vừa mutate, luôn xanh).
  */
-export const THROTTLE = { ...THROTTLE_MAC_DINH };
+export const THROTTLE = { ...DEFAULT_THROTTLE };
 
 /** @type {number[]} mốc các lần gửi gần đây (ms) */
 let _lichSu = [];
@@ -482,14 +482,14 @@ let _hangDoi = Promise.resolve();
 const _nghi = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Cho test và cho G8 chỉnh. Trả về cấu hình cũ để khôi phục. */
-export function datThrottle(moi = {}) {
+export function setThrottle(moi = {}) {
   const cu = { ...THROTTLE };
   Object.assign(THROTTLE, moi);
   return cu;
 }
 
 /** Xoá lịch sử gửi — CHỈ dùng trong test. */
-export function datLaiThrottle() {
+export function resetThrottle() {
   _lichSu = [];
   _hangDoi = Promise.resolve();
 }
@@ -536,13 +536,13 @@ function _xepHang() {
 /**
  * ⚠️ ĐIỂM HỢP ĐỒNG CÒN THIẾU — ĐÃ BÁO ROUTER:
  * Stub G0 bắt "tin trợ lý gửi PHẢI được ghi vào `tin_nhan` với
- * `do_tro_ly_tao = 1`", NHƯNG chữ ký `guiVaoNhom(api, chatId, text)` không
+ * `do_tro_ly_tao = 1`", NHƯNG chữ ký `sendToGroup(api, chatId, text)` không
  * có `db` lẫn callback nào để làm việc đó, và `types.d.ts` cũng không định
  * nghĩa đường nào.
  * ⇒ KHÔNG tự `import '../store/write.js'` (file này không có `db` handle, và
  *   tự mở DB thứ hai trong tiến trình là mời gọi khoá chéo).
  * ⇒ Nhận `tuyChon.ghiLai(tin)` từ ngoài. G8 nối dây:
- *      guiVaoNhom(api, id, text, { ghiLai: (t) => writeMessage(db, t, {doTroLyTao:true}) })
+ *      sendToGroup(api, id, text, { ghiLai: (t) => writeMessage(db, t, {doTroLyTao:true}) })
  *   Tham số THÊM ở cuối nên mọi lời gọi 3 đối số cũ vẫn chạy.
  * ⚠️ Không truyền `ghiLai` ⇒ lịch sử THIẾU VẾ TRẢ LỜI. Đọc lại chỉ thấy câu
  *   hỏi, không thấy trợ lý đã đáp gì. Vì vậy bỏ trống là có CẢNH BÁO stderr,
@@ -562,8 +562,8 @@ async function _gui(api, chatId, text, loaiThread, tuyChon = {}) {
   }
 
   const anh = tuyChon.anh ?? null;
-  const cat = catAnToan(text ?? '');
-  const { msg, styles } = chuyenMarkdown(cat.text);
+  const cat = truncateSafely(text ?? '');
+  const { msg, styles } = markdownToZalo(cat.text);
 
   // `.trim()` chứ không `!msg`: chuỗi toàn khoảng trắng/xuống dòng KHÔNG rỗng
   // theo JS nhưng rỗng theo mắt người. Bộ test bắt được đúng ca `'   \n  '`
@@ -579,7 +579,7 @@ async function _gui(api, chatId, text, loaiThread, tuyChon = {}) {
   // Mention: CHỈ trong nhóm (zca-js bỏ hết mentions khi thread là DM) và chỉ
   // khi caller đưa được danh sách người CÓ THẬT trong nhóm đó.
   if (loaiThread === ThreadType.Group && Array.isArray(tuyChon.dsNguoi) && tuyChon.dsNguoi.length) {
-    const mt = dungMentions(msg, tuyChon.dsNguoi);
+    const mt = buildMentions(msg, tuyChon.dsNguoi);
     if (mt.mentions.length) noiDung.mentions = mt.mentions;
     for (const t of mt.khongTraRa) {
       _canhBao(`"@${t}" TRÙNG TÊN nhiều người trong nhóm -> để nguyên chữ, KHÔNG tag ai (cấm đoán)`);
@@ -660,7 +660,7 @@ function _ghiLai(tuyChon, { chatId, msgId, noiDung, coAnh, tsZalo, uidTroLy = nu
           : null,
         tsZalo,
         tuToi: true,
-        coTagHost: false,
+        hasHostMention: false,
       }),
     );
   } catch (e) {
@@ -675,7 +675,7 @@ function _ghiLai(tuyChon, { chatId, msgId, noiDung, coAnh, tsZalo, uidTroLy = nu
  * @param {{ghiLai?: (tin: TinChuanHoa) => void, anh?: any}} [tuyChon]
  * @returns {Promise<{msgId: string|null, daCat: boolean}>}
  */
-export async function guiVaoNhom(api, chatId, text, tuyChon = {}) {
+export async function sendToGroup(api, chatId, text, tuyChon = {}) {
   return _gui(api, chatId, text, ThreadType.Group, tuyChon);
 }
 
@@ -686,7 +686,7 @@ export async function guiVaoNhom(api, chatId, text, tuyChon = {}) {
  * @param {{ghiLai?: (tin: TinChuanHoa) => void, anh?: any}} [tuyChon]
  * @returns {Promise<{msgId: string|null, daCat: boolean}>}
  */
-export async function guiDmHost(api, dmChatId, text, tuyChon = {}) {
+export async function sendHostDm(api, dmChatId, text, tuyChon = {}) {
   return _gui(api, dmChatId, text, ThreadType.User, tuyChon);
 }
 
@@ -709,8 +709,8 @@ export async function guiDmHost(api, dmChatId, text, tuyChon = {}) {
  * @param {{ghiLai?: (tin: TinChuanHoa) => void, laDm?: boolean}} [tuyChon]
  * @returns {Promise<{msgId: string|null, daCat: boolean}>}
  */
-export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {}) {
-  if (!nguonAnh) throw cleanError('guiAnh() thiếu nguồn ảnh.');
+export async function sendImage(api, chatId, nguonAnh, chuThich = '', tuyChon = {}) {
+  if (!nguonAnh) throw cleanError('sendImage() thiếu nguồn ảnh.');
   return _gui(api, chatId, chuThich, tuyChon.laDm ? ThreadType.User : ThreadType.Group, {
     ...tuyChon,
     anh: nguonAnh,
@@ -724,14 +724,14 @@ export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {})
 /**
  * Gửi một đoạn dài bằng cách CHIA ra nhiều tin và gửi lần lượt.
  *
- * 🔴 KHÁC HẲN `catAnToan()` — đừng lẫn, hai hàm ngược nhau về bản chất:
+ * 🔴 KHÁC HẲN `truncateSafely()` — đừng lẫn, hai hàm ngược nhau về bản chất:
  *      splitMessage()   = CHIA  -> giữ ĐỦ nội dung, tốn nhiều tin
- *      catAnToan() = CẮT   -> MẤT đuôi, chỉ ghi chú "đã cắt"
+ *      truncateSafely() = CẮT   -> MẤT đuôi, chỉ ghi chú "đã cắt"
  *    ⛔ TUYỆT ĐỐI KHÔNG cắt trước rồi mới chia: cắt xong thì đuôi đã mất, mà
  *    người đọc vẫn thấy "1/3, 2/3, 3/3" nên tưởng đã nhận đủ. Hỏng CÂM.
  *
- * ⚠️ `_gui()` bên trong vẫn gọi `catAnToan()`, và đó KHÔNG phải cắt chồng:
- *    mọi phần do `splitMessage()` sinh ra đều ≤ trần, nên `catAnToan()` trả về
+ * ⚠️ `_gui()` bên trong vẫn gọi `truncateSafely()`, và đó KHÔNG phải cắt chồng:
+ *    mọi phần do `splitMessage()` sinh ra đều ≤ trần, nên `truncateSafely()` trả về
  *    nguyên văn (`daCat = false`). Nó ở đó làm LƯỚI AN TOÀN cho trường hợp
  *    `splitMessage` lỡ nhả ra một phần quá dài. Có bài test chứng minh no-op.
  *
@@ -754,9 +754,9 @@ export async function guiAnh(api, chatId, nguonAnh, chuThich = '', tuyChon = {})
  *          uidTroLy?: string|null, laDm?: boolean, tran?: number, soTinToiDa?: number}} [tuyChon]
  * @returns {Promise<{msgId: string|null, msgIds: string[], soPhan: number, daCat: boolean}>}
  *   `daCat = true` nghĩa là CHẠM TRẦN SỐ TIN nên nội dung vẫn thiếu — khác
- *   hẳn `daCat` của `catAnToan()` (vượt trần độ dài một tin).
+ *   hẳn `daCat` của `truncateSafely()` (vượt trần độ dài một tin).
  */
-export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
+export async function sendInParts(api, chatId, text, tuyChon = {}) {
   const kq = splitMessage(text, { tran: tuyChon.tran, soTinToiDa: tuyChon.soTinToiDa });
   if (kq.soPhan === 0) {
     throw cleanError('Từ chối gửi tin RỖNG — Zalo cũng sẽ từ chối, và tin rỗng chỉ gây nhiễu.');
@@ -772,7 +772,7 @@ export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
     if (r.daCat) {
       // Không thể xảy ra nếu `splitMessage` đúng — nhưng nếu xảy ra thì đó là
       // MẤT CHỮ, phải kêu chứ không nuốt.
-      _canhBao(`phần ${msgIds.length + 1}/${kq.soPhan} vẫn bị catAnToan() cắt -> splitMessage() nhả ra phần quá trần`);
+      _canhBao(`phần ${msgIds.length + 1}/${kq.soPhan} vẫn bị truncateSafely() cắt -> splitMessage() nhả ra phần quá trần`);
     }
     if (r.msgId) msgIds.push(r.msgId);
   }
@@ -788,6 +788,6 @@ export async function guiNhieuPhan(api, chatId, text, tuyChon = {}) {
 }
 
 /** Tin này có phải gửi nhiều phần không (dùng để quyết định có cần kênh phụ). */
-export function canChiaNho(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
+export function needsSplitting(text, tran = GIOI_HAN.DO_DAI_TIN_TOI_DA) {
   return charLength(String(text ?? '').trim()) > tran;
 }

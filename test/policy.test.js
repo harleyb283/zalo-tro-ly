@@ -77,7 +77,7 @@ function tinGia(v = {}) {
     contentRaw: null,
     tsZalo: 1_700_000_000_000,
     tuToi: false,
-    coTagHost: true,
+    hasHostMention: true,
     ...v,
   };
 }
@@ -273,8 +273,8 @@ test('B2 [ĐỔI v9] người KHÔNG phải host -> NGHE (trước v9: DROP), v�
 });
 
 test('B3 host nhưng KHÔNG tag -> DROP (spec B)', () => {
-  assert.equal(bo(tinGia({ coTagHost: false })).payload.lyDo, LY_DO_GATE.KHONG_TAG);
-  assert.equal(bo(tinGia({ coTagHost: undefined })).payload.lyDo, LY_DO_GATE.KHONG_TAG);
+  assert.equal(bo(tinGia({ hasHostMention: false })).payload.lyDo, LY_DO_GATE.KHONG_TAG);
+  assert.equal(bo(tinGia({ hasHostMention: undefined })).payload.lyDo, LY_DO_GATE.KHONG_TAG);
 });
 
 test('B4 nhóm ngoài allowlist -> DROP, kể cả host có tag', () => {
@@ -300,8 +300,8 @@ test('B7 tin tự gửi từ tài khoản KHÔNG phải host -> DROP (chống v�
 
 test('B8 tiếng vọng lời của chính trợ lý (không tag) -> DROP, không thành vòng lặp', () => {
   // Trợ lý trả lời bằng tài khoản host: tuToi=true, userId=host, nhưng câu
-  // trả lời không mang mentions ⇒ coTagHost=false ⇒ rơi ở bước "không tag".
-  const kq = bo(tinGia({ tuToi: true, coTagHost: false, noiDung: 'Dạ em xem rồi ạ' }));
+  // trả lời không mang mentions ⇒ hasHostMention=false ⇒ rơi ở bước "không tag".
+  const kq = bo(tinGia({ tuToi: true, hasHostMention: false, noiDung: 'Dạ em xem rồi ạ' }));
   assert.equal(kq.action, HANH_DONG_GATE.DROP);
   assert.equal(kq.payload.lyDo, LY_DO_GATE.KHONG_TAG);
 });
@@ -314,7 +314,7 @@ test('B9 thiếu chatId / thiếu tin -> DROP, không nổ', () => {
 
 test('B10 DM của host -> ALLOW mà KHÔNG cần tag (DM không có mentions)', () => {
   assert.equal(CHO_PHEP_DM, true, 'nếu đổi mặc định thì sửa cả bài test này');
-  const kq = bo(tinGia({ chatId: 'dm-111', coTagHost: false }));
+  const kq = bo(tinGia({ chatId: 'dm-111', hasHostMention: false }));
   assert.equal(kq.action, HANH_DONG_GATE.ALLOW);
   assert.equal(kq.payload.lyDo, LY_DO_GATE.HOST_NHAN_DM);
 });
@@ -322,7 +322,7 @@ test('B10 DM của host -> ALLOW mà KHÔNG cần tag (DM không có mentions)',
 test('B11 DM của host nhưng người gửi là NGƯỜI KHÁC -> DROP', () => {
   // Xảy ra thật nếu dmChatId bị điền nhầm thành một NHÓM.
   assert.equal(
-    bo(tinGia({ chatId: 'dm-111', userId: '999', coTagHost: false })).payload.lyDo,
+    bo(tinGia({ chatId: 'dm-111', userId: '999', hasHostMention: false })).payload.lyDo,
     LY_DO_GATE.KHONG_PHAI_HOST,
   );
 });

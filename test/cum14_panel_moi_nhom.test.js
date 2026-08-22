@@ -337,7 +337,7 @@ test('★★★ W1 ĐẦU-CUỐI: tin mới -> GỌI baoDam đúng nhóm, SAU kh
   }, {
     chatId: NHOM_A, msgId: 'w1', cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'anh hỏi', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: true,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: true,
   });
   await new Promise((r) => setTimeout(r, 25));
   assert.equal(goi.length, 1, '🔴 KHÔNG gọi mở phiên — tính năng chết câm');
@@ -371,7 +371,7 @@ test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm'
   }, {
     chatId: DM_HOST, msgId: 'w1b', cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'anh nhắn riêng', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: true,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: true,
   });
   await new Promise((r) => setTimeout(r, 25));
   assert.deepEqual(goi, [], '🔴 mở pane cho DM = hai phiên tranh nhau hộp thư riêng của anh');

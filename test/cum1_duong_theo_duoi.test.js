@@ -103,8 +103,8 @@ test('T1a ★★★ chayMotNhip chạy TRƯỚC vẫn KHÔNG đụng dòng la_th
   const daGui = [];
   const kq = await chayMotNhip({
     db, api: {}, bayGioMs: bayGio,
-    guiVaoNhom: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   });
 
@@ -159,14 +159,14 @@ test('T1b ★★★ hai bộ chạy CÙNG TICK -> lời nhắc chỉ đi ĐÚNG 
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: bayGio - 1000, ma: 'NHAC' });
 
   const daGui = [];
-  const guiVaoNhom = async (_a, _c, text) => {
+  const sendToGroup = async (_a, _c, text) => {
     await new Promise((r) => setTimeout(r, 5));   // gửi tin là việc CÓ THẬT tốn thời gian
     daGui.push(text);
     return { msgId: `m${daGui.length}` };
   };
   const chung = {
-    db, api: {}, bayGioMs: bayGio, guiVaoNhom,
-    guiDmHost: async () => ({ msgId: 'dm' }),
+    db, api: {}, bayGioMs: bayGio, sendToGroup,
+    sendHostDm: async () => ({ msgId: 'dm' }),
     groupMembers: () => [],
   };
 
@@ -201,8 +201,8 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
     // eslint-disable-next-line no-await-in-loop
     await chayNhipTheoDuoi({
       db, api: {}, bayGioMs: t0 + i * 3 * 60_000, queryHistory, enqueueQuestion,
-      guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-      guiDmHost: async () => ({ msgId: 'y' }),
+      sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+      sendHostDm: async () => ({ msgId: 'y' }),
       groupMembers: () => [],
       // Model NHẬN việc nhưng KHÔNG BAO GIỜ gọi `tra_loi` — ca Claude rớt/bận.
       guiThongBao: async () => { soLanGiaoModel += 1; return true; },
@@ -238,8 +238,8 @@ test('T1d ★★★ host ĐÓNG rồi -> quét treo KHÔNG gửi tin nào nữa'
   const daGui = [];
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: t0, queryHistory, enqueueQuestion,
-    guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   });
   assert.equal(daGui.length, 0, 'đóng rồi mà vẫn nhắc = làm phiền người thật về việc ĐÃ XONG');
@@ -259,8 +259,8 @@ test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả kh�
   const daGui = [];
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: t0, queryHistory, enqueueQuestion,
-    guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   });
   assert.equal(daGui.length, 0, 'van xả bị lưới dự phòng đi vòng qua');
@@ -398,8 +398,8 @@ test('T1g ★★★ lượt CHẠM TRẦN vẫn phải GỬI (trần 3 = nhắc 
     // eslint-disable-next-line no-await-in-loop
     await chayNhipTheoDuoi({
       db, api: {}, bayGioMs: t0 + i * 60_000, queryHistory, enqueueQuestion,
-      guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-      guiDmHost: async () => ({ msgId: 'y' }),
+      sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+      sendHostDm: async () => ({ msgId: 'y' }),
       groupMembers: () => [],
     });
   }

@@ -44,7 +44,7 @@ function dbTam() {
   writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   return db;
 }
@@ -80,8 +80,8 @@ test('B5-a ★★★ bối cảnh chạm nhóm KHÁC -> nguồn PHẢI được 
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => true,
     recordSources: (rid, nguon) => daKhai.push({ rid, nguon }),
@@ -104,8 +104,8 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => true,
     recordSources: (rid, nguon) => recordSources(bo, rid, nguon),
@@ -133,8 +133,8 @@ test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSourc
   const ra = await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: truyVanChamNhomKhac,
-    guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
     // ★ CỐ Ý KHÔNG truyền recordSources
@@ -154,8 +154,8 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
     queryHistory: () => ({ rows: [], nguonChatIds: [NHOM] }),
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
     // không có recordSources, nhưng cũng KHÔNG có nguồn lạ -> vẫn phải chạy đường model

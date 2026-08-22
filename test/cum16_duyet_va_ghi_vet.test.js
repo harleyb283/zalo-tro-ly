@@ -40,7 +40,7 @@ import {
   TRANG_THAI_DUYET,
 } from '../src/lib/hang_so.js';
 import { registerTools, STATE_CHANGING_TOOLS, LOP } from '../src/mcp/tools.js';
-import { datLaiThrottle, datThrottle } from '../src/zalo/send.js';
+import { resetThrottle, setThrottle } from '../src/zalo/send.js';
 import { thanHam, khoiGiua } from './_cat_ma.js';
 
 const NHOM = '9990000000001';
@@ -61,8 +61,8 @@ function tam() {
 test.beforeEach(() => { _xoaPhamViChoTest(); });
 
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 const CAU_HINH = {
   cauTrungTinh: 'Em nhắn riêng anh rồi ạ.',
@@ -73,7 +73,7 @@ const CAU_HINH = {
 const tin = (p) => ({
   chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: PHU_TRACH, tenLucGui: 'Người phụ trách',
   msgType: 'chat.text', noiDung: 'xong rồi anh', contentRaw: null,
-  tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false, ...p,
+  tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false, ...p,
 });
 
 /** DB có MỘT lời nhắc đang theo đuổi, giao cho `PHU_TRACH` ở `NHOM`. */

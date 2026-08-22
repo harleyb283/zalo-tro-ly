@@ -195,8 +195,8 @@ test('C2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
   const p = {
     db,
     api: {},
-    guiVaoNhom: async () => { await new Promise((r) => setTimeout(r, 5)); gui.push(1); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => { await new Promise((r) => setTimeout(r, 5)); gui.push(1); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     queryHistory,
   };
@@ -333,7 +333,7 @@ test('F1 ★ tầng truy vấn cấp SỐ NGÀY và LỜI NGƯỜI ĐÓ ĐÃ NÓ
   writeMessage(db, {
     chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: NGUOI, tenLucGui: 'Anh B',
     msgType: 'chat.text', noiDung: 'em đang làm, mai gửi nhé', contentRaw: null,
-    tsZalo: bayGio - 3_600_000, tuToi: false, coTagHost: false,
+    tsZalo: bayGio - 3_600_000, tuToi: false, hasHostMention: false,
   });
   const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
   const bc = layBoiCanhNhac(db, d, { bayGioMs: bayGio, truyVan: queryHistory });
@@ -392,8 +392,8 @@ test('G1 ★ có Claude -> giao model viết câu, KHÔNG tự gửi câu cứng
   const bao = [];
   const kq = await chayNhipTheoDuoi({
     db, api: {}, queryHistory, enqueueQuestion,
-    guiVaoNhom: async (...a) => { gui.push(a); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (...a) => { gui.push(a); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async (n) => { bao.push(n); return true; },
   });
@@ -413,8 +413,8 @@ test('G2 ★★ KHÔNG có Claude -> code vẫn gửi, lời nhắc không biế
   const gui = [];
   const kq = await chayNhipTheoDuoi({
     db, api: {}, queryHistory,
-    guiVaoNhom: async (_a, c, t) => { gui.push({ c, t }); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, c, t) => { gui.push({ c, t }); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [{ uid: NGUOI, ten: 'Anh B' }],
     guiThongBao: null,
   });
@@ -434,8 +434,8 @@ test('G3 ★★ model IM quá trần -> code gửi bù, không bỏ lượt', as
   const gui = [];
   const kq = await chayNhipTheoDuoi({
     db, api: {}, queryHistory, enqueueQuestion,
-    guiVaoNhom: async (_a, c, t) => { gui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, c, t) => { gui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
     guiThongBao: async () => true,
   });
@@ -456,8 +456,8 @@ test('G4 uid không tra ra tên -> BỎ tag, tin VẪN gửi (cấm bịa tên)'
   const gui = [];
   await chayNhipTheoDuoi({
     db, api: {}, queryHistory,
-    guiVaoNhom: async (_a, c, t) => { gui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, c, t) => { gui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],          // không tra ra ai
     guiThongBao: null,
   });
@@ -567,8 +567,8 @@ test('H3 ★★ hết lượt -> BÁO HOST, nói rõ dừng vì hết lượt KH
   const dm = [];
   await chayNhipTheoDuoi({
     db, api: {}, queryHistory, enqueueQuestion,
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
     dmHostChatId: 'dm-host',
     groupMembers: () => [],
   });

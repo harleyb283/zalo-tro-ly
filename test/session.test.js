@@ -16,9 +16,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  docPhien, luuPhien, keepAlive, apDungAnTrangThai,
-  layThongTinToi, layDanhSachNhom, layCookieHienThoi,
-  dangNhapBangCookie, tuyChonZalo, LoiPhienZalo, PHIEN_BAN_SESSION,
+  readSession, saveSession, keepAlive, applyHiddenStatus,
+  fetchSelfInfo, fetchGroupList, currentCookie,
+  loginWithCookie, zaloClientOptions, ZaloSessionError, SESSION_VERSION,
 } from '../src/zalo/session.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 
@@ -64,8 +64,8 @@ function taoApiGia(ghiDe = {}) {
 // 1. Tuỳ chọn khởi tạo — hai cờ CHỐNG HỎNG CÂM
 // ═══════════════════════════════════════════════════════════════════════
 
-test('🔴 tuyChonZalo tắt logging (console.log của zca-js đi thẳng vào stdout = kênh MCP)', () => {
-  const t = tuyChonZalo();
+test('🔴 zaloClientOptions tắt logging (console.log của zca-js đi thẳng vào stdout = kênh MCP)', () => {
+  const t = zaloClientOptions();
   assert.equal(t.logging, false, 'logging PHẢI false — mặc định của thư viện là true');
   assert.equal(t.checkUpdate, false, 'checkUpdate PHẢI false — nó gọi mạng npm + log stdout mỗi lần login');
   assert.equal(t.selfListen, true, 'selfListen PHẢI true — spec là lưu TOÀN BỘ lịch sử, gồm tin của chính mình');
@@ -113,64 +113,64 @@ test('🔴 IMEI sinh NGẪU NHIÊN — mất là phải quét QR lại, nên ph�
 // 2. File phiên — quyền 0600 + vòng ghi/đọc
 // ═══════════════════════════════════════════════════════════════════════
 
-test('🔴 luuPhien đặt quyền 0600 NGAY LÚC TẠO (cookie Zalo lộ = mất tài khoản)', async () => {
+test('🔴 saveSession đặt quyền 0600 NGAY LÚC TẠO (cookie Zalo lộ = mất tài khoản)', async () => {
   const p = duongDanSession('quyen.json');
-  await luuPhien(p, PHIEN_GIA);
+  await saveSession(p, PHIEN_GIA);
   const che = fs.statSync(p).mode & 0o777;
   assert.equal(che.toString(8), '600', `quyền phải là 0600, đang là 0${che.toString(8)}`);
 });
 
 test('ghi rồi đọc lại giữ nguyên cookie/imei/userAgent', async () => {
   const p = duongDanSession('vong.json');
-  await luuPhien(p, PHIEN_GIA);
-  const doc = await docPhien(p);
+  await saveSession(p, PHIEN_GIA);
+  const doc = await readSession(p);
   assert.equal(doc.imei, PHIEN_GIA.imei);
   assert.equal(doc.userAgent, PHIEN_GIA.userAgent);
   assert.deepEqual(doc.cookie, COOKIE_GIA);
-  assert.equal(doc.phienBan, PHIEN_BAN_SESSION);
+  assert.equal(doc.phienBan, SESSION_VERSION);
   assert.ok(doc.taoLuc && doc.capNhat, 'phải có mốc thời gian');
 });
 
 test('ghi đè giữ nguyên taoLuc, chỉ đổi capNhat', async () => {
   const p = duongDanSession('motoc.json');
-  await luuPhien(p, PHIEN_GIA);
-  const lan1 = await docPhien(p);
-  await luuPhien(p, { ...PHIEN_GIA, ten: 'Ten Moi' });
-  const lan2 = await docPhien(p);
+  await saveSession(p, PHIEN_GIA);
+  const lan1 = await readSession(p);
+  await saveSession(p, { ...PHIEN_GIA, ten: 'Ten Moi' });
+  const lan2 = await readSession(p);
   assert.equal(lan2.taoLuc, lan1.taoLuc, 'taoLuc là mốc quét QR đầu tiên, không được đổi');
   assert.equal(lan2.ten, 'Ten Moi');
 });
 
-test('luuPhien TỪ CHỐI ghi phiên khuyết (thà không có còn hơn có mà chết câm)', async () => {
+test('saveSession TỪ CHỐI ghi phiên khuyết (thà không có còn hơn có mà chết câm)', async () => {
   const p = duongDanSession('khuyet.json');
-  await assert.rejects(() => luuPhien(p, { cookie: COOKIE_GIA, imei: 'x' }), /thiếu cookie \/ imei \/ userAgent/);
-  await assert.rejects(() => luuPhien(p, { ...PHIEN_GIA, cookie: null }), /thiếu/);
+  await assert.rejects(() => saveSession(p, { cookie: COOKIE_GIA, imei: 'x' }), /thiếu cookie \/ imei \/ userAgent/);
+  await assert.rejects(() => saveSession(p, { ...PHIEN_GIA, cookie: null }), /thiếu/);
   assert.equal(fs.existsSync(p), false, 'không được để lại file rác');
 });
 
-test('docPhien: chưa có file → null (không ném lỗi)', async () => {
-  assert.equal(await docPhien(duongDanSession('khong-ton-tai.json')), null);
+test('readSession: chưa có file → null (không ném lỗi)', async () => {
+  assert.equal(await readSession(duongDanSession('khong-ton-tai.json')), null);
 });
 
-test('🔴 docPhien coi phiên THIẾU MẢNH là chưa có phiên, không phải lỗi', async () => {
+test('🔴 readSession coi phiên THIẾU MẢNH là chưa có phiên, không phải lỗi', async () => {
   // Thiếu imei là cookie thành rác — IMEI sinh ngẫu nhiên, không tái tạo được.
   const p = duongDanSession('thieu-imei.json');
   fs.writeFileSync(p, JSON.stringify({ cookie: COOKIE_GIA, userAgent: 'x' }));
-  assert.equal(await docPhien(p), null);
+  assert.equal(await readSession(p), null);
 
   const p2 = duongDanSession('cookie-rong.json');
   fs.writeFileSync(p2, JSON.stringify({ ...PHIEN_GIA, cookie: [] }));
-  assert.equal(await docPhien(p2), null);
+  assert.equal(await readSession(p2), null);
 });
 
-test('docPhien: JSON hỏng → ném lỗi có nêu đường dẫn', async () => {
+test('readSession: JSON hỏng → ném lỗi có nêu đường dẫn', async () => {
   const p = duongDanSession('hong.json');
   fs.writeFileSync(p, '{ khong phai json');
-  await assert.rejects(() => docPhien(p), /File phiên hỏng/);
+  await assert.rejects(() => readSession(p), /File phiên hỏng/);
 });
 
 test('🔴 dấu ~ trong đường dẫn được NỞ, không tạo thư mục tên "~" trong repo', async () => {
-  const p = await docPhien('~/khong-bao-gio-ton-tai-ztl-test.json');
+  const p = await readSession('~/khong-bao-gio-ton-tai-ztl-test.json');
   assert.equal(p, null);
   assert.equal(fs.existsSync(path.join(process.cwd(), '~')), false, 'KHÔNG được có thư mục "~" trong cwd');
 });
@@ -179,12 +179,12 @@ test('🔴 dấu ~ trong đường dẫn được NỞ, không tạo thư mục 
 // 3. Đăng nhập bằng cookie — nhánh KHÔNG chạm mạng
 // ═══════════════════════════════════════════════════════════════════════
 
-test('🔴 chưa có phiên → LoiPhienZalo mang maSucKhoe CAN_QR, KHÔNG tự mở QR', async () => {
+test('🔴 chưa có phiên → ZaloSessionError mang maSucKhoe CAN_QR, KHÔNG tự mở QR', async () => {
   const cauHinh = { duongDan: { session: duongDanSession('chua-co.json') } };
   await assert.rejects(
-    () => dangNhapBangCookie(cauHinh),
+    () => loginWithCookie(cauHinh),
     (e) => {
-      assert.ok(e instanceof LoiPhienZalo, 'phải là LoiPhienZalo để G8 khỏi dò chuỗi');
+      assert.ok(e instanceof ZaloSessionError, 'phải là ZaloSessionError để G8 khỏi dò chuỗi');
       assert.equal(e.maSucKhoe, TRANG_THAI_SUC_KHOE.CAN_QR);
       assert.match(e.message, /bin\/zalo-login\.js/, 'phải chỉ đúng lệnh phải chạy');
       return true;
@@ -193,7 +193,7 @@ test('🔴 chưa có phiên → LoiPhienZalo mang maSucKhoe CAN_QR, KHÔNG tự 
 });
 
 test('thiếu cauHinh.duongDan.session → báo rõ, không đoán mặc định', async () => {
-  await assert.rejects(() => dangNhapBangCookie({}), /thiếu cauHinh\.duongDan\.session/);
+  await assert.rejects(() => loginWithCookie({}), /thiếu cauHinh\.duongDan\.session/);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -206,24 +206,24 @@ test('keepAlive: OK → true; ném lỗi → false (không làm chết luồng)'
   assert.equal(await keepAlive(hong), false);
 });
 
-test('🔴 apDungAnTrangThai(bat=true) gọi ĐÚNG 2 cài đặt với giá trị 0', async () => {
+test('🔴 applyHiddenStatus(bat=true) gọi ĐÚNG 2 cài đặt với giá trị 0', async () => {
   const api = taoApiGia();
-  await apDungAnTrangThai(api, true);
+  await applyHiddenStatus(api, true);
   const goi = api.nhatKy.filter((x) => x[0] === 'updateSettings');
   assert.equal(goi.length, 2);
   assert.deepEqual(goi.map((x) => x[1]).sort(), ['display_seen_status', 'show_online_status']);
   assert.ok(goi.every((x) => x[2] === 0), 'giá trị phải là 0 = ẩn');
 });
 
-test('🔴 apDungAnTrangThai(bat=false) KHÔNG đụng cài đặt tài khoản của người dùng', async () => {
+test('🔴 applyHiddenStatus(bat=false) KHÔNG đụng cài đặt tài khoản của người dùng', async () => {
   const api = taoApiGia();
-  await apDungAnTrangThai(api, false);
+  await applyHiddenStatus(api, false);
   assert.equal(api.nhatKy.length, 0, 'không được tự bật lại "hiện online" cho tài khoản người ta');
 });
 
 test('ẩn trạng thái thất bại thì CẢNH BÁO chứ không ném (trợ lý vẫn phải chạy)', async () => {
   const api = taoApiGia({ updateSettings: async () => { throw new Error('Zalo từ chối'); } });
-  await assert.doesNotReject(() => apDungAnTrangThai(api, true));
+  await assert.doesNotReject(() => applyHiddenStatus(api, true));
 });
 
 test('🔴 enum UpdateSettingsType của zca-js ĐÃ CÀI đúng như code giả định', async () => {
@@ -232,8 +232,8 @@ test('🔴 enum UpdateSettingsType của zca-js ĐÃ CÀI đúng như code giả
   assert.equal(UpdateSettingsType.DisplaySeenStatus, 'display_seen_status');
 });
 
-test('layThongTinToi trả userId dạng CHUỖI + tên hiển thị', async () => {
-  const tt = await layThongTinToi(taoApiGia());
+test('fetchSelfInfo trả userId dạng CHUỖI + tên hiển thị', async () => {
+  const tt = await fetchSelfInfo(taoApiGia());
   assert.equal(typeof tt.userId, 'string', 'ID phải là chuỗi — đã qua toId()');
   assert.equal(tt.userId, '9990000000001');
   assert.equal(tt.ten, 'Trợ Lý Zalo');
@@ -241,20 +241,20 @@ test('layThongTinToi trả userId dạng CHUỖI + tên hiển thị', async () 
 
 test('không lấy được tên thì vẫn trả userId (tên chỉ là phụ)', async () => {
   const api = taoApiGia({ fetchAccountInfo: async () => { throw new Error('lỗi mạng'); } });
-  const tt = await layThongTinToi(api);
+  const tt = await fetchSelfInfo(api);
   assert.equal(tt.userId, '9990000000001');
   assert.equal(tt.ten, '');
 });
 
 test('không đọc được getOwnId → ném lỗi rõ ràng', async () => {
   await assert.rejects(
-    () => layThongTinToi(taoApiGia({ getOwnId: () => null })),
+    () => fetchSelfInfo(taoApiGia({ getOwnId: () => null })),
     /Không đọc được user_id/,
   );
 });
 
-test('🔴 layDanhSachNhom KÈM TÊN (getAllGroups một mình chỉ ra toàn số)', async () => {
-  const ds = await layDanhSachNhom(taoApiGia());
+test('🔴 fetchGroupList KÈM TÊN (getAllGroups một mình chỉ ra toàn số)', async () => {
+  const ds = await fetchGroupList(taoApiGia());
   assert.equal(ds.length, 2);
   assert.deepEqual(ds.map((x) => x.chatId).sort(), ['111', '222']);
   assert.ok(ds.every((x) => x.ten.startsWith('Nhom ')), 'phải có tên, không chỉ ID');
@@ -262,31 +262,31 @@ test('🔴 layDanhSachNhom KÈM TÊN (getAllGroups một mình chỉ ra toàn s�
 
 test('getGroupInfo hỏng → vẫn trả ID để còn chép vào config, chỉ mất tên', async () => {
   const api = taoApiGia({ getGroupInfo: async () => { throw new Error('429'); } });
-  const ds = await layDanhSachNhom(api);
+  const ds = await fetchGroupList(api);
   assert.equal(ds.length, 2);
   assert.ok(ds.every((x) => x.ten === ''));
 });
 
 test('không có nhóm nào → mảng rỗng, không ném', async () => {
   const api = taoApiGia({ getAllGroups: async () => ({ gridVerMap: {} }) });
-  assert.deepEqual(await layDanhSachNhom(api), []);
+  assert.deepEqual(await fetchGroupList(api), []);
 });
 
 test('getAllGroups hỏng → ném lỗi ĐÃ QUA redact', async () => {
   const api = taoApiGia({
     getAllGroups: async () => { throw new Error('fail Cookie: zpsid=SIEU_BI_MAT_123'); },
   });
-  await assert.rejects(() => layDanhSachNhom(api), (e) => {
+  await assert.rejects(() => fetchGroupList(api), (e) => {
     assert.match(e.message, /Không lấy được danh sách nhóm/);
     assert.ok(!e.message.includes('SIEU_BI_MAT_123'), 'cookie KHÔNG được lọt vào thông điệp lỗi');
     return true;
   });
 });
 
-test('layCookieHienThoi: lấy được → mảng; api hỏng → null, không ném', () => {
-  assert.deepEqual(layCookieHienThoi(taoApiGia()), COOKIE_GIA);
-  assert.equal(layCookieHienThoi({ getCookie: () => { throw new Error('x'); } }), null);
-  assert.equal(layCookieHienThoi({ getCookie: () => ({ toJSON: () => ({ cookies: [] }) }) }), null);
+test('currentCookie: lấy được → mảng; api hỏng → null, không ném', () => {
+  assert.deepEqual(currentCookie(taoApiGia()), COOKIE_GIA);
+  assert.equal(currentCookie({ getCookie: () => { throw new Error('x'); } }), null);
+  assert.equal(currentCookie({ getCookie: () => ({ toJSON: () => ({ cookies: [] }) }) }), null);
 });
 
 test.after(() => {

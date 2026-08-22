@@ -34,7 +34,7 @@ import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { taoBoDemLoiGui } from '../src/index.js';
-import { datLaiThrottle, datThrottle, guiDmHost, guiVaoNhom } from '../src/zalo/send.js';
+import { resetThrottle, setThrottle, sendHostDm, sendToGroup } from '../src/zalo/send.js';
 
 const NHOM = '9990000000001';
 const HOST = '555000111';
@@ -57,7 +57,7 @@ function dbTam() {
 const tinGia = (v = {}) => ({
   chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: HOST, tenLucGui: 'Minh Hải',
   msgType: 'chat.text', noiDung: 'xin chào', contentRaw: null,
-  tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false, ...v,
+  tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false, ...v,
 });
 
 function nhacDaChot(db, v = {}) {
@@ -93,7 +93,7 @@ function dungTool(db) {
     boTichLuy: { ghiNhan() {}, lay: () => [NHOM], xoa() {}, soPhien: () => 0 },
     api,
     docSucKhoe: () => ({ trangThai: 'OK' }),
-    guiTin: { guiVaoNhom, guiDmHost },
+    guiTin: { sendToGroup, sendHostDm },
     chinhSach: {
       decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
@@ -105,8 +105,8 @@ function dungTool(db) {
 }
 
 let throttleCu;
-test.before(() => { throttleCu = datThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
-test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
+test.before(() => { throttleCu = setThrottle({ minKhoangCachMs: 0, toiDaMoiPhut: 100000 }); });
+test.after(() => { setThrottle(throttleCu); resetThrottle(); });
 
 // ═══════════════════════════════════════════════════════════════════════
 // T3a — A7: câu hỏi không được bốc hơi
@@ -277,8 +277,8 @@ test('T3d ★★★ bộ chạy trả về `loi` -> phải có đường ra tớ
   // không có gì để tiêu thụ.
   const ra = await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
-    guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
+    sendHostDm: async () => ({ msgId: 'y' }),
     groupMembers: () => [],
   });
   assert.equal(ra.loi, 1, 'gửi hỏng mà bộ đếm không nhích -> index.js không thể báo host');
@@ -296,8 +296,8 @@ test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lầ
   const dm = [];
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
-    guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
-    guiDmHost: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
+    sendToGroup: async () => { throw new Error('bot bị kick khỏi nhóm'); },
+    sendHostDm: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
     dmHostChatId: 'dm-host',
     groupMembers: () => [],
   });

@@ -12,11 +12,11 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
-  batDauNghe,
-  dungNghe,
-  lanCuoiNhanSuKien,
-  dangNghe,
-  SU_KIEN_ZCA,
+  startListening,
+  stopListening,
+  lastEventAt,
+  isListening,
+  ZCA_EVENTS,
   _datLaiChoTest,
 } from '../src/zalo/listener.js';
 import { SU_KIEN, HANH_DONG_GATE } from '../src/lib/hang_so.js';
@@ -117,8 +117,8 @@ function dungBo(uidBot = BOT) {
 // ═══ A. Gắn dây ═══
 test('A1 gắn ĐÚNG 4 listener, đúng tên của zca-js', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  for (const ten of Object.values(SU_KIEN_ZCA)) {
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  for (const ten of Object.values(ZCA_EVENTS)) {
     assert.equal(api.listener._dem(ten), 1, `thiếu/thừa handler cho '${ten}'`);
   }
   assert.equal(api.listener._gan.size, 4, 'gắn thừa listener ngoài 4 cái được giao');
@@ -126,47 +126,47 @@ test('A1 gắn ĐÚNG 4 listener, đúng tên của zca-js', () => {
 
 test('A2 KHÔNG tự gọi start() — gọi 2 lần là mở 2 websocket, ghi tin ĐÔI', () => {
   const { api, boPhat } = dungBo();
-  const { keu } = imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  const { keu } = imLang(() => startListening(api, CAU_HINH, boPhat));
   assert.equal(api.daStart, 0);
   assert.ok(keu.join('').includes('api.listener.start()'), 'phải NHẮC G8, không im lặng');
 });
 
 test('A3 tuBatDau: true thì mới gọi start()', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat, { tuBatDau: true }));
+  imLang(() => startListening(api, CAU_HINH, boPhat, { tuBatDau: true }));
   assert.equal(api.daStart, 1);
 });
 
 test('A4 gắn hai lần trên CÙNG api -> NÉM (chống ghi tin đôi)', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  assert.throws(() => batDauNghe(api, CAU_HINH, boPhat), /hai lần|đã chạy rồi/);
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  assert.throws(() => startListening(api, CAU_HINH, boPhat), /hai lần|đã chạy rồi/);
 });
 
 test('A5 api MỚI (nối lại phiên) -> tự gỡ dây cũ rồi gắn dây mới', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   const api2 = moiApi();
-  imLang(() => batDauNghe(api2, CAU_HINH, boPhat));
+  imLang(() => startListening(api2, CAU_HINH, boPhat));
   assert.equal(api.listener._dem('message'), 0, 'dây cũ còn -> mỗi tin vào DB hai lần');
   assert.equal(api2.listener._dem('message'), 1);
 });
 
 test('A6 api không có listener -> lỗi SẠCH, không nổ TypeError khó hiểu', () => {
   _datLaiChoTest();
-  assert.throws(() => batDauNghe({}, CAU_HINH, new EventEmitter()), /api\.listener/);
+  assert.throws(() => startListening({}, CAU_HINH, new EventEmitter()), /api\.listener/);
 });
 
 test('A7 config KHÔNG có host -> vẫn chạy nhưng phải KÊU (trợ lý sẽ câm)', () => {
   const { api, boPhat } = dungBo();
-  const { keu } = imLang(() => batDauNghe(api, { hosts: [], groups: [] }, boPhat));
+  const { keu } = imLang(() => startListening(api, { hosts: [], groups: [] }, boPhat));
   assert.ok(keu.join('').includes('KHÔNG có host'));
 });
 
 // ═══ B. Định tuyến 4 sự kiện ═══
 test('B1 message -> SU_KIEN.TIN_NHAN, payload là TinChuanHoa (KHÔNG rò payload thô)', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', tinNhom()));
   assert.equal(nhan.tin.length, 1);
   const t = nhan.tin[0];
@@ -177,7 +177,7 @@ test('B1 message -> SU_KIEN.TIN_NHAN, payload là TinChuanHoa (KHÔNG rò payloa
 
 test('B2 undo -> SU_KIEN.THU_HOI, ghép đúng vào msgId của tin trước đó', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => {
     api.listener._ban('message', tinNhom());
     api.listener._ban('undo', {
@@ -192,7 +192,7 @@ test('B2 undo -> SU_KIEN.THU_HOI, ghép đúng vào msgId của tin trước đ�
 
 test('B3 reaction + group_event đi đúng kênh của nó', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => {
     api.listener._ban('reaction', {
       threadId: CHAT_ID,
@@ -211,30 +211,30 @@ test('B3 reaction + group_event đi đúng kênh của nó', () => {
 // trỏ vào uid HOST. Bài đó MÃ HOÁ CHÍNH CON BUG: trong `mentions`, `uid` là
 // người BỊ tag (= tài khoản BOT), host là người ĐI tag. Bài xanh suốt trong
 // khi trợ lý câm tuyệt đối trên hệ thật.
-test('B4 host tag TRỢ LÝ -> coTagHost = true (điều kiện kích hoạt spec B)', () => {
+test('B4 host tag TRỢ LÝ -> hasHostMention = true (điều kiện kích hoạt spec B)', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   // Payload THẬT, nhóm Haceco KT: "Test tag @Hảis Assistant"
   imLang(() => api.listener._ban('message', tinNhom({
     uidFrom: HOST,
     content: 'Test tag @Hảis Assistant',
     mentions: [{ uid: BOT, pos: 9, len: 15, type: 0 }],
   })));
-  assert.equal(nhan.tin[0].coTagHost, true, 'anh tag trợ lý mà cờ ra 0 = trợ lý câm vĩnh viễn');
+  assert.equal(nhan.tin[0].hasHostMention, true, 'anh tag trợ lý mà cờ ra 0 = trợ lý câm vĩnh viễn');
 });
 
 test('B4b tag NGƯỜI KHÁC (kể cả tag chính host) KHÔNG kích hoạt trợ lý', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', tinNhom({
     mentions: [{ uid: HOST, pos: 0, len: 3, type: 0 }],
   })));
-  assert.equal(nhan.tin[0].coTagHost, false, 'tag host KHÔNG phải là tag trợ lý');
+  assert.equal(nhan.tin[0].hasHostMention, false, 'tag host KHÔNG phải là tag trợ lý');
 });
 
 test('B4c KHÔNG đọc được uid bot -> FAIL-CLOSED: luôn false + KÊU, cấm lùi về so với host', () => {
   const { api, boPhat, nhan } = dungBo(null);   // api giả KHÔNG có getOwnId
-  const { keu } = imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  const { keu } = imLang(() => startListening(api, CAU_HINH, boPhat));
   assert.ok(
     keu.join('').includes('getOwnId'),
     'câm mà không kêu thì không ai biết trợ lý đang hỏng',
@@ -244,7 +244,7 @@ test('B4c KHÔNG đọc được uid bot -> FAIL-CLOSED: luôn false + KÊU, c�
   imLang(() => api.listener._ban('message', tinNhom({
     mentions: [{ uid: HOST, pos: 0, len: 3, type: 0 }],
   })));
-  assert.equal(nhan.tin[0].coTagHost, false, 'lùi về so với host là tái tạo lại đúng con bug');
+  assert.equal(nhan.tin[0].hasHostMention, false, 'lùi về so với host là tái tạo lại đúng con bug');
 
   // Vẫn NGHE và vẫn GHI bình thường — fail-closed chỉ chặn việc TRẢ LỜI.
   assert.equal(nhan.tin[0].noiDung, 'chào cả nhà');
@@ -255,23 +255,23 @@ test('B4e getOwnId trả "0" (sentinel "self" của zca-js) KHÔNG phải uid h�
   // bằng uid thật). Nhận "0" làm uid trợ lý là so mentions với một chuỗi
   // không thuộc về ai -> câm, mà lại tưởng đã lấy được uid.
   const { api, boPhat, nhan } = dungBo('0');
-  const { keu } = imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  const { keu } = imLang(() => startListening(api, CAU_HINH, boPhat));
   assert.ok(keu.join('').includes('getOwnId'), 'phải rơi vào nhánh FAIL-CLOSED và kêu');
   imLang(() => api.listener._ban('message', tinNhom({
     mentions: [{ uid: HOST, pos: 0, len: 3, type: 0 }],
   })));
-  assert.equal(nhan.tin[0].coTagHost, false);
+  assert.equal(nhan.tin[0].hasHostMention, false);
 });
 
 test('B4d hai tầng phối hợp: người KHÔNG phải host tag trợ lý -> cờ true nhưng GATE CHẶN', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', tinNhom({
     uidFrom: '555',                                   // người lạ trong nhóm
     mentions: [{ uid: BOT, pos: 0, len: 3, type: 0 }],
   })));
   const tin = nhan.tin[0];
-  assert.equal(tin.coTagHost, true, 'normalize chỉ trả lời "có tag trợ lý không"');
+  assert.equal(tin.hasHostMention, true, 'normalize chỉ trả lời "có tag trợ lý không"');
 
   const kq = quyetDinh(tin, CAU_HINH);
   // 🔴 ĐỔI v9: người lạ tag trợ lý nay được NGHE (tạo lượt) chứ không bị vứt.
@@ -289,7 +289,7 @@ test('B4d hai tầng phối hợp: người KHÔNG phải host tag trợ lý -> 
 // ═══ C. Lỗi KHÔNG được giết tiến trình ═══
 test('C1 payload dị dạng -> phát SU_KIEN.LOI, KHÔNG ném ra websocket', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', { threadId: null, data: {} }));
   assert.equal(nhan.tin.length, 0);
   assert.equal(nhan.loi.length, 1);
@@ -298,10 +298,10 @@ test('C1 payload dị dạng -> phát SU_KIEN.LOI, KHÔNG ném ra websocket', ()
 
 test('C2 mốc "còn sống" cập nhật NGAY CẢ KHI chuẩn hoá hỏng', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  assert.equal(lanCuoiNhanSuKien(), null, 'chưa nhận gì thì phải là null');
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  assert.equal(lastEventAt(), null, 'chưa nhận gì thì phải là null');
   imLang(() => api.listener._ban('message', { threadId: null, data: {} }));
-  assert.ok(lanCuoiNhanSuKien() > 0,
+  assert.ok(lastEventAt() > 0,
     'tin dị dạng vẫn là bằng chứng websocket còn sống — coi là im lặng thì watchdog nối lại vô cớ');
 });
 
@@ -312,7 +312,7 @@ test('C3 BÊN NHẬN ném lỗi (G3 ghi DB hỏng) cũng không nổ ngược l�
   const loi = [];
   boPhat.on(SU_KIEN.TIN_NHAN, () => { throw new Error('DB đầy'); });
   boPhat.on(SU_KIEN.LOI, (e) => loi.push(e));
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', tinNhom()));  // KHÔNG được ném ra đây
   assert.equal(loi.length, 1);
   assert.match(loi[0].message, /DB đầy/);
@@ -322,14 +322,14 @@ test('C4 không ai nghe SU_KIEN.LOI thì cũng không được nổ', () => {
   _datLaiChoTest();
   const api = moiApi();
   const boPhat = new EventEmitter();   // KHÔNG gắn handler 'loi'
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', { threadId: null, data: {} }));
   assert.ok(true, 'tới được đây là đạt');
 });
 
 test('C5 một tin hỏng KHÔNG chặn tin kế tiếp', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => {
     api.listener._ban('message', { threadId: null, data: {} });
     api.listener._ban('message', tinNhom());
@@ -339,44 +339,44 @@ test('C5 một tin hỏng KHÔNG chặn tin kế tiếp', () => {
 });
 
 // ═══ D. Gỡ dây ═══
-test('D1 dungNghe gỡ đúng 4 handler đã gắn', () => {
+test('D1 stopListening gỡ đúng 4 handler đã gắn', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  imLang(() => dungNghe(api));
-  for (const ten of Object.values(SU_KIEN_ZCA)) assert.equal(api.listener._dem(ten), 0);
-  assert.equal(dangNghe(), false);
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  imLang(() => stopListening(api));
+  for (const ten of Object.values(ZCA_EVENTS)) assert.equal(api.listener._dem(ten), 0);
+  assert.equal(isListening(), false);
 });
 
 test('D2 sau khi gỡ, sự kiện tới KHÔNG còn được phát', () => {
   const { api, boPhat, nhan } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  imLang(() => dungNghe(api));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  imLang(() => stopListening(api));
   imLang(() => api.listener._ban('message', tinNhom()));
   assert.equal(nhan.tin.length, 0);
 });
 
-test('D3 dungNghe với api KHÁC -> không gỡ nhầm dây của phiên đang chạy', () => {
+test('D3 stopListening với api KHÁC -> không gỡ nhầm dây của phiên đang chạy', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
-  imLang(() => dungNghe(moiApi()));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
+  imLang(() => stopListening(moiApi()));
   assert.equal(api.listener._dem('message'), 1);
-  assert.equal(dangNghe(), true);
+  assert.equal(isListening(), true);
 });
 
-test('D4 dungNghe khi chưa gắn gì -> im lặng bỏ qua, không nổ', () => {
+test('D4 stopListening khi chưa gắn gì -> im lặng bỏ qua, không nổ', () => {
   _datLaiChoTest();
-  dungNghe(moiApi());
-  assert.equal(dangNghe(), false);
+  stopListening(moiApi());
+  assert.equal(isListening(), false);
 });
 
 test('D5 gắn lại sau khi gỡ thì mốc "còn sống" đặt lại về null', () => {
   const { api, boPhat } = dungBo();
-  imLang(() => batDauNghe(api, CAU_HINH, boPhat));
+  imLang(() => startListening(api, CAU_HINH, boPhat));
   imLang(() => api.listener._ban('message', tinNhom()));
-  assert.ok(lanCuoiNhanSuKien() > 0);
-  imLang(() => dungNghe(api));
-  imLang(() => batDauNghe(moiApi(), CAU_HINH, boPhat));
-  assert.equal(lanCuoiNhanSuKien(), null);
+  assert.ok(lastEventAt() > 0);
+  imLang(() => stopListening(api));
+  imLang(() => startListening(moiApi(), CAU_HINH, boPhat));
+  assert.equal(lastEventAt(), null);
 });
 
 // ═══ E. Luật stdout ═══

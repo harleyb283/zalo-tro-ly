@@ -17,7 +17,7 @@
  *       "Provided value cannot be bound to SQLite parameter 2."
  *   db.prepare('INSERT …').run('x', undefined)  -> NÉM LỖI (cùng thông điệp)
  * `node:sqlite` chỉ nhận null / number / bigint / string / Uint8Array.
- * Mà `TinChuanHoa` có 2 trường boolean (`tuToi`, `coTagHost`), và mọi trường
+ * Mà `TinChuanHoa` có 2 trường boolean (`tuToi`, `hasHostMention`), và mọi trường
  * `| null` đều có thể tới đây dưới dạng `undefined` nếu G2 quên đặt.
  * ⇒ MỌI giá trị đi vào `.run()` phải qua `_co()` (bool→0/1) hoặc `_hoac()`
  *   (undefined→null). Không có ngoại lệ nào trong file này.
@@ -117,7 +117,7 @@ export function writeMessage(db, tin, tuyChon) {
     ts_zalo: _soHoacNull(tin.tsZalo) ?? 0,
     ts_ghi: _bayGio(),
     tu_toi: _co(tin.tuToi),
-    co_tag_host: _co(tin.coTagHost),
+    co_tag_host: _co(tin.hasHostMention),
     do_tro_ly_tao: _co(tuyChon?.doTroLyTao),
   });
 

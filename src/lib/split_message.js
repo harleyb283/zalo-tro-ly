@@ -5,8 +5,8 @@
  * Dùng cho `kenhPhu = "zalo"`: người tải pack về KHÔNG có kênh phụ nào, nên
  * đáp án dài phải đi hết vào Zalo. Zalo cắt cứng ở 4.000 ký tự ⇒ phải chia.
  *
- * 🔴 KHÁC HẲN `catAnToan()` trong `src/zalo/send.js`:
- *      catAnToan  = CẮT   → mất phần đuôi, chỉ ghi chú "đã cắt"
+ * 🔴 KHÁC HẲN `truncateSafely()` trong `src/zalo/send.js`:
+ *      truncateSafely  = CẮT   → mất phần đuôi, chỉ ghi chú "đã cắt"
  *      splitMessage    = CHIA  → giữ ĐỦ nội dung, trải ra nhiều tin
  *    Đừng gọi cả hai chồng lên nhau: cắt rồi mới chia thì phần đuôi đã mất
  *    trước khi chia, mà nhìn kết quả vẫn thấy "3 tin" nên tưởng là đủ.

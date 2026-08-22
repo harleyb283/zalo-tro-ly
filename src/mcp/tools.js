@@ -79,7 +79,7 @@ import {
 } from '../store/write.js';
 import { getSources, recordSources, decideReplyRoute, clearSession } from '../policy/leak_guard.js';
 import { hostDmChatId } from '../policy/access.js';
-import { guiVaoNhom, guiDmHost, guiNhieuPhan, canChiaNho, baoDamTag } from '../zalo/send.js';
+import { sendToGroup, sendHostDm, sendInParts, needsSplitting, ensureMention } from '../zalo/send.js';
 
 /** @typedef {import('../types.d.ts').KetQuaTool} KetQuaTool */
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
@@ -993,7 +993,7 @@ export function registerTools(server, phuThuoc) {
     ...(phuThuoc.kho ?? {}),
   };
   const chinhSach = { getSources, recordSources, decideReplyRoute, clearSession, hostDmChatId, ...(phuThuoc.chinhSach ?? {}) };
-  const guiTin = { guiVaoNhom, guiDmHost, ...(phuThuoc.guiTin ?? {}) };
+  const guiTin = { sendToGroup, sendHostDm, ...(phuThuoc.guiTin ?? {}) };
   const lich = { taoLich, chotLich, huyLich, xemLich, demDangCho, ...(phuThuoc.lich ?? {}) };
   const nhac = {
     taoNhacTheoDuoi, chinhNhip, dongNhac, xemNhacTheoDuoi,
@@ -1288,7 +1288,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   }
 
   // ═══ 🔴 A3 — CƯỠNG CHẾ TAG. Chạy TRƯỚC khi chạm mạng, SAU khi đã biết hướng. ═══
-  // Luật nằm ở `baoDamTag()` (zalo/send.js) — ở đây CHỈ cấp dữ kiện cho nó:
+  // Luật nằm ở `ensureMention()` (zalo/send.js) — ở đây CHỈ cấp dữ kiện cho nó:
   // uid lấy từ chính dòng `lich_hen`, tên tra từ nhóm TẠI THỜI ĐIỂM NÀY.
   // ⛔ KHÔNG hỏi model tag ai, KHÔNG tin chuỗi model viết. Model đã chứng minh
   // là kênh chép chuỗi không đáng tin: nó viết "Trọng ơi" (chữ trần) cho một
@@ -1300,7 +1300,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   let uidHostCanTag = null;
   // ⚠️ `!laDmHoi` KHÔNG phải cho gọn. DM KHÔNG CÓ cơ chế mention: `UserMessage`
   // của zca-js không có trường `mentions`, và `send.js` chỉ dựng mentions khi
-  // `loaiThread === ThreadType.Group`. Chạy `baoDamTag` cho một DM thì nó
+  // `loaiThread === ThreadType.Group`. Chạy `ensureMention` cho một DM thì nó
   // CHÈN THẲNG chuỗi "@<tên>" vào đầu tin — đo thật: `groupMembers` với một
   // chat DM trả về MỘT PHẦN TỬ (chính host), KHÔNG rỗng như ai cũng tưởng. Nên
   // host sẽ nhận một tin nhắn riêng mở đầu bằng "@<tên chính mình>": chữ trần,
@@ -1339,7 +1339,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       // Lớp chặn thứ hai. `groupMembers` đã lọc bot ở tầng truy vấn rồi,
       // nhưng `can.uids` đến từ bảng `lich_hen` — dữ liệu cũ hoặc sai vẫn có
       // thể chứa uid bot, và không tầng nào khác chặn đường đó.
-      const kqTag = baoDamTag(
+      const kqTag = ensureMention(
         text, dsNguoiNhom, [...(can?.uids ?? []), ...canTagThem], _uidTroLyTuApi(api),
       );
       text = kqTag.text;
@@ -1397,7 +1397,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   // throttle được thi hành toàn cục.
   //
   // ⚠️ Cả HAI nhánh (`NHOM` và `DM_HOST`) đi chung cửa này. Bản đầu của đường
-  // DM từng gọi thẳng `guiVaoNhom` ở một nhánh và đó là lỗi 21/08 — ⛔ đừng
+  // DM từng gọi thẳng `sendToGroup` ở một nhánh và đó là lỗi 21/08 — ⛔ đừng
   // mở lại cửa thứ hai.
   const xepHang = typeof kho?.xepHangGuiRa === 'function' ? kho.xepHangGuiRa : null;
   const guiMot = async (chatId, noiDung, tuyChon) => {
@@ -1426,7 +1426,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 
       // ═══ 🔴 CỬA 2 — ĐƯỜNG LÙI KHI TAG HỎNG ═══
       // Host không ở trong nhóm / chưa từng nhắn ⇒ `groupMembers` không tra
-      // ra tên ⇒ `baoDamTag` bỏ qua trong IM LẶNG (`khongTraRa`), hoặc trùng
+      // ra tên ⇒ `ensureMention` bỏ qua trong IM LẶNG (`khongTraRa`), hoặc trùng
       // tên với người khác (`trungTen`). Khi đó câu "anh duyệt cho em nhé"
       // KHÔNG tới ai cả — lời xin bốc hơi, mà nhìn từ ngoài thì mọi thứ ổn.
       //
@@ -1471,7 +1471,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       if (cauTrungTinh && !trungDich) {
         try {
           // ⚠️ PHẢI đi qua `_guiTheoChinhSach` để chọn đúng kiểu luồng. Gọi
-          // thẳng `guiVaoNhom` là đúng lỗi 21/08 lặp lại ở nhánh này: nơi HỎI
+          // thẳng `sendToGroup` là đúng lỗi 21/08 lặp lại ở nhánh này: nơi HỎI
           // có thể là DM của một host KHÁC với `dmChatId` vừa gửi.
           await guiMot(chatIdHoi, cauTrungTinh, { laDm: laDmHoi });
         } catch (e) {
@@ -1571,7 +1571,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 /**
  * Dựng `tuyChon` cho mọi lần gọi tầng gửi.
  *
- * 🔴 VÌ SAO PHẢI CÓ: trước bản này, 4 chỗ gọi `guiVaoNhom`/`guiDmHost` đều
+ * 🔴 VÌ SAO PHẢI CÓ: trước bản này, 4 chỗ gọi `sendToGroup`/`sendHostDm` đều
  * KHÔNG truyền `ghiLai` ⇒ câu trả lời của trợ lý KHÔNG vào kho. Đo thật
  * 20/08/2026: `SELECT * FROM tin_nhan WHERE do_tro_ly_tao=1` ra RỖNG trong khi
  * trợ lý đã trả lời thật trong nhóm. Đọc lại lịch sử chỉ thấy câu hỏi, không
@@ -1756,14 +1756,14 @@ async function _guiTheoChinhSach(nen, chatId, text, tuyChon = {}) {
   // thuộc của gói này (xem `registerTools`), bộ test dựa vào nó để chạy mà không
   // cần Zalo thật.
   const G = nen.guiTin ?? {};
-  const _nhom = G.guiVaoNhom ?? guiVaoNhom;
-  const _dm = G.guiDmHost ?? guiDmHost;
-  const _nhieu = G.guiNhieuPhan ?? guiNhieuPhan;
+  const _nhom = G.sendToGroup ?? sendToGroup;
+  const _dm = G.sendHostDm ?? sendHostDm;
+  const _nhieu = G.sendInParts ?? sendInParts;
   const laDm = tuyChon.laDm === true;
   const tuyChonGui = { ..._tuyChonGui(kho, db, api, laDm ? null : chatId), laDm };
 
   // Tin NGẮN: đi đường thường ở cả ba nhánh.
-  if (!canChiaNho(text)) {
+  if (!needsSplitting(text)) {
     const r = laDm
       ? await _dm(api, chatId, text, tuyChonGui)
       : await _nhom(api, chatId, text, tuyChonGui);
@@ -1931,7 +1931,7 @@ function _sucKhoeGon(sk) {
   const ma = String(sk.trangThai ?? 'KHONG_BIET');
   return {
     trangThai: ma,
-    dangNghe: ma === 'OK',
+    isListening: ma === 'OK',
     moTa: MO_TA_SUC_KHOE[ma] ?? MO_TA_SUC_KHOE.KHONG_BIET,
   };
 }

@@ -52,7 +52,7 @@ function dbTam() {
   writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ', contentRaw: null,
-    tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
+    tsZalo: 1_700_000_000_000, tuToi: false, hasHostMention: false,
   });
   return db;
 }
@@ -86,8 +86,8 @@ function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
   return chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory,
     groupMembers: () => [],
-    guiVaoNhom: async (_a, _c, t) => { thu.daGuiThangVaoNhom.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, t) => { thu.daGuiThangVaoNhom.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { thu.giaoModel += 1; return true; },
     // ★★★ ĐÂY LÀ THỨ ĐANG ĐƯỢC CANH: closure SẢN XUẤT, nạp thật từ `index.js`.
     recordSources: noiGhiNhanNguon(boTichLuy),
@@ -215,8 +215,8 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chiNhomMinh,
     groupMembers: () => [],
-    guiVaoNhom: async () => ({ msgId: 'x' }),
-    guiDmHost: async (_a, chatId, t) => { dm.push({ chatId, t }); return { msgId: 'y' }; },
+    sendToGroup: async () => ({ msgId: 'x' }),
+    sendHostDm: async (_a, chatId, t) => { dm.push({ chatId, t }); return { msgId: 'y' }; },
     guiThongBao: async () => true,
     recordSources: noiGhiNhanNguon(createSourceLedger()),
     dmHostChatId: HOST,          // ★ thứ index.js trước đây KHÔNG truyền
@@ -248,8 +248,8 @@ test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bà
   const ra = await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chamNhomKhac,
     groupMembers: () => [],
-    guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
-    guiDmHost: async () => ({ msgId: 'y' }),
+    sendToGroup: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
+    sendHostDm: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { giaoModel += 1; return true; },
     // ★ CỐ Ý gỡ dây
   });

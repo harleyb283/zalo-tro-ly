@@ -58,7 +58,7 @@
  *     `type: ThreadType` (User=0, Group=1) — trường CÔNG KHAI, đúng ngay cả
  *     khi cờ `isGroup` của Undo/Reaction sai (issue #25). Với undo/reaction
  *     thì không có trường này ⇒ phải đối chiếu `threadId` với danh sách nhóm
- *     trong config (xem `loaiHoiThoai()`).
+ *     trong config (xem `inferConversationKind()`).
  *
  *  ✅ REACTION: tin đích nằm ở `content.rMsg[].gMsgID`, biểu tượng ở
  *     `content.rIcon`. `Reactions.NONE = ''` nghĩa là GỠ cảm xúc — giữ nguyên
@@ -166,7 +166,7 @@ function _coVeLaBytes(s, khoaNghi = false) {
  * @param {number} [sau]
  * @returns {unknown}
  */
-export function loBoBytes(v, sau = 0) {
+export function stripBytes(v, sau = 0) {
   if (v === null || v === undefined) return v ?? null;
   if (sau > TRAN_SAU) return '<đã cắt: quá sâu>';
 
@@ -184,7 +184,7 @@ export function loBoBytes(v, sau = 0) {
   }
 
   if (Array.isArray(v)) {
-    const ra = v.slice(0, TRAN_PHAN_TU_MANG).map((x) => loBoBytes(x, sau + 1));
+    const ra = v.slice(0, TRAN_PHAN_TU_MANG).map((x) => stripBytes(x, sau + 1));
     if (v.length > TRAN_PHAN_TU_MANG) ra.push(`<đã cắt: còn ${v.length - TRAN_PHAN_TU_MANG} phần tử>`);
     return ra;
   }
@@ -203,7 +203,7 @@ export function loBoBytes(v, sau = 0) {
       // Không phải chuỗi thì ĐỆ QUY chứ không xoá: Buffer/TypedArray/data-URI
       // nằm sâu bên trong vẫn bị chặn ở đúng nhánh của chúng, còn object có
       // trường text thì giữ được text.
-      ra[k] = loBoBytes(val, sau + 1);
+      ra[k] = stripBytes(val, sau + 1);
     }
     return ra;
   }
@@ -220,7 +220,7 @@ function _chuoiHoaGon(v) {
   if (v === null || v === undefined) return null;
   let s;
   try {
-    s = JSON.stringify(loBoBytes(v));
+    s = JSON.stringify(stripBytes(v));
   } catch {
     // Vòng lặp tham chiếu hoặc BigInt lọt lưới — vẫn phải để lại dấu vết.
     try {
@@ -242,7 +242,7 @@ function _chuoiHoaGon(v) {
  * @param {unknown} v
  * @returns {number|null}
  */
-export function docTs(v) {
+export function parseTs(v) {
   if (v === null || v === undefined || v === '') return null;
   const n = typeof v === 'number' ? v : Number(String(v).trim());
   if (!Number.isFinite(n) || n < 0) return null;
@@ -250,7 +250,7 @@ export function docTs(v) {
 }
 
 /**
- * Như `docTs` nhưng dùng cho cột NOT NULL (`tin_nhan.ts_zalo`).
+ * Như `parseTs` nhưng dùng cho cột NOT NULL (`tin_nhan.ts_zalo`).
  *
  * ⚠️ Không đọc được thì lấy giờ NHẬN làm xấp xỉ — nhưng PHẢI kêu ra stderr.
  * Bỏ dòng tin chỉ vì thiếu mốc thời gian là mất dữ liệu thật; im lặng thay
@@ -260,7 +260,7 @@ export function docTs(v) {
  * @returns {number}
  */
 function _docTsBatBuoc(v, boiCanh) {
-  const ts = docTs(v);
+  const ts = parseTs(v);
   if (ts !== null) return ts;
   const thay = Date.now();
   process.stderr.write(
@@ -348,7 +348,7 @@ function _chuanTen(v) {
  * @param {string|null} msgTypeGoc tên GỐC từ payload
  * @returns {boolean}
  */
-export function laVanBan(msgTypeGoc) {
+export function isTextMessage(msgTypeGoc) {
   return TEN_THAT_SANG_CHUAN.get(_chuanTen(msgTypeGoc) ?? '') === MSG_TYPE.TEXT;
 }
 
@@ -386,7 +386,7 @@ export function laVanBan(msgTypeGoc) {
  * @returns {{traLoiMsgId: string|null, traLoiCliMsgId: string|null,
  *            traLoiUserId: string|null, traLoiTrich: string|null}}
  */
-export function docTraLoi(quote) {
+export function parseQuotedReply(quote) {
   const rong = {
     traLoiMsgId: null, traLoiCliMsgId: null, traLoiUserId: null, traLoiTrich: null,
   };
@@ -455,10 +455,10 @@ function _kemMentions(contentRaw, msgTypeGoc, mentions) {
  * @param {{hostUserIds: string[]}} boiCanh
  * @returns {TinChuanHoa}
  */
-export function chuanHoaTinNhan(tho, boiCanh) {
+export function normalizeMessage(tho, boiCanh) {
   const d = tho?.data ?? {};
   const msgTypeGoc = _chuoiHoacNull(d.msgType);
-  const { noiDung, contentRaw: rawGoc } = docNoiDung(msgTypeGoc, d.content);
+  const { noiDung, contentRaw: rawGoc } = parseContent(msgTypeGoc, d.content);
   const contentRaw = _kemMentions(rawGoc, msgTypeGoc, d.mentions);
 
   return {
@@ -467,27 +467,27 @@ export function chuanHoaTinNhan(tho, boiCanh) {
     cliMsgId: toId(d.cliMsgId, 'message.cliMsgId'),
     userId: toId(d.uidFrom, 'message.uidFrom'),
     tenLucGui: _chuoiHoacNull(d.dName),
-    msgType: chuanHoaMsgType(msgTypeGoc),
+    msgType: normalizeMsgType(msgTypeGoc),
     noiDung,
     contentRaw,
     tsZalo: _docTsBatBuoc(d.ts, 'message'),
     tuToi: tho?.isSelf === true,
-    coTagHost: coTagHost(tho, boiCanh?.hostUserIds ?? [], boiCanh?.uidTroLy),
-    ...docTraLoi(d.quote),
+    hasHostMention: hasHostMention(tho, boiCanh?.hostUserIds ?? [], boiCanh?.uidTroLy),
+    ...parseQuotedReply(d.quote),
   };
 }
 
 /**
  * Tên thật → hằng số chuẩn. Không có trong bảng ⇒ 'UNKNOWN'.
  *
- * Tên gốc KHÔNG mất: `docNoiDung()` giữ ở `contentRaw._msgTypeGoc`. Chính
+ * Tên gốc KHÔNG mất: `parseContent()` giữ ở `contentRaw._msgTypeGoc`. Chính
  * lưới đó là thứ đã cứu được chữ của 10 dòng đầu tiên khi `webchat` chưa
  * được nhận — giữ nguyên, đừng bỏ dù bảng ánh xạ có đầy lên tới đâu.
  *
  * @param {string|null} msgTypeGoc
  * @returns {string}
  */
-export function chuanHoaMsgType(msgTypeGoc) {
+export function normalizeMsgType(msgTypeGoc) {
   const ten = _chuanTen(msgTypeGoc);
   if (ten === null) return MSG_TYPE.UNKNOWN;
   return TEN_THAT_SANG_CHUAN.get(ten) ?? MSG_TYPE.UNKNOWN;
@@ -526,7 +526,7 @@ function _rutChuTuObject(o) {
 /**
  * Tách nội dung theo msgType, thi hành spec H.
  *
- * 🔴 LUẬT: `noiDung` CHỈ khác null khi tin là VĂN BẢN (`laVanBan()`). Mọi loại
+ * 🔴 LUẬT: `noiDung` CHỈ khác null khi tin là VĂN BẢN (`isTextMessage()`). Mọi loại
  * khác chỉ được giữ METADATA trong `contentRaw`, và KHÔNG tải media của
  * người khác.
  *
@@ -534,8 +534,8 @@ function _rutChuTuObject(o) {
  * @param {unknown} content
  * @returns {{noiDung: string|null, contentRaw: string|null}}
  */
-export function docNoiDung(msgType, content) {
-  if (laVanBan(msgType)) {
+export function parseContent(msgType, content) {
+  if (isTextMessage(msgType)) {
     if (typeof content === 'string') {
       return { noiDung: content, contentRaw: null };
     }
@@ -620,12 +620,12 @@ export function docNoiDung(msgType, content) {
  * @param {string[]} hostUserIds
  * @returns {boolean}
  */
-export function coTagHost(tho, hostUserIds, uidTroLy) {
+export function hasHostMention(tho, hostUserIds, uidTroLy) {
   const ds = tho?.data?.mentions;
   if (!Array.isArray(ds) || ds.length === 0) return false;
 
   // Đường ĐÚNG theo hợp đồng: "tin này có tag TRỢ LÝ không".
-  const idTroLy = toId(uidTroLy, 'coTagHost.uidTroLy');
+  const idTroLy = toId(uidTroLy, 'hasHostMention.uidTroLy');
   if (idTroLy !== null) return ds.some((m) => sameId(m?.uid, idTroLy));
 
   // Không ai truyền uid trợ lý ⇒ KHÔNG thể trả lời đúng câu hỏi đó. Lùi về
@@ -660,7 +660,7 @@ function _keuThieuUidTroLy() {
  * @param {any} tho payload thô từ listener 'undo' (Undo)
  * @returns {SuKienThuHoi}
  */
-export function chuanHoaThuHoi(tho) {
+export function normalizeRecall(tho) {
   const d = tho?.data ?? {};
   const c = d.content ?? {};
 
@@ -684,7 +684,7 @@ export function chuanHoaThuHoi(tho) {
  * @param {any} tho payload thô từ listener 'reaction' (Reaction)
  * @returns {ReactionChuanHoa}
  */
-export function chuanHoaReaction(tho) {
+export function normalizeReaction(tho) {
   const d = tho?.data ?? {};
   const c = d.content ?? {};
   const dich = Array.isArray(c.rMsg) ? c.rMsg[0] : null;
@@ -701,7 +701,7 @@ export function chuanHoaReaction(tho) {
     // Reactions.NONE = '' nghĩa là GỠ cảm xúc — giữ nguyên '' để phân biệt
     // với "không đọc được" (null).
     bieuTuong: c.rIcon === undefined || c.rIcon === null ? null : String(c.rIcon),
-    tsZalo: docTs(d.ts),
+    tsZalo: parseTs(d.ts),
   };
 }
 
@@ -713,7 +713,7 @@ export function chuanHoaReaction(tho) {
  * @param {any} tho payload thô từ listener 'group_event' (GroupEvent)
  * @returns {SuKienNhomChuanHoa}
  */
-export function chuanHoaSuKienNhom(tho) {
+export function normalizeGroupEvent(tho) {
   const d = tho?.data ?? {};
   const loaiGoc = _chuoiHoacNull(tho?.type);
 
@@ -722,7 +722,7 @@ export function chuanHoaSuKienNhom(tho) {
     chatId: toIdRequired(tho?.threadId ?? d.groupId, 'group_event.threadId'),
     loai: loaiGoc ? loaiGoc.toUpperCase() : 'UNKNOWN',
     duLieu: _chuoiHoaGon({ _loaiGoc: loaiGoc, _act: _chuoiHoacNull(tho?.act), ...d }),
-    tsZalo: docTs(d.time ?? d.ts),
+    tsZalo: parseTs(d.time ?? d.ts),
   };
 }
 
@@ -750,11 +750,11 @@ export function chuanHoaSuKienNhom(tho) {
  * @param {unknown} [goiY]  `Message.type` nếu có (0 = User/DM, 1 = Group)
  * @returns {string} LOAI_HOI_THOAI.*
  */
-export function loaiHoiThoai(threadId, cauHinh, goiY) {
+export function inferConversationKind(threadId, cauHinh, goiY) {
   if (goiY === 1) return LOAI_HOI_THOAI.GROUP;
   if (goiY === 0) return LOAI_HOI_THOAI.DM;
 
-  const id = toId(threadId, 'loaiHoiThoai.threadId');
+  const id = toId(threadId, 'inferConversationKind.threadId');
   if (id === null) return LOAI_HOI_THOAI.UNKNOWN;
 
   const ds = cauHinh?.groups;

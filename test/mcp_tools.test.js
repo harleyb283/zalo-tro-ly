@@ -97,14 +97,14 @@ function dungTool(ghiDe = {}) {
   };
 
   const guiTin = {
-    guiVaoNhom: ghiDe.guiVaoNhom ?? (async (_api, chatId, text) => {
+    sendToGroup: ghiDe.sendToGroup ?? (async (_api, chatId, text) => {
       daGui.nhom.push({ chatId, text }); return { msgId: 'gui-nhom-1' };
     }),
-    guiDmHost: ghiDe.guiDmHost ?? (async (_api, dmChatId, text) => {
+    sendHostDm: ghiDe.sendHostDm ?? (async (_api, dmChatId, text) => {
       daGui.dm.push({ dmChatId, text }); return { msgId: 'gui-dm-1' };
     }),
     notifyHost: ghiDe.notifyHost,
-    guiNhieuPhan: ghiDe.guiNhieuPhan ?? (async (_api, chatId, text) => {
+    sendInParts: ghiDe.sendInParts ?? (async (_api, chatId, text) => {
       const { splitMessage } = await import('../src/lib/split_message.js');
       const kq = splitMessage(text);
       for (const ph of kq.phan) daGui.nhom.push({ chatId, text: ph, phan: true });
@@ -256,8 +256,8 @@ test('C3 THỨ TỰ: DM host đi TRƯỚC, câu trung tính đi SAU', async () =
   const thuTu = [];
   const t = dungTool({
     nguon: [CHAT_HOI, CHAT_KHAC],
-    guiDmHost: async () => { thuTu.push('dm'); return { msgId: 'd' }; },
-    guiVaoNhom: async () => { thuTu.push('nhom'); return { msgId: 'n' }; },
+    sendHostDm: async () => { thuTu.push('dm'); return { msgId: 'd' }; },
+    sendToGroup: async () => { thuTu.push('nhom'); return { msgId: 'n' }; },
   });
   await t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' });
   assert.deepEqual(thuTu, ['dm', 'nhom'], 'gửi câu trung tính trước rồi DM hỏng = hứa suông với cả nhóm');
@@ -318,7 +318,7 @@ test('C9 gửi xong -> hàng đợi da_tra_loi + xoá phiên tích luỹ', async
 });
 
 test('C10 gửi Zalo hỏng -> ZALO_CHUA_SAN_SANG, VẪN ghi nhật ký với huong=null', async () => {
-  const t = dungTool({ guiVaoNhom: async () => { throw new Error('mất mạng'); } });
+  const t = dungTool({ sendToGroup: async () => { throw new Error('mất mạng'); } });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' }));
   assert.equal(kq.ma, MA_LOI.ZALO_CHUA_SAN_SANG);
   assert.equal(t.nhatKy[0].huongTraLoi, null, 'không được khai là đã gửi khi chưa gửi được');
@@ -327,7 +327,7 @@ test('C10 gửi Zalo hỏng -> ZALO_CHUA_SAN_SANG, VẪN ghi nhật ký với hu
 test('C11 câu trung tính hỏng nhưng DM đã tới -> VẪN báo thành công', async () => {
   const t = dungTool({
     nguon: [CHAT_HOI, CHAT_KHAC],
-    guiVaoNhom: async () => { throw new Error('nhóm chặn'); },
+    sendToGroup: async () => { throw new Error('nhóm chặn'); },
   });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' }));
   assert.equal(kq.ok, true, 'đáp án đã tới tay anh rồi, hỏng câu xã giao không phải thất bại');
@@ -394,7 +394,7 @@ test('E1 trang_thai gọi TRẦN (không request_id) -> CHỈ sức khoẻ, KHÔ
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, {});
   assert.equal(kq.ok, true, 'vẫn phải trả lời được — không gác cả tool');
   assert.equal(kq.duLieu.sucKhoe.trangThai, 'OK');
-  assert.equal(kq.duLieu.sucKhoe.dangNghe, true);
+  assert.equal(kq.duLieu.sucKhoe.isListening, true);
   for (const k of ['soTinDaLuu', 'soThuHoiMoCoi', 'soHangDoiCho', 'soNhomDangNghe']) {
     assert.equal(k in kq.duLieu, false, `${k} phải VẮNG MẶT với người ngoài`);
   }
@@ -821,8 +821,8 @@ test('K3 🔴 sucKhoe cho người ngoài KHÔNG rò gián tiếp: tên nhóm / 
     assert.ok(!ca.includes(cam), `sucKhoe rò '${cam}'`);
   }
   // Chỉ còn 3 khoá, và `moTa` lấy từ bảng CỐ ĐỊNH nên không thể mang chữ lạ.
-  assert.deepEqual(Object.keys(kq.duLieu.sucKhoe).sort(), ['dangNghe', 'moTa', 'trangThai']);
-  assert.equal(kq.duLieu.sucKhoe.dangNghe, true);
+  assert.deepEqual(Object.keys(kq.duLieu.sucKhoe).sort(), ['isListening', 'moTa', 'trangThai']);
+  assert.equal(kq.duLieu.sucKhoe.isListening, true);
 });
 
 test('K4 người ngoài VẪN biết được trợ lý sống hay chết (không gác cả tool)', async () => {
@@ -834,7 +834,7 @@ test('K4 người ngoài VẪN biết được trợ lý sống hay chết (khô
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ });
   assert.equal(kq.ok, true);
   assert.equal(kq.duLieu.sucKhoe.trangThai, 'LISTENER_CHET');
-  assert.equal(kq.duLieu.sucKhoe.dangNghe, false, 'phải nói được là KHÔNG nghe được');
+  assert.equal(kq.duLieu.sucKhoe.isListening, false, 'phải nói được là KHÔNG nghe được');
   assert.ok(!JSON.stringify(kq).includes('nhóm X'));
 });
 
