@@ -52,9 +52,16 @@ nằm trong repo.
 ## Chạy test
 
 ```bash
-node --test test/*.test.js     # ⚠️ `node --test test/` KHÔNG đệ quy ở Node 26
+env -u ZTL_CHE_DO -u ZTL_CONFIG -u ZTL_DATA_DIR -u ZTL_PHAM_VI -u ZTL_TUYEN -u ZTL_VAI \
+  node --test test/*.test.js   # ⚠️ `node --test test/` KHÔNG đệ quy ở Node 26
 npm run check                  # kiểm cú pháp mọi file
 ```
+
+🔴 **PHẢI gỡ biến `ZTL_*` khi chạy test.** Phiên làm việc mở từ một pane trợ lý
+mang sẵn `ZTL_DATA_DIR`, `ZTL_CHE_DO`, `ZTL_VAI`… và chúng **đổi kết quả test**:
+`ZTL_DATA_DIR` khiến `kiemCauHinh` bỏ qua `duongDan.db` nên bài *"db nằm trong pack
+⇒ TỪ CHỐI"* không ném lỗi nữa. Đo thật ngày 21/08/2026: **12 bài đỏ giả**, và cái
+giá của việc tin nhầm là đi sửa một con bug ⛔ không tồn tại.
 
 ⚠️ **Ba bài `SKIP` là bình thường** ở máy không có bản luật đang chạy của người vận hành
 (chúng đối chiếu bản trong repo với bản ngoài). Muốn bật lại thì khai
