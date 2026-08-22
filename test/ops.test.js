@@ -474,6 +474,13 @@ test('🔴 C12e TRIPWIRE: file MỚI nào sinh tiến trình con cũng phải qu
     }
   }
   assert.deepEqual(dinh.sort(), [
+    // ⚠️ Thêm 22/08/2026 — bài này đã ĐỎ đúng lúc `bin/cai-dat.js` ra đời, tức
+    // tripwire làm đúng việc của nó. Hai đường sinh tiến trình con ở đó:
+    //   · mở ảnh QR      -> ĐÃ chốt cổng `dangChayTest()`, cùng khuôn zalo-login
+    //   · chạy `init-db` -> tiến trình con NODE có chủ đích, ⛔ KHÔNG chạm màn
+    //     hình. Cố ý spawn thay vì `import`: init-db là script, nạp bằng import
+    //     là chạy luôn `main()` + `process.exit` của nó trong tiến trình cài đặt.
+    'bin/cai-dat.js',
     'bin/kiem-cu-phap.js',      // công cụ dev, chỉ chạy `node --check`
     'bin/zalo-login.js',        // mở ảnh QR — ĐÃ có cổng dangChayTest()
     'src/ops/notify_host.js',   // notifyCommand của người dùng + osascript — ĐÃ có cổng

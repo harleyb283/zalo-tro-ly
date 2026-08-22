@@ -41,11 +41,33 @@ phải sự bất tiện cần sửa.
 - *(tuỳ chọn)* Claude Code — không có nó thì trợ lý vẫn **nghe và lưu lịch sử**,
   chỉ là không tự trả lời
 
-## Cài
+## Cài — cách dễ nhất (khuyên dùng)
+
+Ba dòng, rồi làm theo hướng dẫn hiện trên màn hình:
 
 ```bash
 git clone <đường-dẫn-kho-của-bạn> zalo-tro-ly
 cd zalo-tro-ly
+npm install && npm run cai-dat
+```
+
+`npm run cai-dat` sẽ tự: kiểm máy đủ điều kiện chưa · dựng thư mục dữ liệu ·
+mở **mã QR** cho bạn quét bằng điện thoại · **liệt kê nhóm của bạn để bạn chọn
+bằng số** · ghi cấu hình · tạo kho. Chạy lại được nhiều lần, và ⛔ không bao
+giờ quét QR lại nếu bạn đang đăng nhập sẵn.
+
+Xong thì chạy:
+
+```bash
+npm start          # hoặc: npm run start:khong-mcp  (không cần Claude)
+npm run health     # xem tình trạng bất cứ lúc nào
+```
+
+---
+
+## Cài bằng tay (nếu muốn tự kiểm soát từng bước)
+
+```bash
 npm install
 ```
 

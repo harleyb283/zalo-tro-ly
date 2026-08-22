@@ -13,6 +13,7 @@
     "zalo-tro-ly": "bin/zalo-login.js"
   },
   "scripts": {
+    "cai-dat": "node bin/cai-dat.js",
     "init-db": "node bin/init-db.js",
     "check": "node bin/kiem-cu-phap.js",
     "login": "node bin/zalo-login.js",
