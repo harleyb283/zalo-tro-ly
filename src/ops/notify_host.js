@@ -40,7 +40,7 @@
 import { spawn } from 'node:child_process';
 
 import { safeLogText, redact } from '../lib/redact.js';
-import { layDmHost, danhSachHostUserId } from '../policy/access.js';
+import { hostDmChatId, hostUserIds } from '../policy/access.js';
 
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
 
@@ -60,9 +60,9 @@ function log(...phan) {
  * @returns {string|null}
  */
 export function dmHostChinh(cauHinh) {
-  const ds = danhSachHostUserId(cauHinh) ?? [];
+  const ds = hostUserIds(cauHinh) ?? [];
   for (const uid of ds) {
-    const dm = layDmHost(cauHinh, uid);
+    const dm = hostDmChatId(cauHinh, uid);
     if (dm) return dm;
   }
   return null;

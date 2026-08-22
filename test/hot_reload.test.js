@@ -33,7 +33,7 @@ import {
   diffGroups,
   createHotReloader,
 } from '../src/ops/hot_reload.js';
-import { docCauHinh, duongDanCauHinh } from '../src/policy/access.js';
+import { readConfig, configPath } from '../src/policy/access.js';
 
 /** Cấu hình tối thiểu ĐỦ QUA validate của access.js. */
 function cauHinhMau(groups = [{ chatId: '111', ten: 'Nhóm A', ghiLichSu: true, traLoiKhiTag: true }]) {
@@ -149,14 +149,14 @@ test('C1 ★ sửa file ⇒ nhóm mới có hiệu lực mà KHÔNG restart', ()
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
 
-  const dangChay = docCauHinh(f);
+  const dangChay = readConfig(f);
   assert.equal(dangChay.groups.length, 1);
 
   const bao = [];
   const bo = createHotReloader({
     duongDan: f,
     dich: dangChay,
-    docCauHinh,
+    readConfig,
     log: () => {},
     baoHost: (s) => bao.push(s),
     tuChay: false,
@@ -180,10 +180,10 @@ test('C2 ★ config HỎNG ⇒ GIỮ NGUYÊN bản đang chạy + báo host ĐÚ
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
 
-  const dangChay = docCauHinh(f);
+  const dangChay = readConfig(f);
   const bao = [];
   const bo = createHotReloader({
-    duongDan: f, dich: dangChay, docCauHinh, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
+    duongDan: f, dich: dangChay, readConfig, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
   });
 
   fs.writeFileSync(f, '{ "hosts": [ this is not json');
@@ -202,9 +202,9 @@ test('C3 ★ config MỞ TOANG (chatId = "*") ⇒ TỪ CHỐI nạp', () => {
   const thuMuc = thuMucTam();
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
-  const dangChay = docCauHinh(f);
+  const dangChay = readConfig(f);
 
-  const bo = createHotReloader({ duongDan: f, dich: dangChay, docCauHinh, log: () => {}, tuChay: false });
+  const bo = createHotReloader({ duongDan: f, dich: dangChay, readConfig, log: () => {}, tuChay: false });
   fs.writeFileSync(f, JSON.stringify(cauHinhMau([{ chatId: '*', ten: 'tất cả' }])));
 
   assert.equal(bo.kiemNgay(true), null, 'mở toang thì phải TỪ CHỐI');
@@ -216,10 +216,10 @@ test('C4 file BIẾN MẤT ⇒ giữ nguyên, ⛔ không coi là "không nhóm n
   const thuMuc = thuMucTam();
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
-  const dangChay = docCauHinh(f);
+  const dangChay = readConfig(f);
   const bao = [];
   const bo = createHotReloader({
-    duongDan: f, dich: dangChay, docCauHinh, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
+    duongDan: f, dich: dangChay, readConfig, log: () => {}, baoHost: (s) => bao.push(s), tuChay: false,
   });
 
   fs.rmSync(f);
@@ -234,13 +234,13 @@ test('C5 mtime KHÔNG đổi ⇒ ⛔ không đọc lại file (nhịp poll phả
   const thuMuc = thuMucTam();
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
-  const dangChay = docCauHinh(f);
+  const dangChay = readConfig(f);
 
   let soLanDoc = 0;
   const bo = createHotReloader({
     duongDan: f,
     dich: dangChay,
-    docCauHinh: (d) => { soLanDoc += 1; return docCauHinh(d); },
+    readConfig: (d) => { soLanDoc += 1; return readConfig(d); },
     log: () => {},
     tuChay: false,
   });
@@ -252,23 +252,23 @@ test('C5 mtime KHÔNG đổi ⇒ ⛔ không đọc lại file (nhịp poll phả
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// D · duongDanCauHinh — MỘT nguồn sự thật
+// D · configPath — MỘT nguồn sự thật
 // ═══════════════════════════════════════════════════════════════════════
 
-test('D1 ★ watcher và docCauHinh phải trỏ CÙNG một file', () => {
+test('D1 ★ watcher và readConfig phải trỏ CÙNG một file', () => {
   const thuMuc = thuMucTam();
   const f = path.join(thuMuc, 'assistant.config.json');
   fs.writeFileSync(f, JSON.stringify(cauHinhMau()));
 
   // Tham số tường minh thắng mọi thứ khác.
-  assert.equal(duongDanCauHinh(f), f);
+  assert.equal(configPath(f), f);
 
   // Vắng tham số thì cả hai cùng rơi về ZTL_CONFIG.
   const cu = process.env.ZTL_CONFIG;
   process.env.ZTL_CONFIG = f;
   try {
-    assert.equal(duongDanCauHinh(), f);
-    assert.equal(docCauHinh().groups[0].chatId, '111');
+    assert.equal(configPath(), f);
+    assert.equal(readConfig().groups[0].chatId, '111');
   } finally {
     if (cu === undefined) delete process.env.ZTL_CONFIG; else process.env.ZTL_CONFIG = cu;
   }

@@ -41,7 +41,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { docCauHinh, THOI_GIAN_MAC_DINH } from '../src/policy/access.js';
+import { readConfig, DEFAULT_TIMINGS } from '../src/policy/access.js';
 import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
@@ -65,7 +65,7 @@ export const MA = Object.freeze({
  * watchdog quá ngắn không sinh báo động giả liên miên.
  */
 export function hanNhipTimMs(cauHinh) {
-  const w = cauHinh?.thoiGian?.watchdogMs || THOI_GIAN_MAC_DINH.watchdogMs;
+  const w = cauHinh?.thoiGian?.watchdogMs || DEFAULT_TIMINGS.watchdogMs;
   return Math.max(15 * 60_000, w * 3);
 }
 
@@ -268,7 +268,7 @@ export async function main(argv) {
 
   let cauHinh;
   try {
-    cauHinh = docCauHinh(t.config);
+    cauHinh = readConfig(t.config);
   } catch (e) {
     err(`⛔ Cấu hình: ${e.message}`);
     return MA.CAU_HINH;

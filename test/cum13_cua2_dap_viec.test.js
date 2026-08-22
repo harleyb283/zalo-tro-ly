@@ -130,7 +130,7 @@ test('★★★ Q3 SAI NHÓM -> đóng', () => {
 test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
   const { db, id } = dbCoNhac();
   assert.ok(timViecMoCua2(db, NHOM, PHU_TRACH), 'chưa đóng thì phải mở — nếu không bài này rỗng');
-  dongNhac(db, { id, nguoiDong: HOST, laHost: true, bayGioMs: Date.now() });
+  dongNhac(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: Date.now() });
   assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null);
   dongDb(db);
 });

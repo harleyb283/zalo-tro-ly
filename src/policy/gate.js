@@ -21,7 +21,7 @@
 
 import { HANH_DONG_GATE } from '../lib/hang_so.js';
 import { toId } from '../lib/ids.js';
-import { laHost, layNhom, timHostTheoDm } from './access.js';
+import { isHost, findGroup, findHostByDm } from './access.js';
 
 /** @typedef {import('../types.d.ts').TinChuanHoa} TinChuanHoa */
 /** @typedef {import('../types.d.ts').CauHinh} CauHinh */
@@ -116,7 +116,7 @@ export function quyetDinh(tin, cauHinh, boiCanh) {
   if (chatId === null) return _bo(LY_DO.THIEU_DU_LIEU);
 
   const userId = toId(tin.userId, 'gate.userId');
-  const laHostGui = laHost(cauHinh, userId);
+  const laHostGui = isHost(cauHinh, userId);
 
   // Tài khoản chạy tool KHÔNG nằm trong hosts mà lại tự gửi tin -> đây đúng
   // là tiếng vọng của chính trợ lý, bỏ. (Ca host-dùng-chung-tài-khoản không
@@ -124,7 +124,7 @@ export function quyetDinh(tin, cauHinh, boiCanh) {
   if (tin.tuToi === true && !laHostGui) return _bo(LY_DO.TIN_CUA_TRO_LY);
 
   // ── Nhánh DM của host ────────────────────────────────────────────────
-  const hostDm = timHostTheoDm(cauHinh, chatId);
+  const hostDm = findHostByDm(cauHinh, chatId);
   if (hostDm) {
     if (!CHO_PHEP_DM) return _bo(LY_DO.NHOM_NGOAI_ALLOWLIST);
     // DM của host A nhưng người gửi lại là B -> không cho qua. Ca này về lý
@@ -139,7 +139,7 @@ export function quyetDinh(tin, cauHinh, boiCanh) {
   }
 
   // ── Nhánh nhóm ───────────────────────────────────────────────────────
-  const nhom = layNhom(cauHinh, chatId);
+  const nhom = findGroup(cauHinh, chatId);
   if (!nhom) return _bo(LY_DO.NHOM_NGOAI_ALLOWLIST);
 
   // ═══════════════════════════════════════════════════════════════════

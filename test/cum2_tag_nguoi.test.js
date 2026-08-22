@@ -107,7 +107,7 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
     docSucKhoe: () => ({ trangThai: 'OK' }),
     guiTin: { guiVaoNhom, guiDmHost },        // ★ tầng gửi THẬT -> mentions THẬT
     chinhSach: {
-      quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
+      decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
   });
   const goi = async (name, args) => {

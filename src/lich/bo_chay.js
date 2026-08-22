@@ -110,7 +110,7 @@ export function laCheDoTach(p = {}, env = process.env, argv = process.argv) {
  * Ghi lại đây để ai đó đừng dựng lại nó dưới một cái tên khác.
  *
  * 🔴 VÌ SAO NỐI Ở ĐÂY CHỨ KHÔNG NỐI Ở `index.js`: nối ở đó là thêm một DÂY TREO
- * nữa — pack đã dính hai lần (`ghiNhanNguon`, `dmHostChatId`): code viết đủ,
+ * nữa — pack đã dính hai lần (`recordSources`, `dmHostChatId`): code viết đủ,
  * test xanh, mà chỗ gọi quên truyền nên tính năng chết câm. Ở đây không có gì
  * để quên: `chayNhipTheoDuoi` đã được `index.js` gọi mỗi 30 giây từ trước, và
  * mọi thứ lưới cần đã nằm sẵn trong `p`.
@@ -491,7 +491,7 @@ export async function chayNhipTheoDuoi(p) {
     // ═══ 🔴 B5 — BẮT VẾT NGUỒN CỦA BỐI CẢNH, KHÔNG TIN VÀO TRÍ NHỚ NGƯỜI VIẾT ═══
     // `layBoiCanhNhac` bơm dữ liệu THẲNG vào context model (qua `_tomTatDuKien`),
     // KHÔNG đi qua tool nào ⇒ nó ĐI VÒNG QUA chỗ `_lichSu` khai nguồn cho
-    // `leak_guard`. Đo trước khi vá: `ghiNhanNguon(` chỉ xuất hiện ĐÚNG MỘT chỗ
+    // `leak_guard`. Đo trước khi vá: `recordSources(` chỉ xuất hiện ĐÚNG MỘT chỗ
     // trong cả `src/` (tools.js, trong `_lichSu`), và `boTichLuy` KHÔNG xuất hiện
     // dòng nào trong `src/lich/`.
     //
@@ -525,7 +525,7 @@ export async function chayNhipTheoDuoi(p) {
     const phuTrach = _tenPhuTrach(p, d);
 
     // 🔴 FAIL-CLOSED. Bối cảnh có chạm nhóm KHÁC mà KHÔNG có đường khai nguồn
-    // (`p.ghiNhanNguon` chưa được nối) ⇒ TUYỆT ĐỐI KHÔNG giao model. Rơi xuống câu
+    // (`p.recordSources` chưa được nối) ⇒ TUYỆT ĐỐI KHÔNG giao model. Rơi xuống câu
     // dự phòng do code dựng — câu đó chỉ dùng `d.noi_dung` của chính dòng nhắc nên
     // không thể mang dữ liệu nhóm khác ra ngoài.
     // ⛔ Không có nhánh "không chắc thì cứ gửi": đó đúng là thứ `leak_guard` cấm.
@@ -546,11 +546,11 @@ export async function chayNhipTheoDuoi(p) {
     const coClient = laCheDoTach(p);
     const giaoDuocChoModel = p.taoHangDoi
       && (typeof p.guiThongBao === 'function' || coClient)
-      && (nguonLa.length === 0 || typeof p.ghiNhanNguon === 'function');
-    if (nguonLa.length && typeof p.ghiNhanNguon !== 'function') {
+      && (nguonLa.length === 0 || typeof p.recordSources === 'function');
+    if (nguonLa.length && typeof p.recordSources !== 'function') {
       _log(
         `lời nhắc ${d.id}: bối cảnh chạm ${nguonLa.length} nhóm KHÁC nhưng chưa nối `
-        + 'ghiNhanNguon -> KHÔNG giao model (fail-closed), dùng câu dự phòng.',
+        + 'recordSources -> KHÔNG giao model (fail-closed), dùng câu dự phòng.',
       );
     }
 
@@ -560,8 +560,8 @@ export async function chayNhipTheoDuoi(p) {
         const requestId = randomUUID();
         // ★ KHAI NGUỒN TRƯỚC KHI ĐẨY — khai sau thì có một khoảnh khắc model đã
         // cầm dữ liệu mà `leak_guard` chưa biết gì.
-        if (typeof p.ghiNhanNguon === 'function') {
-          p.ghiNhanNguon(requestId, [...nguonDaCham, String(d.chat_id_dich)]);
+        if (typeof p.recordSources === 'function') {
+          p.recordSources(requestId, [...nguonDaCham, String(d.chat_id_dich)]);
         }
         // 🔴 THỨ TỰ CÓ CHỦ ĐÍCH: đặt TOKEN trước, tạo hàng đợi sau.
         // `cho_model_tu_ms` là quyền gửi của lượt này (xem `giuQuyenGuiNhac`).

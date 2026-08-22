@@ -3,7 +3,7 @@
  * NỐI DÂY TREO — `index.js` phải THẬT SỰ nạp đạn cho lá chắn B5.
  *
  * 🔴 VÌ SAO CẦN FILE RIÊNG: `test/cum5_don.test.js` đã canh rất kỹ HÀNH VI của
- *    `chayNhipTheoDuoi` khi CÓ và KHÔNG có `ghiNhanNguon` — nhưng nó tự tay
+ *    `chayNhipTheoDuoi` khi CÓ và KHÔNG có `recordSources` — nhưng nó tự tay
  *    truyền closure vào. Cả bộ đó vẫn XANH 100% trong khi `index.js` không
  *    truyền gì cả, tức đường THẬT đang chạy ở thế fail-closed: không rò, nhưng
  *    lời nhắc mất giọng model đúng những ca chạm nhóm khác.
@@ -27,7 +27,7 @@ import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { HUONG_TRA_LOI } from '../src/lib/hang_so.js';
-import { layNguon, quyetDinhHuongTraLoi, taoBoTichLuy } from '../src/policy/leak_guard.js';
+import { getSources, decideReplyRoute, createSourceLedger } from '../src/policy/leak_guard.js';
 import { dongDb, moDb } from '../src/store/db.js';
 import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
 
@@ -90,7 +90,7 @@ function chayNhuIndexJs(db, boTichLuy, truyVanLichSu, thu) {
     guiDmHost: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { thu.giaoModel += 1; return true; },
     // ★★★ ĐÂY LÀ THỨ ĐANG ĐƯỢC CANH: closure SẢN XUẤT, nạp thật từ `index.js`.
-    ghiNhanNguon: noiGhiNhanNguon(boTichLuy),
+    recordSources: noiGhiNhanNguon(boTichLuy),
   });
 }
 
@@ -99,18 +99,18 @@ function chayNhuIndexJs(db, boTichLuy, truyVanLichSu, thu) {
 // ═══════════════════════════════════════════════════════════════════════
 
 test('N1 ★ index.js export `noiGhiNhanNguon` và nó nhận ĐÚNG 2 đối số như bo_chay gọi', () => {
-  // `bo_chay.js` gọi `p.ghiNhanNguon(requestId, nguonChatIds)` — HAI đối số.
-  // `leak_guard.ghiNhanNguon()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
+  // `bo_chay.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số.
+  // `leak_guard.recordSources()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
   // là lỗi ném ra, `bo_chay` nuốt vào catch, lời nhắc lặng lẽ rơi xuống câu dự
   // phòng — không có dấu hiệu nào ngoài log.
   assert.equal(typeof noiGhiNhanNguon, 'function', 'index.js không còn export noiGhiNhanNguon');
-  const bo = taoBoTichLuy();
+  const bo = createSourceLedger();
   const f = noiGhiNhanNguon(bo);
   assert.equal(typeof f, 'function');
   assert.equal(f.length, 2, 'closure phải nhận đúng (requestId, nguonChatIds)');
 
   f('r1', ['A', 'B']);
-  assert.deepEqual(layNguon(bo, 'r1').sort(), ['A', 'B'],
+  assert.deepEqual(getSources(bo, 'r1').sort(), ['A', 'B'],
     'gọi bằng 2 đối số mà sổ nguồn vẫn rỗng -> boTichLuy chưa được đóng vào closure');
 });
 
@@ -121,18 +121,18 @@ test('N2 ★★★ `main()` THẬT SỰ truyền closure đó vào chayNhipTheoD
   const i = SRC_INDEX.indexOf('chayNhipTheoDuoi({');
   assert.ok(i > 0, 'không tìm thấy chỗ gọi chayNhipTheoDuoi trong index.js');
   const khoiGoi = SRC_INDEX.slice(i, i + 1600);
-  assert.match(khoiGoi, /ghiNhanNguon:\s*noiGhiNhanNguon\(boTichLuy\)/,
-    'index.js KHÔNG truyền ghiNhanNguon -> bo_chay fail-closed, lời nhắc mất giọng model '
+  assert.match(khoiGoi, /recordSources:\s*noiGhiNhanNguon\(boTichLuy\)/,
+    'index.js KHÔNG truyền recordSources -> bo_chay fail-closed, lời nhắc mất giọng model '
     + 'đúng những ca bối cảnh chạm nhóm khác');
-  assert.match(SRC_INDEX, /import \{[^}]*\bghiNhanNguon\b[^}]*\} from '\.\/policy\/leak_guard\.js'/,
+  assert.match(SRC_INDEX, /import \{[^}]*\brecordSources\b[^}]*\} from '\.\/policy\/leak_guard\.js'/,
     'thiếu import thì ESM ném ngay lúc nạp module');
 });
 
 test('N3 ★★ MỘT sổ nguồn duy nhất: dangKyTool và bo_chay dùng CHUNG `boTichLuy`', () => {
-  // Bẫy tinh vi nhất: dựng hai `taoBoTichLuy()` khác nhau. `mcp/tools.js` tra
+  // Bẫy tinh vi nhất: dựng hai `createSourceLedger()` khác nhau. `mcp/tools.js` tra
   // một sổ, `bo_chay` ghi vào sổ kia -> `leak_guard` thấy nguồn = ∅ và cho gửi
   // thẳng vào nhóm. Đúng ca lá chắn sinh ra để chặn, mà lại im lặng.
-  const soLanDung = (SRC_INDEX.match(/taoBoTichLuy\(\)/g) ?? []).length;
+  const soLanDung = (SRC_INDEX.match(/createSourceLedger\(\)/g) ?? []).length;
   assert.equal(soLanDung, 1, `index.js dựng ${soLanDung} bộ tích luỹ — phải đúng MỘT`);
   assert.match(SRC_INDEX, /\n\s*boTichLuy,\n/, 'dangKyTool không còn nhận boTichLuy');
 });
@@ -146,7 +146,7 @@ test('N4 ★★★ CHIỀU (a) bối cảnh SẠCH -> VẪN giao model + leak_gu
   // giọng model vĩnh viễn — hỏng đúng thứ bản vá này sinh ra để cứu.
   const db = dbTam();
   nhacDaChot(db);
-  const bo = taoBoTichLuy();
+  const bo = createSourceLedger();
   const thu = { giaoModel: 0, daGuiThangVaoNhom: [] };
 
   const ra = await chayNhuIndexJs(db, bo, chiNhomMinh, thu);
@@ -156,8 +156,8 @@ test('N4 ★★★ CHIỀU (a) bối cảnh SẠCH -> VẪN giao model + leak_gu
   assert.equal(ra.duPhong, 0, 'không được rơi xuống câu dự phòng khi bối cảnh sạch');
 
   const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
-  const qd = quyetDinhHuongTraLoi({
-    requestId: rid, chatIdHoi: NHOM, nguon: layNguon(bo, rid), tonTaiHangDoi: true,
+  const qd = decideReplyRoute({
+    requestId: rid, chatIdHoi: NHOM, nguon: getSources(bo, rid), tonTaiHangDoi: true,
   });
   assert.notEqual(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'bối cảnh chỉ trong nhóm mình mà vẫn bị đẩy sang DM host -> lá chắn bắt oan');
@@ -168,7 +168,7 @@ test('N4 ★★★ CHIỀU (a) bối cảnh SẠCH -> VẪN giao model + leak_gu
 test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬT, KHÔNG gửi thẳng vào nhóm', async () => {
   const db = dbTam();
   nhacDaChot(db);
-  const bo = taoBoTichLuy();
+  const bo = createSourceLedger();
   const thu = { giaoModel: 0, daGuiThangVaoNhom: [] };
 
   const ra = await chayNhuIndexJs(db, bo, chamNhomKhac, thu);
@@ -180,11 +180,11 @@ test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬ
 
   // ...nhưng đáp án của nó KHÔNG được đi thẳng vào nhóm.
   const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
-  const nguon = layNguon(bo, rid);
+  const nguon = getSources(bo, rid);
   assert.ok(nguon.includes(NHOM_KHAC),
     `sổ nguồn là [${nguon}] — thiếu nhóm B thì leak_guard tưởng đáp án sạch`);
 
-  const qd = quyetDinhHuongTraLoi({
+  const qd = decideReplyRoute({
     requestId: rid, chatIdHoi: NHOM, nguon, tonTaiHangDoi: true,
   });
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
@@ -218,7 +218,7 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async (_a, chatId, t) => { dm.push({ chatId, t }); return { msgId: 'y' }; },
     guiThongBao: async () => true,
-    ghiNhanNguon: noiGhiNhanNguon(taoBoTichLuy()),
+    recordSources: noiGhiNhanNguon(createSourceLedger()),
     dmHostChatId: HOST,          // ★ thứ index.js trước đây KHÔNG truyền
   });
   await new Promise((r) => setTimeout(r, 20));   // _baoHetLuot chạy nền, không chặn vòng nhắc
@@ -239,7 +239,7 @@ test('N8 ★★ index.js truyền `dmHostChatId` cho CẢ HAI bộ chạy, khôn
 
 test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bài N5 không tự xanh)', async () => {
   // Chốt chặn cuối: chứng minh N5 thật sự đang ĐO closure, chứ không phải xanh
-  // nhờ một lý do khác. Bỏ `ghiNhanNguon` ra -> bo_chay fail-closed, không giao
+  // nhờ một lý do khác. Bỏ `recordSources` ra -> bo_chay fail-closed, không giao
   // model. Hai kết quả khác nhau ⇒ bài N5 có sức phân biệt thật.
   const db = dbTam();
   nhacDaChot(db);

@@ -327,7 +327,7 @@ test('E3 — 🔴 biến môi trường của MÁY không được lật hành v
 // F — LÁ CHẮN CHỐNG RÒ CHÉO KHÔNG ĐƯỢC NỚI RA THEO
 // ═══════════════════════════════════════════════════════════════════════
 
-test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối ghiNhanNguon ⇒ vẫn FAIL-CLOSED', async () => {
+test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSources ⇒ vẫn FAIL-CLOSED', async () => {
   const db = dbTam();
   const bayGio = Date.now();
   nhacDaChot(db, bayGio);

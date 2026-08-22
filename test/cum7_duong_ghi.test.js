@@ -82,7 +82,7 @@ function dungTool(db, { cueGhiNho } = {}) {
       guiDmHost: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: `d${daGui.length}` }; },
     },
     chinhSach: {
-      quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
+      decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
   });
   return {
@@ -422,7 +422,7 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
       guiDmHost: async () => ({ msgId: 'd1' }),
     },
     chinhSach: {
-      quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
+      decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
   });
   const r = JSON.parse((await xuLy({

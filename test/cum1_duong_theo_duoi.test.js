@@ -232,7 +232,7 @@ test('T1d ★★★ host ĐÓNG rồi -> quét treo KHÔNG gửi tin nào nữa'
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE ma_xac_nhan = ?')
     .run({ t: t0 - 10 * 60_000 }, 'NHAC');
 
-  dongNhac(db, { id: 'NHAC', nguoiDong: HOST, laHost: true, bayGioMs: t0 });
+  dongNhac(db, { id: 'NHAC', nguoiDong: HOST, isHost: true, bayGioMs: t0 });
   assert.equal(doc(db, 'NHAC').cho_model_tu_ms, null, 'dongNhac phải xoá mốc chờ model');
 
   const daGui = [];
@@ -253,7 +253,7 @@ test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả kh�
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE ma_xac_nhan = ?')
     .run({ t: t0 - 10 * 60_000 }, 'NHAC');
 
-  chinhNhip(db, { id: 'NHAC', laHost: true, tamDungToiMs: t0 + 86_400_000, bayGioMs: t0 });
+  chinhNhip(db, { id: 'NHAC', isHost: true, tamDungToiMs: t0 + 86_400_000, bayGioMs: t0 });
   assert.equal(doc(db, 'NHAC').trang_thai_td, TRANG_THAI_TD.TAM_DUNG);
 
   const daGui = [];
@@ -331,7 +331,7 @@ test('T1e ★★★ chinhNhip({chuKyPhut:5}) -> mốc kế tiếp cách ĐÚNG 5
   const t0 = Date.parse('2026-08-21T02:00:00Z');
   nhacDaChot(db, { chuKyPhut: 3 });
 
-  const kq = chinhNhip(db, { id: 'NHAC', laHost: true, chuKyPhut: 5, bayGioMs: t0 });
+  const kq = chinhNhip(db, { id: 'NHAC', isHost: true, chuKyPhut: 5, bayGioMs: t0 });
   assert.equal(kq.ok, true);
   assert.equal(Number(kq.dong.chu_ky_phut), 5, 'cột DB phải đổi');
 

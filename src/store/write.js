@@ -353,7 +353,7 @@ export function upsertHoiThoai(db, ht) {
 
 /**
  * @param {TDb} db
- * @param {{userId: string, tenHienThi: string|null, laHost: boolean}} ng
+ * @param {{userId: string, tenHienThi: string|null, isHost: boolean}} ng
  * @returns {void}
  */
 export function upsertNguoi(db, ng) {
@@ -367,7 +367,7 @@ export function upsertNguoi(db, ng) {
   ).run({
     user_id: toIdRequired(ng.userId, 'nguoi.userId'),
     ten_hien_thi: _hoac(ng.tenHienThi),
-    la_host: _co(ng.laHost),
+    la_host: _co(ng.isHost),
     cap_nhat: _bayGio(),
   });
 }
@@ -873,8 +873,8 @@ export function ghiNhatKyCongGhi(db, banGhi) {
  *
  * @returns {{ok: true, dong: any, canNoiTran?: boolean}|{ok: false, ly: string}}
  */
-export function moLaiNhac(db, { id, chatId, nguoiMo, laHost, noiTran, bayGioMs } = {}) {
-  if (!laHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
+export function moLaiNhac(db, { id, chatId, nguoiMo, isHost, noiTran, bayGioMs } = {}) {
+  if (!isHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
   const now = Math.floor(Number(bayGioMs ?? Date.now()));
 
   let dong;

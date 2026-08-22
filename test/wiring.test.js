@@ -16,7 +16,7 @@ import test from 'node:test';
 import { MA_THOAT, ganXuLyTin, giuKhoaPid, xuLyMotTin } from '../src/index.js';
 import { WS, docTrangThaiWs, listenerSong, taoWatchdog } from '../src/zalo/watchdog.js';
 import { moDb, dongDb } from '../src/store/db.js';
-import { kiemCauHinh } from '../src/policy/access.js';
+import { validateConfig } from '../src/policy/access.js';
 import { upsertHoiThoai } from '../src/store/write.js';
 import { truyVanLichSu, thongKe } from '../src/store/query.js';
 import { BACKOFF_NOI_LAI_MS, GIOI_HAN, SU_KIEN, TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
@@ -152,7 +152,7 @@ test('C4 ★ KHÔNG BIẾT -> ghi KHONG_BIET và TUYỆT ĐỐI KHÔNG nối l�
   let soLanNoiLai = 0;
   const wd = taoWatchdog({
     api: () => ({ listener: { ws: { _closeTimer: null } } }),
-    cauHinh: kiemCauHinh(chGia()),
+    cauHinh: validateConfig(chGia()),
     ghiSucKhoe: (tt) => ghi.push(tt.trangThai),
     khiCanNoiLai: async () => { soLanNoiLai += 1; },
   });
@@ -178,7 +178,7 @@ test('C5 ★ listener CHẾT -> phát hiện ngay 1 nhịp, thử đúng 5 lần
   const mocThu = [];
   const wd = taoWatchdog({
     api: () => apiWs(WS.CLOSED),
-    cauHinh: kiemCauHinh(chGia()),
+    cauHinh: validateConfig(chGia()),
     ghiSucKhoe: (tt) => ghi.push(tt),
     khiCanNoiLai: async () => {
       mocThu.push(Date.now());
@@ -207,7 +207,7 @@ test('C6 ★ TRỌN VÒNG: thử ĐÚNG 5 lần, đúng thứ tự backoff, rồ
   let hetCach = 0;
   const wd = taoWatchdog({
     api: () => apiWs(WS.CLOSED),
-    cauHinh: kiemCauHinh(chGia()),
+    cauHinh: validateConfig(chGia()),
     // Tiêm backoff siêu ngắn nhưng GIỮ NGUYÊN TỈ LỆ để chứng minh trọn vòng
     // trong mili-giây. Backoff thật (5s/15s/60s/300s/300s) mất 6 PHÚT.
     backoffMs: [4, 8, 12, 16, 20],
@@ -240,7 +240,7 @@ test('C7 nối lại THÀNH CÔNG -> quay về OK, đếm nghi ngờ về 0', as
   let song = false;
   const wd = taoWatchdog({
     api: () => apiWs(song ? WS.OPEN : WS.CLOSED),
-    cauHinh: kiemCauHinh({ ...chGia(), thoiGian: { ...chGia().thoiGian } }),
+    cauHinh: validateConfig({ ...chGia(), thoiGian: { ...chGia().thoiGian } }),
     ghiSucKhoe: (tt) => ghi.push(tt),
     khiCanNoiLai: async () => { song = true; },
   });
@@ -256,7 +256,7 @@ test('C8 ★ Tầng 2: im lặng 1 chu kỳ CHƯA hành động (nhóm im 15 ph�
   const wd = taoWatchdog({
     api: () => apiWs(WS.OPEN),
     // imLangMs = 0 để mọi nhịp đều "im lặng quá ngưỡng".
-    cauHinh: kiemCauHinh({ ...chGia(), thoiGian: { ...chGia().thoiGian, imLangMs: 1 } }),
+    cauHinh: validateConfig({ ...chGia(), thoiGian: { ...chGia().thoiGian, imLangMs: 1 } }),
     ghiSucKhoe: (tt) => ghi.push(tt),
     khiCanNoiLai: async () => { noiLai += 1; },
     kiemKeepAlive: async () => true,
@@ -329,7 +329,7 @@ test('D3 nha() chỉ xoá khoá CỦA MÌNH, không xoá nhầm của tiến tr�
 function dungHe(suaCh = {}) {
   const d = thuMucTam();
   const db = moDb(path.join(d, 'data', 'lichsu.db'));
-  const cauHinh = kiemCauHinh({ ...chGia(), ...suaCh });
+  const cauHinh = validateConfig({ ...chGia(), ...suaCh });
   return { d, db, cauHinh };
 }
 

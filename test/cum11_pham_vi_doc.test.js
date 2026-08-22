@@ -30,7 +30,7 @@ import {
 } from '../src/store/query.js';
 import { CHE_DO, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, VAI } from '../src/lib/hang_so.js';
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
-import { taoBoTichLuy } from '../src/policy/leak_guard.js';
+import { createSourceLedger } from '../src/policy/leak_guard.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { dangKyTool } from '../src/mcp/tools.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
@@ -294,7 +294,7 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
       hosts: [{ userId: HOST, ten: 'Anh', dmChatId: '9993000000000000003' }],
       groups: [{ chatId: NHOM_A, ten: 'Nhóm A', ghiLichSu: true, traLoiKhiTag: true }],
     },
-    boTichLuy: taoBoTichLuy({ db }),
+    boTichLuy: createSourceLedger({ db }),
     guiTin: {
       guiVaoNhom: async () => ({ msgId: '9996000000001' }),
       guiDmHost: async () => ({ msgId: '9996000000002' }),
@@ -432,15 +432,15 @@ test('★★★ M1 chế độ MỘT TIẾN TRÌNH: không ai gọi datPhamVi ->
 });
 
 test('★★★ M2 config `cheDo` (việc B) — mặc định và giá trị lạ đều về một-tiến-trình', async () => {
-  const { kiemCauHinh } = await import('../src/policy/access.js');
+  const { validateConfig } = await import('../src/policy/access.js');
   const nen = {
     hosts: [{ userId: HOST, ten: 'a', dmChatId: '9993000000000000003' }],
     groups: [{ chatId: NHOM_A, ten: 'g' }],
     cauTrungTinh: 'x',
     duongDan: { db: '/tmp/999a.db', session: '/tmp/999s', health: '/tmp/999h' },
   };
-  assert.equal(kiemCauHinh({ ...nen }).cheDo, CHE_DO.MOT_TIEN_TRINH, 'không khai -> mặc định');
-  assert.equal(kiemCauHinh({ ...nen, cheDo: CHE_DO.TACH }).cheDo, CHE_DO.TACH);
-  assert.equal(kiemCauHinh({ ...nen, cheDo: 'linh tinh' }).cheDo, CHE_DO.MOT_TIEN_TRINH,
+  assert.equal(validateConfig({ ...nen }).cheDo, CHE_DO.MOT_TIEN_TRINH, 'không khai -> mặc định');
+  assert.equal(validateConfig({ ...nen, cheDo: CHE_DO.TACH }).cheDo, CHE_DO.TACH);
+  assert.equal(validateConfig({ ...nen, cheDo: 'linh tinh' }).cheDo, CHE_DO.MOT_TIEN_TRINH,
     'giá trị lạ ⇒ về mặc định (= hành vi hôm nay), ⛔ không ném');
 });

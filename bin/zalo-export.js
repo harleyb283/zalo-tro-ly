@@ -43,7 +43,7 @@ import { expandPath } from '../src/lib/paths.js';
 import { toId } from '../src/lib/ids.js';
 import { sietQuyen } from '../src/store/db.js';
 
-const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DB_MAC_DINH = '~/.zalo-tro-ly/lichsu.db';
 
 /** Nhãn cho các msgType đã xác minh; loại lạ giữ nguyên tên gốc, KHÔNG đoán. */
@@ -193,7 +193,7 @@ export function timDuongDanDb(ts) {
     // xem lại lịch sử — đây là công cụ đọc, không phải tiến trình chạy nền.
     const f = process.env.ZTL_CONFIG
       ? expandPath(process.env.ZTL_CONFIG)
-      : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
+      : path.join(PACK_ROOT, 'config', 'assistant.config.json');
     if (fs.existsSync(f)) {
       const ch = JSON.parse(fs.readFileSync(f, 'utf8'));
       if (ch?.duongDan?.db) return { duongDan: expandPath(ch.duongDan.db), nguon: `config ${f}` };

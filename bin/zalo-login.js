@@ -43,7 +43,7 @@ import {
   LoiPhienZalo,
 } from '../src/zalo/session.js';
 
-const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const out = (s = '') => process.stdout.write(`${s}\n`);
 const err = (s = '') => process.stderr.write(`${s}\n`);
 
@@ -73,7 +73,7 @@ function docThamSo(argv) {
 /**
  * Đọc config theo kiểu KHOAN DUNG — CỐ Ý khác `policy/access.js`.
  *
- * 🔴 Vì sao không dùng `docCauHinh()` của G4: hợp đồng bắt nó TỪ CHỐI CHẠY
+ * 🔴 Vì sao không dùng `readConfig()` của G4: hợp đồng bắt nó TỪ CHỐI CHẠY
  *    khi `hosts[]` rỗng / còn số 0000. Nhưng chính script này mới là thứ in ra
  *    user_id để người dùng điền vào `hosts[]`. Dùng bộ validate nghiêm ở đây
  *    là khoá chết vòng: không điền được hosts vì chưa chạy được --whoami,
@@ -87,7 +87,7 @@ function docCauHinhKhoanDung(chiDinh) {
     ? expandPath(chiDinh)
     : process.env.ZTL_CONFIG
       ? expandPath(process.env.ZTL_CONFIG)
-      : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
+      : path.join(PACK_ROOT, 'config', 'assistant.config.json');
 
   let ch = {};
   let tuFile = null;

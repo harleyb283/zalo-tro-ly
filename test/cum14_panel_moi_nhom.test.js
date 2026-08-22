@@ -22,7 +22,7 @@ import {
 // ⚠️ `NHIP_POLL_CLIENT_MS` nằm ở `src/index.js` (cạnh vòng poll dùng nó), ⛔
 // không ở `hang_so.js`. Bài `R5` cộng ba số hạng nên phải lấy đúng nguồn.
 import { NHIP_POLL_CLIENT_MS } from '../src/index.js';
-import { kiemCauHinh } from '../src/policy/access.js';
+import { validateConfig } from '../src/policy/access.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
 const NHOM_A = '9990000000001';
@@ -75,7 +75,7 @@ test('★★★ L1 NGHIỆM THU①: `moPhienLenh` mặc định NULL -> ⛔ KHÔ
     cauTrungTinh: 'x',
     duongDan: { db: '/tmp/999a.db', session: '/tmp/999s', health: '/tmp/999h' },
   };
-  assert.equal(kiemCauHinh({ ...nen }).tichHop.moPhienLenh, null);
+  assert.equal(validateConfig({ ...nen }).tichHop.moPhienLenh, null);
 
   const goi = [];
   const so = taoSoMoPhien({ lenh: null, chay: async (d) => { goi.push(d); return { thanhCong: true }; } });
@@ -449,12 +449,12 @@ test('★★★ W5 `tranSoClient` / `nghiSauGio` lạ -> cảnh báo rồi về 
   };
   for (const xau of ['bậy', -1, 0, {}, [], NaN]) {
     let c;
-    assert.doesNotThrow(() => { c = kiemCauHinh({ ...nen, tranSoClient: xau, nghiSauGio: xau }); },
+    assert.doesNotThrow(() => { c = validateConfig({ ...nen, tranSoClient: xau, nghiSauGio: xau }); },
       `🔴 giá trị ${JSON.stringify(xau)} làm daemon CHẾT lúc khởi động`);
     assert.equal(c.tranSoClient, TRAN_SO_CLIENT_MAC_DINH);
     assert.equal(c.nghiSauGio, NGHI_SAU_GIO_MAC_DINH);
   }
-  assert.equal(kiemCauHinh({ ...nen, tranSoClient: 7 }).tranSoClient, 7, 'phải chỉnh được');
+  assert.equal(validateConfig({ ...nen, tranSoClient: 7 }).tranSoClient, 7, 'phải chỉnh được');
 });
 
 test('★★★ W6 ĐÃ MỞ thì ⛔ không gọi lại, KỂ CẢ khi đã quá ngưỡng thử lại', async () => {

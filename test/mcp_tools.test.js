@@ -84,11 +84,11 @@ function dungTool(ghiDe = {}) {
   };
 
   const chinhSach = {
-    layNguon: ghiDe.layNguon ?? (() => ghiDe.nguon ?? mac.nguon),
-    ghiNhanNguon: ghiDe.ghiNhanNguon ?? (() => {}),
-    xoaPhien: (_bo, rid) => { phienDaXoa.push(rid); },
-    layDmHost: ghiDe.layDmHost ?? (() => DM_HOST),
-    quyetDinhHuongTraLoi: ghiDe.quyetDinhHuongTraLoi ?? ((bc) => {
+    getSources: ghiDe.getSources ?? (() => ghiDe.nguon ?? mac.nguon),
+    recordSources: ghiDe.recordSources ?? (() => {}),
+    clearSession: (_bo, rid) => { phienDaXoa.push(rid); },
+    hostDmChatId: ghiDe.hostDmChatId ?? (() => DM_HOST),
+    decideReplyRoute: ghiDe.decideReplyRoute ?? ((bc) => {
       const la = (bc.nguon ?? []).filter((c) => c !== bc.chatIdHoi);
       return la.length
         ? { huong: HUONG_TRA_LOI.DM_HOST, coCheo: true, nguonLa: la, lyDo: 'có nhóm khác' }
@@ -207,7 +207,7 @@ test('B1 trả tin đã rút gọn + nguonChatIds, KHÔNG trả nguyên dòng DB
 test('B2 GHI NHẬN NGUỒN đúng requestId — cộng dồn qua nhiều lượt tra', async () => {
   const ghiNhan = [];
   const t = dungTool({
-    ghiNhanNguon: (_bo, rid, nguon) => ghiNhan.push([rid, nguon]),
+    recordSources: (_bo, rid, nguon) => ghiNhan.push([rid, nguon]),
     nguonTruyVan: [CHAT_HOI, CHAT_KHAC],
   });
   await t.goi(TEN_TOOL.LICH_SU, { request_id: REQ });
@@ -217,7 +217,7 @@ test('B2 GHI NHẬN NGUỒN đúng requestId — cộng dồn qua nhiều lượ
 });
 
 test('B3 KHÔNG ghi nhận được nguồn -> TỪ CHỐI trả dữ liệu (đọc mà mất dấu là ca nguy hiểm nhất)', async () => {
-  const t = dungTool({ ghiNhanNguon: () => { throw new Error('bộ tích luỹ hỏng'); } });
+  const t = dungTool({ recordSources: () => { throw new Error('bộ tích luỹ hỏng'); } });
   const { kq } = await t.goi(TEN_TOOL.LICH_SU, { request_id: REQ });
   assert.equal(kq.ok, false);
   assert.equal(kq.duLieu, undefined);
@@ -264,7 +264,7 @@ test('C3 THỨ TỰ: DM host đi TRƯỚC, câu trung tính đi SAU', async () =
 });
 
 test('C4 có chéo mà KHÔNG có DM host -> KHÔNG gửi gì cả, cả 2 kênh im', async () => {
-  const t = dungTool({ nguon: [CHAT_HOI, CHAT_KHAC], layDmHost: () => null });
+  const t = dungTool({ nguon: [CHAT_HOI, CHAT_KHAC], hostDmChatId: () => null });
   const { kq } = await t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'nhạy cảm' });
   assert.equal(kq.ma, MA_LOI.KHONG_CO_HOST);
   assert.deepEqual(t.daGui.dm, []);
@@ -272,7 +272,7 @@ test('C4 có chéo mà KHÔNG có DM host -> KHÔNG gửi gì cả, cả 2 kênh
 });
 
 test('C5 leak_guard NÉM LỖI -> fail-closed, không gửi gì (không có nhánh "cứ gửi cho lành")', async () => {
-  const t = dungTool({ quyetDinhHuongTraLoi: () => { throw new Error('G4 chưa làm'); } });
+  const t = dungTool({ decideReplyRoute: () => { throw new Error('G4 chưa làm'); } });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' }));
   assert.equal(kq.ok, false);
   assert.deepEqual(t.daGui.nhom, []);
@@ -280,7 +280,7 @@ test('C5 leak_guard NÉM LỖI -> fail-closed, không gửi gì (không có nhá
 });
 
 test('C6 leak_guard trả rác (thiếu huong) -> vẫn fail-closed', async () => {
-  const t = dungTool({ quyetDinhHuongTraLoi: () => ({}) });
+  const t = dungTool({ decideReplyRoute: () => ({}) });
   const { kq } = await t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' });
   assert.equal(kq.ok, false);
   assert.deepEqual(t.daGui.nhom, []);
@@ -288,7 +288,7 @@ test('C6 leak_guard trả rác (thiếu huong) -> vẫn fail-closed', async () =
 
 test('C7 huong=tu_choi -> im lặng hoàn toàn nhưng VẪN ghi nhật ký', async () => {
   const t = dungTool({
-    quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.TU_CHOI, coCheo: true, nguonLa: [CHAT_KHAC], lyDo: 'x' }),
+    decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.TU_CHOI, coCheo: true, nguonLa: [CHAT_KHAC], lyDo: 'x' }),
   });
   const { kq } = await t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'x' });
   assert.equal(kq.ok, true);
@@ -373,7 +373,7 @@ test('D2 KHÔNG đóng phiên — nhắn riêng xong vẫn phải trả lời nh
 });
 
 test('D3 không có host -> KHONG_CO_HOST, không gửi', async () => {
-  const t = dungTool({ layDmHost: () => null });
+  const t = dungTool({ hostDmChatId: () => null });
   const { kq } = await t.goi(TEN_TOOL.NHAN_RIENG_HOST, { request_id: REQ, text: 'x' });
   assert.equal(kq.ma, MA_LOI.KHONG_CO_HOST);
   assert.deepEqual(t.daGui.dm, []);
@@ -582,8 +582,8 @@ function toolNhac(ghiDe = {}) {
     dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: ghiDe.nguoiGui ?? HOST_UID, trang_thai: 'da_day' },
     nhac: {
       taoNhacTheoDuoi: (_db, p) => { daGoi.tao.push(p); return { id: 'nhac-1', mocDauMs: Date.now() + 3600_000 }; },
-      chinhNhip: (_db, p) => { daGoi.chinh.push(p); return p.laHost ? { ok: true, dong: { id: p.id, chu_ky_ngay: p.chuKyNgay ?? 1, gio_nhac: '08:00', trang_thai_td: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
-      dongNhac: (_db, p) => { daGoi.dong.push(p); return p.laHost ? { ok: true, dong: { id: p.id, trang_thai_td: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      chinhNhip: (_db, p) => { daGoi.chinh.push(p); return p.isHost ? { ok: true, dong: { id: p.id, chu_ky_ngay: p.chuKyNgay ?? 1, gio_nhac: '08:00', trang_thai_td: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      dongNhac: (_db, p) => { daGoi.dong.push(p); return p.isHost ? { ok: true, dong: { id: p.id, trang_thai_td: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
       xemNhacTheoDuoi: (_db, p) => { daGoi.xem.push(p); return []; },
       ...(ghiDe.nhac ?? {}),
     },
@@ -630,18 +630,18 @@ test('I4 đặt nhắc: phải qua bước chốt, KHÔNG có đường tắt', 
   assert.match(kq.duLieu.cauXacNhan, /LẶP LẠI tới khi anh bảo xong/, 'câu duyệt phải nói rõ đây là nhắc lặp');
 });
 
-test('I5 🔴 laHost TÍNH Ở TẦNG TOOL và truyền xuống — không để tầng dưới đoán', async () => {
+test('I5 🔴 isHost TÍNH Ở TẦNG TOOL và truyền xuống — không để tầng dưới đoán', async () => {
   const t = toolNhac();
   await t.goi(TN.CHINH_NHIP_NHAC, { request_id: REQ, id: 'nhac-1', chuKyNgay: 3 });
-  assert.equal(t.daGoi.chinh[0].laHost, true);
+  assert.equal(t.daGoi.chinh[0].isHost, true);
   await t.goi(TN.DONG_NHAC, { request_id: REQ, id: 'nhac-1' });
-  assert.equal(t.daGoi.dong[0].laHost, true);
+  assert.equal(t.daGoi.dong[0].isHost, true);
 });
 
-test('I6 🔴 người KHÔNG phải host -> laHost=false, tầng dưới từ chối', async () => {
+test('I6 🔴 người KHÔNG phải host -> isHost=false, tầng dưới từ chối', async () => {
   const t = toolNhac({ nguoiGui: 'nguoi-la' });
   const { kq } = await t.goi(TN.DONG_NHAC, { request_id: REQ, id: 'nhac-1' });
-  assert.equal(t.daGoi.dong[0].laHost, false, 'người bị nhắc mà tự tắt được là hỏng cả tính năng');
+  assert.equal(t.daGoi.dong[0].isHost, false, 'người bị nhắc mà tự tắt được là hỏng cả tính năng');
   assert.equal(kq.ok, false);
   assert.match(kq.thongDiep, /Chỉ host/);
 });

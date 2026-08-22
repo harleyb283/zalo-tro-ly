@@ -33,13 +33,13 @@ import {
   layThongTinToi, layDanhSachNhom, apDungAnTrangThai,
 } from '../src/zalo/session.js';
 
-const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const THU_MUC_DL = expandPath(process.env.ZTL_DATA_DIR || '~/.zalo-tro-ly');
 const F_CONFIG = process.env.ZTL_CONFIG
   ? expandPath(process.env.ZTL_CONFIG)
   : path.join(THU_MUC_DL, 'assistant.config.json');
 const F_SESSION = path.join(THU_MUC_DL, 'session.json');
-const F_MAU = path.join(THU_MUC_PACK, 'config', 'assistant.config.example.json');
+const F_MAU = path.join(PACK_ROOT, 'config', 'assistant.config.example.json');
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
 const gach = () => out('─'.repeat(64));
@@ -71,7 +71,7 @@ async function main() {
   gach();
 
   // ── ① Môi trường ────────────────────────────────────────────────────
-  const kiem = checkEnvironment({ coNodeModules: fs.existsSync(path.join(THU_MUC_PACK, 'node_modules')) });
+  const kiem = checkEnvironment({ coNodeModules: fs.existsSync(path.join(PACK_ROOT, 'node_modules')) });
   if (!kiem.ok) {
     out('\n⛔ Chưa chạy được, còn thiếu:');
     for (const v of kiem.van) out(`   · ${v.loi}\n     -> ${v.cach}`);
@@ -190,7 +190,7 @@ async function main() {
   // trong tiến trình này, kèm cả `process.exit` của nó ⇒ trình cài đặt chết
   // giữa chừng ngay trước bước cuối, mà nhìn log thì tưởng đã xong.
   const maInit = await new Promise((giai) => {
-    const con = spawn(process.execPath, [path.join(THU_MUC_PACK, 'bin', 'init-db.js')], {
+    const con = spawn(process.execPath, [path.join(PACK_ROOT, 'bin', 'init-db.js')], {
       stdio: ['ignore', 'ignore', 'pipe'],
       env: { ...process.env, ZTL_CONFIG: F_CONFIG, ZTL_DATA_DIR: THU_MUC_DL },
     });

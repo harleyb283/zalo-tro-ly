@@ -28,7 +28,7 @@ import { NGHI_SAU_GIO_MAC_DINH, TRAN_SO_CLIENT_MAC_DINH } from '../lib/hang_so.j
 /** @typedef {import('../types.d.ts').CauHinhNhom} CauHinhNhom */
 /** @typedef {import('../types.d.ts').CauHinhHost} CauHinhHost */
 
-export const THU_MUC_PACK = path.resolve(
+export const PACK_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
@@ -38,7 +38,7 @@ export const THU_MUC_PACK = path.resolve(
  * Kênh trả kết quả DÀI. "zalo" là mặc định và là thứ DUY NHẤT chạy được mà
  * không cần cấu hình thêm — người tải pack về không có Telegram/Router.
  */
-export const KENH_PHU_HOP_LE = Object.freeze(['zalo', 'telegram', 'khong']);
+export const VALID_SIDE_CHANNELS = Object.freeze(['zalo', 'telegram', 'khong']);
 
 /**
  * Chế độ chạy. `mot-tien-trinh` là MẶC ĐỊNH và là cách hệ đang chạy hôm nay.
@@ -46,10 +46,10 @@ export const KENH_PHU_HOP_LE = Object.freeze(['zalo', 'telegram', 'khong']);
  * TRÌNH — một máy chạy một daemon và N client dùng CHUNG file config này, nên
  * `vai` chỉ nhận từ cờ dòng lệnh/env, ⛔ không bao giờ từ config.
  */
-export const CHE_DO_HOP_LE = Object.freeze(['mot-tien-trinh', 'tach']);
+export const VALID_MODES = Object.freeze(['mot-tien-trinh', 'tach']);
 
 /** Mặc định thời gian — lấy đúng số trong config/assistant.config.example.json. */
-export const THOI_GIAN_MAC_DINH = Object.freeze({
+export const DEFAULT_TIMINGS = Object.freeze({
   keepAliveMs: 120_000,
   watchdogMs: 300_000,
   imLangMs: 900_000,
@@ -81,14 +81,14 @@ function _canhBao(msg) {
  * @param {any} v
  * @returns {any}
  */
-export function boGhiChu(v) {
-  if (Array.isArray(v)) return v.map(boGhiChu);
+export function stripComments(v) {
+  if (Array.isArray(v)) return v.map(stripComments);
   if (v && typeof v === 'object') {
     /** @type {Record<string, any>} */
     const ra = {};
     for (const [k, x] of Object.entries(v)) {
       if (k.startsWith('_')) continue;
-      ra[k] = boGhiChu(x);
+      ra[k] = stripComments(x);
     }
     return ra;
   }
@@ -129,22 +129,22 @@ function _kiemId(v, nhan) {
 }
 
 /**
- * ★ GIẢI ĐƯỜNG DẪN FILE CẤU HÌNH — tách khỏi `docCauHinh` vì NẠP NÓNG cần
+ * ★ GIẢI ĐƯỜNG DẪN FILE CẤU HÌNH — tách khỏi `readConfig` vì NẠP NÓNG cần
  * biết file NÀO để canh `mtime`, mà ⛔ không được đoán lại thứ tự tìm file.
  *
  * 🔴 Hai bản sao của thứ tự này là mầm trôi lệch: watcher canh file A trong
- * khi `docCauHinh` đọc file B ⇒ sửa config mà không bao giờ thấy có thay đổi,
+ * khi `readConfig` đọc file B ⇒ sửa config mà không bao giờ thấy có thay đổi,
  * và ⛔ không có lỗi nào nổ ra. Một nguồn sự thật duy nhất, dùng chung.
  *
  * @param {string} [duongDan]
  * @returns {string} đường dẫn tuyệt đối, đã expandPath()
  */
-export function duongDanCauHinh(duongDan) {
+export function configPath(duongDan) {
   return duongDan
     ? expandPath(duongDan)
     : process.env.ZTL_CONFIG
       ? expandPath(process.env.ZTL_CONFIG)
-      : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
+      : path.join(PACK_ROOT, 'config', 'assistant.config.json');
 }
 
 /**
@@ -158,8 +158,8 @@ export function duongDanCauHinh(duongDan) {
  * @param {string} [duongDan]
  * @returns {CauHinh} đã validate, đường dẫn đã expandPath()
  */
-export function docCauHinh(duongDan) {
-  const file = duongDanCauHinh(duongDan);
+export function readConfig(duongDan) {
+  const file = configPath(duongDan);
 
   if (!fs.existsSync(file)) {
     throw new Error(
@@ -179,19 +179,19 @@ export function docCauHinh(duongDan) {
     throw new Error(`Config không phải JSON hợp lệ: ${file}\n  ${e.message}`);
   }
 
-  const ch = boGhiChu(tho);
-  return kiemCauHinh(ch, file);
+  const ch = stripComments(tho);
+  return validateConfig(ch, file);
 }
 
 /**
  * Validate một object cấu hình ĐÃ ĐỌC (tách khỏi việc đọc file để test được
  * mà không cần chạm đĩa).
  *
- * @param {any} ch  đã qua boGhiChu()
+ * @param {any} ch  đã qua stripComments()
  * @param {string} [nhanFile]  chỉ để thông báo lỗi
  * @returns {CauHinh}
  */
-export function kiemCauHinh(ch, nhanFile = '(object)') {
+export function validateConfig(ch, nhanFile = '(object)') {
   if (!ch || typeof ch !== 'object') {
     throw new Error(`Cấu hình rỗng hoặc không phải object: ${nhanFile}`);
   }
@@ -271,7 +271,7 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   // --add-dir tới thư mục project sẽ đọc thẳng file DB, vòng qua toàn bộ
   // tool và không để lại dấu vết nguồn nào. Đây là lớp phòng thủ THẬT của
   // luật chống rò chéo, không phải trang trí ⇒ NÉM LỖI.
-  if (isInsidePack(duongDan.db, THU_MUC_PACK)) {
+  if (isInsidePack(duongDan.db, PACK_ROOT)) {
     throw new Error(
       `Cấu hình NGUY HIỂM: duongDan.db nằm TRONG thư mục pack:\n  ${duongDan.db}\n` +
         'Phiên Claude đọc thẳng được file này ⇒ vòng qua toàn bộ luật chống rò chéo. ' +
@@ -282,7 +282,7 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   // chéo, nhưng session.json chứa cookie Zalo nên nằm trong repo là rủi ro
   // lọt git (.gitignore đã che, nhưng đừng dựa vào một lớp duy nhất).
   for (const ten of ['session', 'health']) {
-    if (isInsidePack(duongDan[ten], THU_MUC_PACK)) {
+    if (isInsidePack(duongDan[ten], PACK_ROOT)) {
       _canhBao(
         `duongDan.${ten} nằm TRONG pack: ${duongDan[ten]} — nên để ngoài project ` +
           '(session.json chứa cookie Zalo).',
@@ -291,8 +291,8 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   }
 
   // ── thoiGian ─────────────────────────────────────────────────────────
-  const thoiGian = { ...THOI_GIAN_MAC_DINH };
-  for (const k of Object.keys(THOI_GIAN_MAC_DINH)) {
+  const thoiGian = { ...DEFAULT_TIMINGS };
+  for (const k of Object.keys(DEFAULT_TIMINGS)) {
     const v = Number(ch?.thoiGian?.[k]);
     if (Number.isFinite(v) && v > 0) thoiGian[k] = v;
     else if (ch?.thoiGian?.[k] !== undefined) {
@@ -306,11 +306,11 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   // khởi động được là phạt nặng hơn lỗi.
   let kenhPhu = 'zalo';
   if (ch.kenhPhu !== undefined) {
-    if (KENH_PHU_HOP_LE.includes(ch.kenhPhu)) kenhPhu = ch.kenhPhu;
+    if (VALID_SIDE_CHANNELS.includes(ch.kenhPhu)) kenhPhu = ch.kenhPhu;
     else {
       _canhBao(
         `kenhPhu = ${JSON.stringify(ch.kenhPhu)} không hợp lệ ` +
-        `(chỉ nhận ${KENH_PHU_HOP_LE.join(' | ')}) -> dùng "zalo"`,
+        `(chỉ nhận ${VALID_SIDE_CHANNELS.join(' | ')}) -> dùng "zalo"`,
       );
     }
   }
@@ -334,11 +334,11 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
   // hành vi hôm nay, tức hướng an toàn cho một daemon đang phục vụ người thật.
   let cheDo = 'mot-tien-trinh';
   if (ch.cheDo !== undefined) {
-    if (CHE_DO_HOP_LE.includes(ch.cheDo)) cheDo = ch.cheDo;
+    if (VALID_MODES.includes(ch.cheDo)) cheDo = ch.cheDo;
     else {
       _canhBao(
         `cheDo = ${JSON.stringify(ch.cheDo)} không hợp lệ `
-        + `(chỉ nhận ${CHE_DO_HOP_LE.join(' | ')}) -> dùng "mot-tien-trinh"`,
+        + `(chỉ nhận ${VALID_MODES.join(' | ')}) -> dùng "mot-tien-trinh"`,
       );
     }
   }
@@ -409,8 +409,8 @@ export function kiemCauHinh(ch, nhanFile = '(object)') {
  * @param {string|null} userId
  * @returns {boolean}
  */
-export function laHost(cauHinh, userId) {
-  return timHost(cauHinh, userId) !== null;
+export function isHost(cauHinh, userId) {
+  return findHost(cauHinh, userId) !== null;
 }
 
 /**
@@ -418,7 +418,7 @@ export function laHost(cauHinh, userId) {
  * @param {string|null|undefined} userId
  * @returns {CauHinhHost|null}
  */
-export function timHost(cauHinh, userId) {
+export function findHost(cauHinh, userId) {
   const id = toId(userId, 'access.userId');
   if (id === null) return null;
   return cauHinh?.hosts?.find((h) => h.userId === id) ?? null;
@@ -429,7 +429,7 @@ export function timHost(cauHinh, userId) {
  * @param {string} chatId
  * @returns {CauHinhNhom|null}
  */
-export function layNhom(cauHinh, chatId) {
+export function findGroup(cauHinh, chatId) {
   const id = toId(chatId, 'access.chatId');
   if (id === null) return null;
   return cauHinh?.groups?.find((g) => g.chatId === id) ?? null;
@@ -440,14 +440,14 @@ export function layNhom(cauHinh, chatId) {
  * trong schema.sql ("1 = nằm trong allowlist config").
  *
  * ⚠️ KHÁC với `ghiLichSu`: nhóm có thể được nghe mà vẫn không ghi DB. Ai cần
- * biết có ghi hay không thì dùng `layNhom(...).ghiLichSu`.
+ * biết có ghi hay không thì dùng `findGroup(...).ghiLichSu`.
  *
  * @param {CauHinh} cauHinh
  * @param {string} chatId
  * @returns {boolean}
  */
-export function nhomDuocNghe(cauHinh, chatId) {
-  return layNhom(cauHinh, chatId) !== null;
+export function isGroupListened(cauHinh, chatId) {
+  return findGroup(cauHinh, chatId) !== null;
 }
 
 /**
@@ -455,8 +455,8 @@ export function nhomDuocNghe(cauHinh, chatId) {
  * @param {string} chatId
  * @returns {boolean}
  */
-export function nhomTraLoiKhiTag(cauHinh, chatId) {
-  return layNhom(cauHinh, chatId)?.traLoiKhiTag === true;
+export function groupRepliesOnTag(cauHinh, chatId) {
+  return findGroup(cauHinh, chatId)?.traLoiKhiTag === true;
 }
 
 /**
@@ -464,8 +464,8 @@ export function nhomTraLoiKhiTag(cauHinh, chatId) {
  * @param {string|null} userId
  * @returns {string|null} dmChatId của host, null nếu không phải host
  */
-export function layDmHost(cauHinh, userId) {
-  return timHost(cauHinh, userId)?.dmChatId ?? null;
+export function hostDmChatId(cauHinh, userId) {
+  return findHost(cauHinh, userId)?.dmChatId ?? null;
 }
 
 /**
@@ -477,7 +477,7 @@ export function layDmHost(cauHinh, userId) {
  * @param {string} chatId
  * @returns {CauHinhHost|null}
  */
-export function timHostTheoDm(cauHinh, chatId) {
+export function findHostByDm(cauHinh, chatId) {
   const id = toId(chatId, 'access.dmChatId');
   if (id === null) return null;
   return cauHinh?.hosts?.find((h) => h.dmChatId === id) ?? null;
@@ -487,6 +487,6 @@ export function timHostTheoDm(cauHinh, chatId) {
  * @param {CauHinh} cauHinh
  * @returns {string[]}
  */
-export function danhSachHostUserId(cauHinh) {
+export function hostUserIds(cauHinh) {
   return (cauHinh?.hosts ?? []).map((h) => h.userId);
 }

@@ -43,10 +43,10 @@ import {
 import { toId } from './lib/ids.js';
 import { safeLogText } from './lib/redact.js';
 
-import { docCauHinh, duongDanCauHinh, layNhom, timHostTheoDm } from './policy/access.js';
+import { readConfig, configPath, findGroup, findHostByDm } from './policy/access.js';
 import { quyetDinh } from './policy/gate.js';
 import { timViecMoCua2 } from './store/query.js';
-import { donRac, ghiNhanNguon, taoBoTichLuy } from './policy/leak_guard.js';
+import { sweepStale, recordSources, createSourceLedger } from './policy/leak_guard.js';
 
 import { dongDb, moDb } from './store/db.js';
 import {
@@ -257,8 +257,8 @@ export function xuLyMotTin(p, tin) {
     return;
   }
 
-  const nhom = layNhom(cauHinh, chatId);
-  const hostDm = timHostTheoDm(cauHinh, chatId);
+  const nhom = findGroup(cauHinh, chatId);
+  const hostDm = findHostByDm(cauHinh, chatId);
 
   // ── ① GHI DB TRƯỚC — luôn luôn, mọi tin ───────────────────────────
   // `duoc_nghe` = có trong allowlist (khớp đúng chú thích cột trong
@@ -276,7 +276,7 @@ export function xuLyMotTin(p, tin) {
       upsertNguoi(db, {
         userId: tin.userId,
         tenHienThi: tin.tenLucGui ?? null,
-        laHost: (cauHinh.hosts ?? []).some((h) => h.userId === tin.userId),
+        isHost: (cauHinh.hosts ?? []).some((h) => h.userId === tin.userId),
       });
     }
     // Nhóm khai `ghiLichSu: false` là chỗ DUY NHẤT được phép không ghi —
@@ -359,7 +359,7 @@ export function xuLyMotTin(p, tin) {
   // HAI pane tranh nhau một hộp thư, và bên thắng lại là agent NHÓM — sai cả
   // vai lẫn bộ luật.
   //
-  // ⚠️ Tên tính năng là "panel-mỗi-NHÓM". `nhom` ở đây do `layNhom(cauHinh,…)`
+  // ⚠️ Tên tính năng là "panel-mỗi-NHÓM". `nhom` ở đây do `findGroup(cauHinh,…)`
   // trả về, tức ⛔ không phải nhóm thì ⛔ không mở. ⛔ Đừng đổi thành "mở cho
   // mọi chatId" cho tiện — DM của host là ca ⛔ không được chạm tới.
   if (p.soMoPhien && nhom) {
@@ -459,9 +459,9 @@ export function taoBoDemLoiGui(baoRa) {
  * Đường khai nguồn cho `chayNhipTheoDuoi` — B5.
  *
  * 🔴 VÌ SAO LÀ HÀM EXPORT CHỨ KHÔNG PHẢI ARROW VIẾT THẲNG TRONG `main()`:
- * `bo_chay.js` gọi `p.ghiNhanNguon(requestId, nguonChatIds)` — HAI đối số — còn
- * `leak_guard.ghiNhanNguon()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
- * là `ghiNhanNguon(rid, nguon)` chạy vào `boTichLuy.ghiNhan` của một chuỗi ⇒
+ * `bo_chay.js` gọi `p.recordSources(requestId, nguonChatIds)` — HAI đối số — còn
+ * `leak_guard.recordSources()` cần BA (`boTichLuy` đứng trước). Quên `boTichLuy`
+ * là `recordSources(rid, nguon)` chạy vào `boTichLuy.ghiNhan` của một chuỗi ⇒
  * ném lỗi, `bo_chay` nuốt vào nhánh catch, lời nhắc lặng lẽ rơi xuống câu dự
  * phòng. Không `node --check` nào bắt được, và khối `main()` thì test không với
  * tới (phải đăng nhập Zalo thật).
@@ -472,7 +472,7 @@ export function taoBoDemLoiGui(baoRa) {
  * @returns {(requestId: string, nguonChatIds: string[]) => void}
  */
 export function noiGhiNhanNguon(boTichLuy) {
-  return (requestId, nguonChatIds) => ghiNhanNguon(boTichLuy, requestId, nguonChatIds);
+  return (requestId, nguonChatIds) => recordSources(boTichLuy, requestId, nguonChatIds);
 }
 
 function docCo(argv) {
@@ -635,7 +635,7 @@ export function docDoTre(duongDan) {
  *  4. ⛔ KHÔNG `migrate`. Nhiều tiến trình cùng migrate là cuộc đua ALTER TABLE
  *     trùng cột (xem `moDb(..., {migrate:false})`).
  *
- * ✅ Client CÓ: sổ nguồn trên ĐĨA (`taoBoTichLuy({ db })`) — bắt buộc, vì
+ * ✅ Client CÓ: sổ nguồn trên ĐĨA (`createSourceLedger({ db })`) — bắt buộc, vì
  *    `bo_chay` chạy ở daemon và ghi nguồn vào cùng bảng đó. Dùng sổ RAM ở đây
  *    là hai tiến trình tra hai quyển khác nhau, và lá chắn chống rò chéo mù
  *    đúng ca cần nó.
@@ -766,7 +766,7 @@ async function chayClient(co, log, cauHinh) {
   // BAO GIỜ có pane nào tới ⇒ chờ 37 giây là **bắt người dùng chờ một thứ
   // không tồn tại**, và MỌI tin đều chậm 37 giây.
   //
-  // ⚠️ Đọc từ CẤU HÌNH ĐÃ VALIDATE (`kiemCauHinh` đã ép chuỗi rỗng/kiểu lạ về
+  // ⚠️ Đọc từ CẤU HÌNH ĐÃ VALIDATE (`validateConfig` đã ép chuỗi rỗng/kiểu lạ về
   // `null`), ⛔ không đọc lại file và ⛔ không đoán.
   const laDuPhong = !tuyenTho && !phamViTho;
   const nguongDuPhongMs = cauHinh.tichHop?.moPhienLenh ? GIAN_CHO_MO_PANE_MS : 0;
@@ -789,9 +789,9 @@ async function chayClient(co, log, cauHinh) {
   const { xepHangGui } = await import('./store/write.js');
 
   // 🔴 Sổ nguồn trên ĐĨA — xem khối chú thích trên.
-  const boTichLuy = taoBoTichLuy({ db });
+  const boTichLuy = createSourceLedger({ db });
   const tenHoiThoai = (chatId) =>
-    layNhom(cauHinh, chatId)?.ten ?? timHostTheoDm(cauHinh, chatId)?.ten ?? null;
+    findGroup(cauHinh, chatId)?.ten ?? findHostByDm(cauHinh, chatId)?.ten ?? null;
 
   // Sổ đo độ trễ nằm cạnh file DB — cùng thư mục, cùng mức siết quyền.
   const soDoTre = taoSoDoTre(
@@ -944,9 +944,9 @@ async function chayClient(co, log, cauHinh) {
   // ⚠️ Client ⛔ KHÔNG có `api` ⇒ ⛔ không tự nhắn Zalo (xem `baoHetHan` ở trên);
   // báo động của nó đi log, để daemon là bên DM host.
   const napNongClient = createHotReloader({
-    duongDan: duongDanCauHinh(co.config),
+    duongDan: configPath(co.config),
     dich: cauHinh,
-    docCauHinh,
+    readConfig,
     log: (s) => log(`[client][nạp nóng] ${s}`),
   });
 
@@ -1059,12 +1059,12 @@ export async function main(argv = process.argv) {
   try {
     // ② config TRƯỚC ①? KHÔNG — pid-lock phải đứng đầu, vì hai bản cùng chạy
     // sẽ cùng đọc được config hợp lệ rồi cùng ghi một DB.
-    const cauHinh = docCauHinh(co.config); // ② (ném => mã 2, bắt ở dưới)
+    const cauHinh = readConfig(co.config); // ② (ném => mã 2, bắt ở dưới)
 
     // ═══ CHỐT CHẾ ĐỘ — sau khi có config, vì `cheDo` khai được trong đó ═══
     // ⚠️ Chốt TRƯỚC pid-lock: vai client đi một đường khởi động HOÀN TOÀN KHÁC
     // (không pid-lock, không Zalo, không bộ hẹn giờ). Đọc config trước là an
-    // toàn — `docCauHinh` chỉ đọc file và validate, không có tác dụng phụ nào.
+    // toàn — `readConfig` chỉ đọc file và validate, không có tác dụng phụ nào.
     che = chotCheDo(cauHinh, co, process.env);
     if (che.laClient) {
       log(`chế độ "${che.cheDo}" · vai "${che.vai}"`);
@@ -1149,9 +1149,9 @@ export async function main(argv = process.argv) {
     );
 
     // ⑨-chuẩn bị: kênh MCP dựng TRƯỚC listener để tin đầu tiên đã có chỗ đẩy.
-    const boTichLuy = taoBoTichLuy();
+    const boTichLuy = createSourceLedger();
     const tenHoiThoai = (chatId) =>
-      layNhom(cauHinh, chatId)?.ten ?? timHostTheoDm(cauHinh, chatId)?.ten ?? null;
+      findGroup(cauHinh, chatId)?.ten ?? findHostByDm(cauHinh, chatId)?.ten ?? null;
 
     // ⚠️ Ở chế độ TÁCH, daemon KHÔNG làm máy chủ MCP — phiên Claude nối vào
     // client. Daemon vẫn giữ Zalo + bộ hẹn giờ + rút outbox.
@@ -1243,7 +1243,7 @@ export async function main(argv = process.argv) {
     // — đọc khối đầu file đó trước khi sửa gì ở đây.
     // ⚠️ CHỈ daemon làm việc này: nó là bên duy nhất thấy `group_event`, và
     // hai tiến trình cùng ghi một file config là hỏng file.
-    const duongDanConfig = duongDanCauHinh(co.config);
+    const duongDanConfig = configPath(co.config);
     const tuCauHinhNhomMoi = (sk) => {
       const n = decideNewGroup({
         sk,
@@ -1343,20 +1343,20 @@ export async function main(argv = process.argv) {
     // đầu `ops/hot_reload.js` để biết trường nào nạp nóng được và VÌ SAO trường
     // còn lại thì ⛔ không.
     napNong = createHotReloader({
-      duongDan: duongDanCauHinh(co.config),
+      duongDan: configPath(co.config),
       dich: cauHinh,
-      docCauHinh,
+      readConfig,
       log: (s) => log(`[nạp nóng] ${s}`),
       baoHost: (s) => { baoHostDaemon(s).catch(() => {}); },
     });
-    log(`nạp nóng cấu hình BẬT — soi ${duongDanCauHinh(co.config)}`);
+    log(`nạp nóng cấu hình BẬT — soi ${configPath(co.config)}`);
 
     // Dọn bộ tích luỹ nguồn theo TUỔI. Ngưỡng phải ≥ queueTtlMs để lúc xoá
     // thì hàng đợi trong DB cũng đã 'het_han' — hai đồng hồ khớp nhau, không
     // để phiên còn sống bị mất dấu nguồn (mất dấu ở đây là fail-OPEN).
     hen.push(
       setInterval(() => {
-        donRac(boTichLuy, Math.max(cauHinh.thoiGian.queueTtlMs * 2, 3_600_000));
+        sweepStale(boTichLuy, Math.max(cauHinh.thoiGian.queueTtlMs * 2, 3_600_000));
       }, 300_000),
     );
 
@@ -1458,7 +1458,7 @@ export async function main(argv = process.argv) {
               // ⚠️ `boTichLuy` phải là ĐÚNG bộ đang dùng ở `dangKyTool` (dựng ở
               // ⑨-chuẩn bị) — hai bộ khác nhau thì `leak_guard` tra một sổ,
               // `bo_chay` ghi vào sổ kia, và lá chắn lại mù đúng ca cần nó.
-              ghiNhanNguon: noiGhiNhanNguon(boTichLuy),
+              recordSources: noiGhiNhanNguon(boTichLuy),
               // 🔴 DÂY TREO THỨ HAI (tìm thấy 21/08/2026 khi rà `p.*`).
               // `_baoHetLuot()` — câu DM báo "lời nhắc dừng vì HẾT LƯỢT, KHÔNG
               // phải vì việc đã xong" — chỉ được gọi từ CHÍNH `chayNhipTheoDuoi`,
@@ -1557,7 +1557,7 @@ export async function main(argv = process.argv) {
     dongSach();
     // @ts-ignore — maThoat do giuKhoaPid gắn
     if (e?.maThoat) return e.maThoat;
-    // Lỗi từ docCauHinh (validate) là lỗi CẤU HÌNH, không phải lỗi chung.
+    // Lỗi từ readConfig (validate) là lỗi CẤU HÌNH, không phải lỗi chung.
     if (/[Cc]ấu hình|hosts|cauTrungTinh|MỞ TOANG|config/.test(String(e?.message ?? ''))) {
       return MA_THOAT.CAU_HINH_SAI;
     }

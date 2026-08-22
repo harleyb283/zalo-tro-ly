@@ -591,11 +591,11 @@ export function danhChoLuotNhac(db, dong, bayGioMs) {
  * lần") là của model — hàm này chỉ nhận SỐ, đúng nguyên tắc đã dùng cho thời
  * gian: model quy đổi, tool nhận giá trị tuyệt đối.
  *
- * @param {{id: string, laHost: boolean, chuKyNgay?: number, gioNhac?: string,
+ * @param {{id: string, isHost: boolean, chuKyNgay?: number, gioNhac?: string,
  *          tamDungToiMs?: number|null, bayGioMs?: number}} p
  */
 export function chinhNhip(db, p) {
-  if (!p.laHost) {
+  if (!p.isHost) {
     // Người khác trong nhóm nói gì cũng KHÔNG đổi được nhịp — nếu không thì bất
     // kỳ ai bị nhắc cũng tự tắt được lời nhắc của chính mình.
     return { ok: false, ly: 'KHONG_PHAI_HOST' };
@@ -671,8 +671,8 @@ export function chinhNhip(db, p) {
  * lặng bỏ rơi một việc thật, mà anh không có cách nào biết để cứu. Thấy dấu
  * hiệu xong thì HỎI anh; anh gật thì mới gọi hàm này.
  */
-export function dongNhac(db, { id, nguoiDong, laHost, bayGioMs }) {
-  if (!laHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
+export function dongNhac(db, { id, nguoiDong, isHost, bayGioMs }) {
+  if (!isHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
   const dong = db.prepare('SELECT * FROM lich_hen WHERE id = $k OR ma_xac_nhan = $k')
     .get({ k: String(id ?? '') });
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };

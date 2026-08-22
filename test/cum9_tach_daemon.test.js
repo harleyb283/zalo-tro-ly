@@ -30,7 +30,7 @@ import {
   PHIEN_BAN_SCHEMA, TRANG_THAI_GUI, TRANG_THAI_HANG_DOI, HUONG_TRA_LOI,
 } from '../src/lib/hang_so.js';
 import {
-  donRac, ghiNhanNguon, layNguon, quyetDinhHuongTraLoi, taoBoTichLuy, xoaPhien,
+  sweepStale, recordSources, getSources, decideReplyRoute, createSourceLedger, clearSession,
 } from '../src/policy/leak_guard.js';
 
 const NHOM = '9990000000001';
@@ -140,12 +140,12 @@ test('★★★ M4 CHẠM DB THẬT: kiểu từng cột của hai bảng mới 
   assert.equal(dong.ly_do, null);
   assert.equal(dong.trang_thai, TRANG_THAI_GUI.CHO);
 
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   bo.ghiNhan('r1', [NHOM]);
   const r = db.prepare('SELECT * FROM nguon_phien LIMIT 1').get();
   assert.equal(typeof r.request_id, 'string');
   assert.equal(typeof r.chat_id, 'string');
-  assert.equal(typeof r.ts, 'number', 'ts phải là SỐ — donRac so sánh nó với Date.now()');
+  assert.equal(typeof r.ts, 'number', 'ts phải là SỐ — sweepStale so sánh nó với Date.now()');
   dongDb(db);
 });
 
@@ -359,19 +359,19 @@ test('★★★ V1 NGHIỆM THU VÀNG: ghi nguồn ở TIẾN TRÌNH A, tiến t
     const lgMod = ${JSON.stringify(path.join(goc, 'src/policy/leak_guard.js'))};
     Promise.all([import(dbMod), import(lgMod)]).then(([d, l]) => {
       const db = d.moDb(${JSON.stringify(p)}, { migrate: false });
-      l.ghiNhanNguon(l.taoBoTichLuy({ db }), 'r-chung', [${JSON.stringify(NHOM_B)}]);
+      l.recordSources(l.createSourceLedger({ db }), 'r-chung', [${JSON.stringify(NHOM_B)}]);
       d.dongDb(db);
     });
   `], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   // ── TIẾN TRÌNH B (chính bài test này) ──
   const db = moDb(p, { migrate: false });
-  const bo = taoBoTichLuy({ db });
-  assert.deepEqual(layNguon(bo, 'r-chung'), [NHOM_B],
+  const bo = createSourceLedger({ db });
+  assert.deepEqual(getSources(bo, 'r-chung'), [NHOM_B],
     'tiến trình B KHÔNG thấy nguồn của A -> hai sổ khác nhau -> lá chắn mù');
 
-  const qd = quyetDinhHuongTraLoi({
-    requestId: 'r-chung', chatIdHoi: NHOM, nguon: layNguon(bo, 'r-chung'), tonTaiHangDoi: true,
+  const qd = decideReplyRoute({
+    requestId: 'r-chung', chatIdHoi: NHOM, nguon: getSources(bo, 'r-chung'), tonTaiHangDoi: true,
   });
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'đáp án mang dữ liệu nhóm khác mà vẫn gửi thẳng vào nhóm đang hỏi');
@@ -383,21 +383,21 @@ test('★★★ V2 sổ đĩa SỐNG QUA restart (đóng DB rồi mở lại v�
   // Sổ RAM mất trắng khi restart, và mất trí nhớ ở đây fail-OPEN.
   const p = path.join(thuMucTam(), 'kho', 'ben.db');
   const d1 = moDb(p);
-  ghiNhanNguon(taoBoTichLuy({ db: d1 }), 'r1', [NHOM_B]);
+  recordSources(createSourceLedger({ db: d1 }), 'r1', [NHOM_B]);
   dongDb(d1);
 
   const d2 = moDb(p);
-  assert.deepEqual(layNguon(taoBoTichLuy({ db: d2 }), 'r1'), [NHOM_B]);
+  assert.deepEqual(getSources(createSourceLedger({ db: d2 }), 'r1'), [NHOM_B]);
   dongDb(d2);
 });
 
 test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG trả []', () => {
   // `lay()` trả `[]` là một lời KHẲNG ĐỊNH ("phiên này chưa đọc nhóm nào khác"),
   // không phải một chỗ trống. DB hỏng nghĩa là mình KHÔNG BIẾT — và "không biết"
-  // ⛔ không được đóng gói thành "không có gì", vì `quyetDinhHuongTraLoi` sẽ
+  // ⛔ không được đóng gói thành "không có gì", vì `decideReplyRoute` sẽ
   // kết luận sạch rồi gửi thẳng chuyện nhóm khác vào nhóm đang hỏi.
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   db.exec('DROP TABLE nguon_phien');
   assert.throws(() => bo.lay('r1'), /nguon_phien/i,
     'nuốt lỗi rồi trả [] = fail-OPEN, đúng cái tật của sổ RAM mà bản này sinh ra để chữa');
@@ -406,7 +406,7 @@ test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG tr
 
 test('★★★ V3b GHI hỏng cũng NÉM (sổ khuyết một nguồn trông y như sổ sạch)', () => {
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   db.exec('DROP TABLE nguon_phien');
   assert.throws(() => bo.ghiNhan('r1', [NHOM_B]), /nguon_phien/i);
   dongDb(db);
@@ -414,62 +414,62 @@ test('★★★ V3b GHI hỏng cũng NÉM (sổ khuyết một nguồn trông y 
 
 test('★★★ V4 ghi cùng một nguồn NHIỀU LẦN -> gộp, không đẻ dòng trùng', () => {
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   bo.ghiNhan('r1', [NHOM_B, NHOM_B]);
   bo.ghiNhan('r1', [NHOM_B]);
-  assert.deepEqual(layNguon(bo, 'r1'), [NHOM_B]);
+  assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
   assert.equal(db.prepare('SELECT count(*) c FROM nguon_phien').get().c, 1);
   dongDb(db);
 });
 
-test('★★★ V5 donRac xoá theo TUỔI, ⛔ không đụng phiên còn trẻ', () => {
+test('★★★ V5 sweepStale xoá theo TUỔI, ⛔ không đụng phiên còn trẻ', () => {
   // Dọn theo SỐ LƯỢNG là fail-open: đuổi mất tập nguồn của một phiên ĐANG SỐNG
   // ⇒ lay() trả rỗng ⇒ kết luận "không có nguồn lạ".
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   bo.ghiNhan('cu', [NHOM_B]);
   bo.ghiNhan('moi', [NHOM_B]);
   db.prepare('UPDATE nguon_phien SET ts = ? WHERE request_id = ?')
     .run(Date.now() - 7_200_000, 'cu');
 
-  assert.equal(donRac(bo, 3_600_000), 1);
-  assert.deepEqual(layNguon(bo, 'cu'), []);
-  assert.deepEqual(layNguon(bo, 'moi'), [NHOM_B], 'dọn nhầm phiên đang sống = mở đường rò');
+  assert.equal(sweepStale(bo, 3_600_000), 1);
+  assert.deepEqual(getSources(bo, 'cu'), []);
+  assert.deepEqual(getSources(bo, 'moi'), [NHOM_B], 'dọn nhầm phiên đang sống = mở đường rò');
   dongDb(db);
 });
 
-test('★★ V5b donRac với ngưỡng rác -> KHÔNG dọn gì (thà giữ rác còn hơn mở đường rò)', () => {
+test('★★ V5b sweepStale với ngưỡng rác -> KHÔNG dọn gì (thà giữ rác còn hơn mở đường rò)', () => {
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   bo.ghiNhan('r1', [NHOM_B]);
   for (const xau of [0, -1, NaN, 'ba tiếng']) {
-    assert.equal(donRac(bo, xau), 0);
+    assert.equal(sweepStale(bo, xau), 0);
   }
-  assert.deepEqual(layNguon(bo, 'r1'), [NHOM_B]);
+  assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
   dongDb(db);
 });
 
-test('★★ V6 xoaPhien chỉ xoá đúng phiên đó', () => {
+test('★★ V6 clearSession chỉ xoá đúng phiên đó', () => {
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   bo.ghiNhan('r1', [NHOM_B]);
   bo.ghiNhan('r2', [NHOM_B]);
-  xoaPhien(bo, 'r1');
-  assert.deepEqual(layNguon(bo, 'r1'), []);
-  assert.deepEqual(layNguon(bo, 'r2'), [NHOM_B]);
+  clearSession(bo, 'r1');
+  assert.deepEqual(getSources(bo, 'r1'), []);
+  assert.deepEqual(getSources(bo, 'r2'), [NHOM_B]);
   assert.equal(bo.soPhien(), 1);
   dongDb(db);
 });
 
 test('★★★ V7 MẶC ĐỊNH vẫn là sổ RAM — đường một-tiến-trình KHÔNG đổi hành vi', () => {
-  // Ràng buộc trùm. `src/index.js` gọi `taoBoTichLuy()` không tham số; đổi mặc
+  // Ràng buộc trùm. `src/index.js` gọi `createSourceLedger()` không tham số; đổi mặc
   // định là đổi hành vi của hệ đang phục vụ anh.
-  const bo = taoBoTichLuy();
+  const bo = createSourceLedger();
   assert.equal(bo._db, undefined, 'mặc định KHÔNG được dính tới DB');
   assert.ok(bo._kho instanceof Map, 'mặc định phải là sổ RAM y như trước');
-  ghiNhanNguon(bo, 'r1', [NHOM_B]);
-  assert.deepEqual(layNguon(bo, 'r1'), [NHOM_B]);
-  assert.equal(donRac(bo, 3_600_000), 0, 'phiên còn trẻ thì không dọn');
+  recordSources(bo, 'r1', [NHOM_B]);
+  assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
+  assert.equal(sweepStale(bo, 3_600_000), 0, 'phiên còn trẻ thì không dọn');
   dongDb(dbTam());
 });
 
@@ -477,11 +477,11 @@ test('★★ V8 hai kiểu sổ có CÙNG một hợp đồng (cùng API, cùng 
   // Khác hợp đồng thì bật cờ lùi về RAM là đổi hành vi ngầm — đúng thứ đường
   // lùi sinh ra để tránh.
   const db = dbTam();
-  for (const bo of [taoBoTichLuy(), taoBoTichLuy({ db })]) {
-    ghiNhanNguon(bo, 'r1', [NHOM_B, NHOM]);
-    assert.deepEqual(layNguon(bo, 'r1'), [NHOM, NHOM_B].sort());
-    assert.deepEqual(layNguon(bo, 'khong-co'), []);
-    assert.deepEqual(layNguon(bo, '   '), [], 'requestId rỗng phải trả rỗng, không nổ');
+  for (const bo of [createSourceLedger(), createSourceLedger({ db })]) {
+    recordSources(bo, 'r1', [NHOM_B, NHOM]);
+    assert.deepEqual(getSources(bo, 'r1'), [NHOM, NHOM_B].sort());
+    assert.deepEqual(getSources(bo, 'khong-co'), []);
+    assert.deepEqual(getSources(bo, '   '), [], 'requestId rỗng phải trả rỗng, không nổ');
     assert.equal(bo.soPhien(), 1);
   }
   dongDb(db);

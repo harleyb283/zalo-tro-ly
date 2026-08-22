@@ -518,8 +518,8 @@ test('G2 upsert hội thoại/người KHÔNG xoá trắng tên đã biết', ()
   upsertHoiThoai(db, { chatId: 'A', loai: 'GROUP', ten: null, duocNghe: true });
   assert.equal(db.prepare("SELECT ten AS t FROM hoi_thoai WHERE chat_id='A'").get().t, 'Tên đầy đủ');
 
-  upsertNguoi(db, { userId: 'u1', tenHienThi: 'Người A', laHost: true });
-  upsertNguoi(db, { userId: 'u1', tenHienThi: null, laHost: true });
+  upsertNguoi(db, { userId: 'u1', tenHienThi: 'Người A', isHost: true });
+  upsertNguoi(db, { userId: 'u1', tenHienThi: null, isHost: true });
   const n = db.prepare("SELECT * FROM nguoi WHERE user_id='u1'").get();
   assert.equal(n.ten_hien_thi, 'Người A');
   assert.equal(Number(n.la_host), 1);

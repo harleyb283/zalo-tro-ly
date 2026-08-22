@@ -22,7 +22,7 @@ import { HUONG_TRA_LOI, TEN_TOOL_NHAC, TRANG_THAI_LICH } from '../src/lib/hang_s
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { chayNhipTheoDuoi } from '../src/lich/bo_chay.js';
-import { quyetDinhHuongTraLoi, taoBoTichLuy, layNguon, ghiNhanNguon } from '../src/policy/leak_guard.js';
+import { decideReplyRoute, createSourceLedger, getSources, recordSources } from '../src/policy/leak_guard.js';
 import { dangKyTool } from '../src/mcp/tools.js';
 
 const NHOM = '9990000000001';
@@ -84,7 +84,7 @@ test('B5-a ★★★ bối cảnh chạm nhóm KHÁC -> nguồn PHẢI được 
     guiDmHost: async () => ({ msgId: 'y' }),
     dsNguoiTrongNhom: () => [],
     guiThongBao: async () => true,
-    ghiNhanNguon: (rid, nguon) => daKhai.push({ rid, nguon }),
+    recordSources: (rid, nguon) => daKhai.push({ rid, nguon }),
   });
 
   assert.equal(daKhai.length, 1,
@@ -99,7 +99,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   // khai nguồn có TÁC DỤNG THẬT chứ không chỉ là một mảng đẹp mắt.
   const db = dbTam();
   nhacDaChot(db);
-  const bo = taoBoTichLuy();
+  const bo = createSourceLedger();
 
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(), taoHangDoi,
@@ -108,12 +108,12 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
     guiDmHost: async () => ({ msgId: 'y' }),
     dsNguoiTrongNhom: () => [],
     guiThongBao: async () => true,
-    ghiNhanNguon: (rid, nguon) => ghiNhanNguon(bo, rid, nguon),
+    recordSources: (rid, nguon) => recordSources(bo, rid, nguon),
   });
 
   const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
-  const qd = quyetDinhHuongTraLoi({
-    requestId: rid, chatIdHoi: NHOM, nguon: layNguon(bo, rid), tonTaiHangDoi: true,
+  const qd = decideReplyRoute({
+    requestId: rid, chatIdHoi: NHOM, nguon: getSources(bo, rid), tonTaiHangDoi: true,
   });
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'đáp án mang dữ liệu nhóm B mà vẫn gửi thẳng vào nhóm A -> đúng ca lá chắn sinh ra để chặn');
@@ -121,7 +121,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   dongDb(db);
 });
 
-test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối ghiNhanNguon -> KHÔNG giao model', async () => {
+test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSources -> KHÔNG giao model', async () => {
   // ⛔ Không có nhánh "không chắc thì cứ gửi". Chưa có đường khai nguồn thì tuyệt đối
   // không đẩy dữ liệu nhóm khác vào context model — rơi xuống câu dự phòng do code
   // dựng, câu đó chỉ dùng `noi_dung` của chính dòng nhắc.
@@ -137,7 +137,7 @@ test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối ghiNhanNguo
     guiDmHost: async () => ({ msgId: 'y' }),
     dsNguoiTrongNhom: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
-    // ★ CỐ Ý KHÔNG truyền ghiNhanNguon
+    // ★ CỐ Ý KHÔNG truyền recordSources
   });
 
   assert.equal(giaoModel, 0, 'đã đẩy dữ liệu nhóm khác vào context model mà không có vết nguồn');
@@ -158,7 +158,7 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
     guiDmHost: async () => ({ msgId: 'y' }),
     dsNguoiTrongNhom: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
-    // không có ghiNhanNguon, nhưng cũng KHÔNG có nguồn lạ -> vẫn phải chạy đường model
+    // không có recordSources, nhưng cũng KHÔNG có nguồn lạ -> vẫn phải chạy đường model
   });
   assert.equal(giaoModel, 1, 'vá quá tay: chặn cả ca sạch thì lời nhắc mất hẳn giọng model');
   dongDb(db);

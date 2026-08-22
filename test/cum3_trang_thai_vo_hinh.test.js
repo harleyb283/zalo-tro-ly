@@ -95,7 +95,7 @@ function dungTool(db) {
     docSucKhoe: () => ({ trangThai: 'OK' }),
     guiTin: { guiVaoNhom, guiDmHost },
     chinhSach: {
-      quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
+      decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
   });
   return {

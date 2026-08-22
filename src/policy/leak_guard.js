@@ -53,17 +53,17 @@ function _canhBao(msg) {
  *
  * 🔴 Không tự động dọn theo số lượng. Có vẻ như "cap 1000 phiên rồi đuổi cái
  * cũ nhất" là hợp lý, nhưng ở đây nó SAI VỀ HƯỚNG: đuổi mất tập nguồn của một
- * phiên đang sống ⇒ `layNguon()` trả rỗng ⇒ `quyetDinhHuongTraLoi()` kết luận
+ * phiên đang sống ⇒ `getSources()` trả rỗng ⇒ `decideReplyRoute()` kết luận
  * "không có nguồn lạ" ⇒ **gửi thẳng chuyện nhóm khác vào nhóm đang hỏi**.
  * Mất trí nhớ ở đây không fail-closed, nó fail-OPEN.
- * ⇒ Chỉ dọn theo TUỔI (`donRac`), và tuổi phải lớn hơn `queueTtlMs` để lúc
+ * ⇒ Chỉ dọn theo TUỔI (`sweepStale`), và tuổi phải lớn hơn `queueTtlMs` để lúc
  *   xoá thì hàng đợi trong DB cũng đã `het_han`, tức `tonTaiHangDoi = false`,
  *   tức nhánh fail-closed nhận việc. Hai đồng hồ khớp nhau chứ không đá nhau.
  *
  * ═══ HAI KIỂU SỔ — mặc định vẫn là RAM, KHÔNG đổi hành vi hôm nay ═══
  *
- * `taoBoTichLuy()`        -> sổ RAM, y hệt trước giờ.
- * `taoBoTichLuy({ db })`  -> sổ trên ĐĨA (bảng `nguon_phien`).
+ * `createSourceLedger()`        -> sổ RAM, y hệt trước giờ.
+ * `createSourceLedger({ db })`  -> sổ trên ĐĨA (bảng `nguon_phien`).
  *
  * 🔴 VÌ SAO CẦN SỔ TRÊN ĐĨA: khi tách daemon/client, `bo_chay` (daemon) ghi
  * nguồn vào sổ RAM của daemon còn `tra_loi` (client) tra sổ RAM của client ⇒
@@ -78,7 +78,7 @@ function _canhBao(msg) {
  * @param {{db?: any}} [tuyChon]
  * @returns {BoTichLuyNguon}
  */
-export function taoBoTichLuy(tuyChon = {}) {
+export function createSourceLedger(tuyChon = {}) {
   if (tuyChon && tuyChon.db) return _boTichLuySqlite(tuyChon.db);
 
   /** @type {Map<string, {nguon: Set<string>, taoLuc: number}>} */
@@ -127,7 +127,7 @@ export function taoBoTichLuy(tuyChon = {}) {
       return kho.size;
     },
 
-    /** Chỉ dùng cho `donRac()` — không phải API công khai. */
+    /** Chỉ dùng cho `sweepStale()` — không phải API công khai. */
     _kho: kho,
   };
 }
@@ -139,7 +139,7 @@ export function taoBoTichLuy(tuyChon = {}) {
  *
  * Đây là chỗ dễ hỏng nhất của cả việc tách, và nó hỏng theo kiểu KHÔNG AI THẤY.
  * `lay()` trả `[]` nghĩa là *"phiên này chưa đọc dữ liệu của nhóm nào khác"* —
- * một lời KHẲNG ĐỊNH, không phải một chỗ trống. `quyetDinhHuongTraLoi` đọc `[]`
+ * một lời KHẲNG ĐỊNH, không phải một chỗ trống. `decideReplyRoute` đọc `[]`
  * rồi kết luận `nguonLa` rỗng ⇒ **gửi thẳng chuyện nhóm khác vào nhóm đang hỏi**.
  *
  * ⇒ DB hỏng / bảng thiếu / file khoá: mình **KHÔNG BIẾT** phiên đã đọc gì.
@@ -189,7 +189,7 @@ function _boTichLuySqlite(db) {
       return Number(r?.c ?? 0);
     },
 
-    /** Dấu để `donRac()` biết đây là sổ đĩa. ⛔ Không phải API công khai. */
+    /** Dấu để `sweepStale()` biết đây là sổ đĩa. ⛔ Không phải API công khai. */
     _db: db,
   };
 }
@@ -210,7 +210,7 @@ function _chuan(v) {
  * @param {string[]} nguonChatIds
  * @returns {void}
  */
-export function ghiNhanNguon(boTichLuy, requestId, nguonChatIds) {
+export function recordSources(boTichLuy, requestId, nguonChatIds) {
   boTichLuy.ghiNhan(requestId, nguonChatIds);
 }
 
@@ -219,7 +219,7 @@ export function ghiNhanNguon(boTichLuy, requestId, nguonChatIds) {
  * @param {string} requestId
  * @returns {string[]}
  */
-export function layNguon(boTichLuy, requestId) {
+export function getSources(boTichLuy, requestId) {
   return boTichLuy.lay(requestId);
 }
 
@@ -228,7 +228,7 @@ export function layNguon(boTichLuy, requestId) {
  * @param {string} requestId
  * @returns {void}
  */
-export function xoaPhien(boTichLuy, requestId) {
+export function clearSession(boTichLuy, requestId) {
   boTichLuy.xoa(requestId);
 }
 
@@ -236,16 +236,16 @@ export function xoaPhien(boTichLuy, requestId) {
  * Dọn các phiên GIÀ hơn `tuoiToiDaMs`. Gọi định kỳ ở G8.
  *
  * ⚠️ `tuoiToiDaMs` PHẢI >= `thoiGian.queueTtlMs`, xem giải thích ở
- * `taoBoTichLuy()`. Truyền nhỏ hơn là tự tay mở đường rò.
+ * `createSourceLedger()`. Truyền nhỏ hơn là tự tay mở đường rò.
  *
  * @param {BoTichLuyNguon & {_kho?: Map<string, {taoLuc: number}>}} boTichLuy
  * @param {number} tuoiToiDaMs
  * @returns {number} số phiên đã dọn
  */
-export function donRac(boTichLuy, tuoiToiDaMs) {
+export function sweepStale(boTichLuy, tuoiToiDaMs) {
   const nguong = Number(tuoiToiDaMs);
   if (!Number.isFinite(nguong) || nguong <= 0) {
-    _canhBao(`donRac(${tuoiToiDaMs}) không hợp lệ -> KHÔNG dọn gì (thà giữ rác còn hơn mở đường rò)`);
+    _canhBao(`sweepStale(${tuoiToiDaMs}) không hợp lệ -> KHÔNG dọn gì (thà giữ rác còn hơn mở đường rò)`);
     return 0;
   }
   // Sổ ĐĨA: dọn theo TUỔI y hệt sổ RAM. Ràng buộc `tuoiToiDaMs >= queueTtlMs`
@@ -275,7 +275,7 @@ export function donRac(boTichLuy, tuoiToiDaMs) {
  * @param {{requestId: string, chatIdHoi: string|null, nguon: string[], tonTaiHangDoi: boolean}} boiCanh
  * @returns {QuyetDinhChongRoCheo}
  */
-export function quyetDinhHuongTraLoi(boiCanh) {
+export function decideReplyRoute(boiCanh) {
   const rid = _chuan(boiCanh?.requestId);
   if (rid === null) {
     return _tuChoi(LY_DO.THIEU_REQUEST_ID, 'Không có request_id — không biết đang trả lời phiên nào.');

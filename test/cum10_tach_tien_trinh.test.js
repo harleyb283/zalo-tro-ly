@@ -27,7 +27,7 @@ import {
 import {
   CHE_DO, chotCheDo, HUONG_TRA_LOI, PHIEN_BAN_SCHEMA, TEN_TOOL, TRANG_THAI_GUI, VAI,
 } from '../src/lib/hang_so.js';
-import { taoBoTichLuy } from '../src/policy/leak_guard.js';
+import { createSourceLedger } from '../src/policy/leak_guard.js';
 import { dangKyTool } from '../src/mcp/tools.js';
 import { rutOutbox } from '../src/index.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
@@ -75,7 +75,7 @@ function dungClient(db) {
       hosts: [{ userId: HOST, ten: 'Anh', dmChatId: '9993000000000000003' }],
       groups: [{ chatId: NHOM, ten: 'Nhóm thử', ghiLichSu: true, traLoiKhiTag: true }],
     },
-    boTichLuy: taoBoTichLuy({ db }),
+    boTichLuy: createSourceLedger({ db }),
     guiTin: {
       guiVaoNhom: async (...a) => { daGuiThang.push(a); return { msgId: 'x' }; },
       guiDmHost: async (...a) => { daGuiThang.push(a); return { msgId: 'y' }; },
@@ -232,7 +232,7 @@ test('★★★ C3 client KHÔNG chạm Zalo: `api: null`, ⛔ không làm việ
   // sống sót đúng vì thế.
   assert.match(kh, /api: null,\s*\n\s*docSucKhoe:/,
     'client phải truyền api null CHO TOOL làm chốt chặn cuối');
-  assert.match(kh, /taoBoTichLuy\(\{ db \}\)/, 'client PHẢI dùng sổ nguồn trên ĐĨA, không phải RAM');
+  assert.match(kh, /createSourceLedger\(\{ db \}\)/, 'client PHẢI dùng sổ nguồn trên ĐĨA, không phải RAM');
 
   // 🔴 v9 — KHẲNG ĐỊNH DƯƠNG. Tiêu đề cũ ghi "không có bộ hẹn giờ nào", và câu
   // đó nay SAI: client PHẢI có vòng lấy việc, nếu không thì ở chế độ tách nó
@@ -319,7 +319,7 @@ test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách 
   // Đổi đường gửi ⛔ không được nới lá chắn. Đáp án chạm nhóm khác thì vẫn phải
   // đi DM host — chỉ khác là nay nó đi qua hàng đợi.
   const db = dbTam();
-  const bo = taoBoTichLuy({ db });
+  const bo = createSourceLedger({ db });
   const rid = phien(db);
   bo.ghiNhan(rid, ['9990000000009']);      // đã đọc dữ liệu một nhóm KHÁC
 

@@ -9,9 +9,9 @@
  *
  * 🔴 CHỈ MỘT SỐ TRƯỜNG ĐƯỢC NẠP NÓNG, và danh sách đó là CÓ CHỦ Ý:
  *
- *    ✅ `groups`        — mọi chỗ đọc nó đều gọi `layNhom(cauHinh, chatId)` tại
+ *    ✅ `groups`        — mọi chỗ đọc nó đều gọi `findGroup(cauHinh, chatId)` tại
  *                         thời điểm có tin, ⛔ không ai giữ sẵn mảng cũ. Đã soi
- *                         từng chỗ: access.js:layNhom · normalize.js:loaiHoiThoai
+ *                         từng chỗ: access.js:findGroup · normalize.js:loaiHoiThoai
  *                         · mcp/tools.js · bin/zalo-remind.js.
  *    ✅ `cauTrungTinh`  — chuỗi, đọc lúc cần.
  *    ✅ `kenhPhu` · `tranSoClient` · `nghiSauGio` — van chỉnh tay, đọc lúc cần.
@@ -29,7 +29,7 @@
  *    ⇒ Trường khoá cứng mà ĐỔI trong file thì ⛔ KHÔNG áp, nhưng PHẢI nói ra:
  *      im lặng bỏ qua là để host tin rằng thứ mình vừa sửa đã có hiệu lực.
  *
- * 🔴 CONFIG HỎNG ⇒ GIỮ NGUYÊN BẢN ĐANG CHẠY. `docCauHinh` ném lỗi cho mọi
+ * 🔴 CONFIG HỎNG ⇒ GIỮ NGUYÊN BẢN ĐANG CHẠY. `readConfig` ném lỗi cho mọi
  *    cấu hình mở toang; ở đây bắt lỗi đó và ⛔ KHÔNG đụng vào bản đang chạy —
  *    một dấu phẩy thừa lúc 2 giờ sáng ⛔ không được phép làm câm trợ lý.
  *
@@ -112,7 +112,7 @@ export function diffGroups(cu = [], moi = []) {
  * Áp bản cấu hình mới lên CHÍNH object đang chạy.
  *
  * 🔴 GÁN ĐÈ TỪNG TRƯỜNG, ⛔ TUYỆT ĐỐI KHÔNG trả về object mới: `cauHinh` đã bị
- * hàng chục closure trong `index.js` giữ tham chiếu (`layNhom(cauHinh, …)`,
+ * hàng chục closure trong `index.js` giữ tham chiếu (`findGroup(cauHinh, …)`,
  * `baoHost(cauHinh, …)`, watchdog, tool…). Thay object là mọi closure đó vẫn
  * ôm bản CŨ, tức nạp nóng "chạy" mà ⛔ không có gì thay đổi.
  *
@@ -193,7 +193,7 @@ export function describeChanges(kq) {
  * @param {{
  *   duongDan: string,
  *   dich: CauHinh|any,
- *   docCauHinh: (d?: string) => any,
+ *   readConfig: (d?: string) => any,
  *   log?: (s: string) => void,
  *   baoHost?: (s: string) => any,
  *   nhipMs?: number,
@@ -203,10 +203,10 @@ export function describeChanges(kq) {
 export function createHotReloader(p) {
   const duongDan = String(p?.duongDan ?? '');
   const dich = p?.dich;
-  const doc = p?.docCauHinh;
+  const doc = p?.readConfig;
   if (!duongDan) throw new Error('createHotReloader: thiếu `duongDan` file cấu hình');
   if (!dich || typeof dich !== 'object') throw new Error('createHotReloader: thiếu `dich`');
-  if (typeof doc !== 'function') throw new Error('createHotReloader: thiếu `docCauHinh`');
+  if (typeof doc !== 'function') throw new Error('createHotReloader: thiếu `readConfig`');
 
   const log = typeof p.log === 'function' ? p.log : _log;
   const baoHost = typeof p.baoHost === 'function' ? p.baoHost : null;

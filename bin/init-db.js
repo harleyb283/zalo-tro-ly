@@ -23,7 +23,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { expandPath, ensureParentDir, isInsidePack } from '../src/lib/paths.js';
 import { PHIEN_BAN_SCHEMA } from '../src/lib/hang_so.js';
 
-const THU_MUC_PACK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function docThamSo(argv) {
   const ra = { db: null, json: false };
@@ -43,7 +43,7 @@ function timDuongDanDb(chiDinh) {
 
   const fileCauHinh = process.env.ZTL_CONFIG
     ? expandPath(process.env.ZTL_CONFIG)
-    : path.join(THU_MUC_PACK, 'config', 'assistant.config.json');
+    : path.join(PACK_ROOT, 'config', 'assistant.config.json');
 
   if (fs.existsSync(fileCauHinh)) {
     const ch = JSON.parse(fs.readFileSync(fileCauHinh, 'utf8'));
@@ -56,9 +56,9 @@ function timDuongDanDb(chiDinh) {
 function main() {
   const ts = docThamSo(process.argv);
   const duongDanDb = timDuongDanDb(ts.db);
-  const duongDanSchema = path.join(THU_MUC_PACK, 'schema.sql');
+  const duongDanSchema = path.join(PACK_ROOT, 'schema.sql');
 
-  if (isInsidePack(duongDanDb, THU_MUC_PACK)) {
+  if (isInsidePack(duongDanDb, PACK_ROOT)) {
     process.stderr.write(
       '⚠️  CẢNH BÁO: DB đang nằm TRONG thư mục pack.\n' +
       '    Mức siết CAO yêu cầu đặt dữ liệu NGOÀI project (vd ~/.zalo-tro-ly/),\n' +

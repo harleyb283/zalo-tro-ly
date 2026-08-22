@@ -399,7 +399,7 @@ test('★★★ G6 nhóm tắt trả lời: KHÔNG tốn lượt model nào (k�
 
 test('★★★ G7 host gõ mà KHÔNG tag -> vẫn DROP (chặn tiếng vọng của chính trợ lý)', () => {
   // ⚠️ Em ĐÃ viết nhánh `nghe` ở đây rồi phải gỡ: trợ lý dùng chung tài khoản
-  // với host, nên tin trợ lý tự gửi quay lại với tuToi=true VÀ laHost=true —
+  // với host, nên tin trợ lý tự gửi quay lại với tuToi=true VÀ isHost=true —
   // thứ duy nhất chặn nó là đúng dòng "không tag" này.
   const kq = quyetDinh(tin({ userId: HOST, coTagHost: false }), CAU_HINH);
   assert.equal(kq.action, HANH_DONG_GATE.DROP);

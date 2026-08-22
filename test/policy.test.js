@@ -2,8 +2,8 @@
  * G4 — test tầng chính sách. Chạy: `npm test` (node --test).
  *
  * Chạy HOÀN TOÀN không cần Zalo, không mạng, không DB, không gói khác:
- * `gate.js` và `leak_guard.quyetDinhHuongTraLoi()` là hàm thuần; `access.js`
- * chỉ chạm đĩa ở `docCauHinh()` và bài đó dùng file tạm.
+ * `gate.js` và `leak_guard.decideReplyRoute()` là hàm thuần; `access.js`
+ * chỉ chạm đĩa ở `readConfig()` và bài đó dùng file tạm.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,28 +12,28 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  THOI_GIAN_MAC_DINH,
-  THU_MUC_PACK,
-  boGhiChu,
-  danhSachHostUserId,
-  docCauHinh,
-  kiemCauHinh,
-  laHost,
-  layDmHost,
-  layNhom,
-  nhomDuocNghe,
-  nhomTraLoiKhiTag,
-  timHostTheoDm,
+  DEFAULT_TIMINGS,
+  PACK_ROOT,
+  stripComments,
+  hostUserIds,
+  readConfig,
+  validateConfig,
+  isHost,
+  hostDmChatId,
+  findGroup,
+  isGroupListened,
+  groupRepliesOnTag,
+  findHostByDm,
 } from '../src/policy/access.js';
 import { CHO_PHEP_DM, LY_DO as LY_DO_GATE, quyetDinh } from '../src/policy/gate.js';
 import {
   LY_DO as LY_DO_LEAK,
-  donRac,
-  ghiNhanNguon,
-  layNguon,
-  quyetDinhHuongTraLoi,
-  taoBoTichLuy,
-  xoaPhien,
+  sweepStale,
+  recordSources,
+  getSources,
+  decideReplyRoute,
+  createSourceLedger,
+  clearSession,
 } from '../src/policy/leak_guard.js';
 import { HANH_DONG_GATE, HUONG_TRA_LOI } from '../src/lib/hang_so.js';
 
@@ -62,7 +62,7 @@ function chGia(v = {}) {
     ...v,
   };
 }
-const CH = kiemCauHinh(chGia());
+const CH = validateConfig(chGia());
 
 /** Tin giả đúng hình dạng TinChuanHoa. */
 function tinGia(v = {}) {
@@ -87,9 +87,9 @@ function tinGia(v = {}) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 test('A1 hosts rỗng / thiếu -> TỪ CHỐI CHẠY', () => {
-  assert.throws(() => kiemCauHinh(chGia({ hosts: [] })), /hosts/);
-  assert.throws(() => kiemCauHinh(chGia({ hosts: undefined })), /hosts/);
-  assert.throws(() => kiemCauHinh(null), /rỗng hoặc không phải object/);
+  assert.throws(() => validateConfig(chGia({ hosts: [] })), /hosts/);
+  assert.throws(() => validateConfig(chGia({ hosts: undefined })), /hosts/);
+  assert.throws(() => validateConfig(null), /rỗng hoặc không phải object/);
 });
 
 test('A2 ★ ký tự đại diện ở BẤT KỲ id nào -> TỪ CHỐI CHẠY', () => {
@@ -105,40 +105,40 @@ test('A2 ★ ký tự đại diện ở BẤT KỲ id nào -> TỪ CHỐI CHẠY
     ['chữ "any"', { hosts: [{ userId: 'any', dmChatId: 'd' }] }],
   ];
   for (const [ten, v] of ca) {
-    assert.throws(() => kiemCauHinh(chGia(v)), /MỞ TOANG|phải là chuỗi/, `lọt: ${ten}`);
+    assert.throws(() => validateConfig(chGia(v)), /MỞ TOANG|phải là chuỗi/, `lọt: ${ten}`);
   }
 });
 
 test('A3 id rỗng / không phải chuỗi -> TỪ CHỐI (ID Zalo phải là TEXT)', () => {
-  assert.throws(() => kiemCauHinh(chGia({ hosts: [{ userId: '', dmChatId: 'd' }] })), /chuỗi khác rỗng/);
-  assert.throws(() => kiemCauHinh(chGia({ hosts: [{ userId: '   ', dmChatId: 'd' }] })), /chuỗi khác rỗng/);
+  assert.throws(() => validateConfig(chGia({ hosts: [{ userId: '', dmChatId: 'd' }] })), /chuỗi khác rỗng/);
+  assert.throws(() => validateConfig(chGia({ hosts: [{ userId: '   ', dmChatId: 'd' }] })), /chuỗi khác rỗng/);
   // Số vượt MAX_SAFE_INTEGER: để dạng number là đã mất chính xác TỪ TRƯỚC khi
   // tới đây -> phải chặn ngay ở config chứ không âm thầm String() lại.
   assert.throws(
-    () => kiemCauHinh(chGia({ hosts: [{ userId: 9990000000001123, dmChatId: 'd' }] })),
+    () => validateConfig(chGia({ hosts: [{ userId: 9990000000001123, dmChatId: 'd' }] })),
     /phải là chuỗi/,
   );
 });
 
 test('A4 thiếu dmChatId của host -> TỪ CHỐI (luật chống rò chéo mất chỗ gửi)', () => {
-  assert.throws(() => kiemCauHinh(chGia({ hosts: [{ userId: '111' }] })), /dmChatId/);
+  assert.throws(() => validateConfig(chGia({ hosts: [{ userId: '111' }] })), /dmChatId/);
 });
 
 test('A5 thiếu cauTrungTinh -> TỪ CHỐI', () => {
-  assert.throws(() => kiemCauHinh(chGia({ cauTrungTinh: '' })), /cauTrungTinh/);
-  assert.throws(() => kiemCauHinh(chGia({ cauTrungTinh: undefined })), /cauTrungTinh/);
+  assert.throws(() => validateConfig(chGia({ cauTrungTinh: '' })), /cauTrungTinh/);
+  assert.throws(() => validateConfig(chGia({ cauTrungTinh: undefined })), /cauTrungTinh/);
 });
 
 test('A6 ★ duongDan.db nằm TRONG pack -> TỪ CHỐI (vô hiệu hoá mức siết CAO)', () => {
   assert.throws(
-    () => kiemCauHinh(chGia({ duongDan: { db: path.join(THU_MUC_PACK, 'data', 'lichsu.db') } })),
+    () => validateConfig(chGia({ duongDan: { db: path.join(PACK_ROOT, 'data', 'lichsu.db') } })),
     /NGUY HIỂM|TRONG thư mục pack/,
   );
   // Đường dẫn tương đối cũng phải bị bắt — đây là dạng người ta hay gõ nhất.
   const cwd = process.cwd();
   try {
-    process.chdir(THU_MUC_PACK);
-    assert.throws(() => kiemCauHinh(chGia({ duongDan: { db: './lichsu.db' } })), /NGUY HIỂM/);
+    process.chdir(PACK_ROOT);
+    assert.throws(() => validateConfig(chGia({ duongDan: { db: './lichsu.db' } })), /NGUY HIỂM/);
   } finally {
     process.chdir(cwd);
   }
@@ -146,25 +146,25 @@ test('A6 ★ duongDan.db nằm TRONG pack -> TỪ CHỐI (vô hiệu hoá mức 
 
 test('A7 id trùng nhau -> TỪ CHỐI (allowlist mơ hồ)', () => {
   assert.throws(
-    () => kiemCauHinh(chGia({ hosts: [
+    () => validateConfig(chGia({ hosts: [
       { userId: '1', dmChatId: 'a' }, { userId: '1', dmChatId: 'b' },
     ] })),
     /trùng nhau/,
   );
   assert.throws(
-    () => kiemCauHinh(chGia({ groups: [{ chatId: 'A' }, { chatId: 'A' }] })),
+    () => validateConfig(chGia({ groups: [{ chatId: 'A' }, { chatId: 'A' }] })),
     /trùng nhau/,
   );
 });
 
 test('A8 mặc định AN TOÀN: traLoiKhiTag thiếu -> false, ghiLichSu thiếu -> true', () => {
-  const ch = kiemCauHinh(chGia({ groups: [{ chatId: 'Z', ten: 'Z' }] }));
+  const ch = validateConfig(chGia({ groups: [{ chatId: 'Z', ten: 'Z' }] }));
   assert.equal(ch.groups[0].traLoiKhiTag, false, 'im lặng phải là mặc định');
   assert.equal(ch.groups[0].ghiLichSu, true);
 });
 
 test('A9 khoá bắt đầu bằng _ là GHI CHÚ, phải bỏ qua (đệ quy)', () => {
-  const sach = boGhiChu({
+  const sach = stripComments({
     _ghi_chu: ['đừng đọc tôi'],
     hosts: [{ _note: 'x', userId: '111', dmChatId: 'dm' }],
     duongDan: { _x: 1, db: '~/a.db' },
@@ -177,35 +177,35 @@ test('A9 khoá bắt đầu bằng _ là GHI CHÚ, phải bỏ qua (đệ quy)',
 
 test('A10 file .example.json THẬT phải qua được validate (bản mẫu không được hỏng)', () => {
   const mau = JSON.parse(
-    fs.readFileSync(path.join(THU_MUC_PACK, 'config', 'assistant.config.example.json'), 'utf8'),
+    fs.readFileSync(path.join(PACK_ROOT, 'config', 'assistant.config.example.json'), 'utf8'),
   );
-  const ch = kiemCauHinh(boGhiChu(mau));
+  const ch = validateConfig(stripComments(mau));
   assert.equal(ch.hosts.length, 1);
   assert.equal(ch.cauTrungTinh.length > 0, true);
   assert.equal(ch.anTrangThai, true);
 });
 
 test('A11 thoiGian thiếu/rác -> dùng mặc định, KHÔNG nổ', () => {
-  assert.deepEqual(kiemCauHinh(chGia()).thoiGian, THOI_GIAN_MAC_DINH);
-  const ch = kiemCauHinh(chGia({ thoiGian: { queueTtlMs: 'ba mươi phút', keepAliveMs: 5000 } }));
-  assert.equal(ch.thoiGian.queueTtlMs, THOI_GIAN_MAC_DINH.queueTtlMs);
+  assert.deepEqual(validateConfig(chGia()).thoiGian, DEFAULT_TIMINGS);
+  const ch = validateConfig(chGia({ thoiGian: { queueTtlMs: 'ba mươi phút', keepAliveMs: 5000 } }));
+  assert.equal(ch.thoiGian.queueTtlMs, DEFAULT_TIMINGS.queueTtlMs);
   assert.equal(ch.thoiGian.keepAliveMs, 5000);
 });
 
-test('A12 docCauHinh: thiếu file -> lỗi ĐỌC ĐƯỢC, có hướng dẫn', () => {
+test('A12 readConfig: thiếu file -> lỗi ĐỌC ĐƯỢC, có hướng dẫn', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cfg-'));
   RAC.push(d);
-  assert.throws(() => docCauHinh(path.join(d, 'khong-co.json')), /Không thấy file cấu hình/);
+  assert.throws(() => readConfig(path.join(d, 'khong-co.json')), /Không thấy file cấu hình/);
   fs.writeFileSync(path.join(d, 'vo.json'), '{ hỏng');
-  assert.throws(() => docCauHinh(path.join(d, 'vo.json')), /không phải JSON hợp lệ/);
+  assert.throws(() => readConfig(path.join(d, 'vo.json')), /không phải JSON hợp lệ/);
 });
 
-test('A13 docCauHinh đọc file thật + nở ~ trong đường dẫn', () => {
+test('A13 readConfig đọc file thật + nở ~ trong đường dẫn', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cfg-'));
   RAC.push(d);
   const p = path.join(d, 'ch.json');
   fs.writeFileSync(p, JSON.stringify(chGia()));
-  const ch = docCauHinh(p);
+  const ch = readConfig(p);
   assert.equal(path.isAbsolute(ch.duongDan.db), true, 'dấu ~ chưa được nở');
   assert.equal(ch.duongDan.db.includes('~'), false);
   assert.equal(ch.duongDan.health.endsWith('health.json'), true, 'health thiếu thì phải có mặc định');
@@ -217,7 +217,7 @@ test('A14 ZTL_DATA_DIR THẮNG duongDan trong config', () => {
   const cu = process.env.ZTL_DATA_DIR;
   try {
     process.env.ZTL_DATA_DIR = d;
-    const ch = kiemCauHinh(chGia({ duongDan: { db: '~/bi-bo-qua.db' } }));
+    const ch = validateConfig(chGia({ duongDan: { db: '~/bi-bo-qua.db' } }));
     assert.equal(ch.duongDan.db, path.join(d, 'lichsu.db'));
     assert.equal(ch.duongDan.session, path.join(d, 'session.json'));
     assert.equal(ch.duongDan.health, path.join(d, 'health.json'));
@@ -227,23 +227,23 @@ test('A14 ZTL_DATA_DIR THẮNG duongDan trong config', () => {
   }
 });
 
-test('A15 tra cứu: laHost / nhóm / dm', () => {
-  assert.equal(laHost(CH, '111'), true);
-  assert.equal(laHost(CH, '999'), false);
-  assert.equal(laHost(CH, null), false);
+test('A15 tra cứu: isHost / nhóm / dm', () => {
+  assert.equal(isHost(CH, '111'), true);
+  assert.equal(isHost(CH, '999'), false);
+  assert.equal(isHost(CH, null), false);
   // Lệch KIỂU string/number vẫn phải khớp — mọi so sánh đi qua toId().
-  assert.equal(laHost(CH, 111), true, 'so chuỗi trần -> trượt bẫy lệch kiểu');
-  assert.equal(nhomDuocNghe(CH, 'A'), true);
-  assert.equal(nhomDuocNghe(CH, 'Z'), false);
-  assert.equal(nhomTraLoiKhiTag(CH, 'A'), true);
-  assert.equal(nhomTraLoiKhiTag(CH, 'B'), false, 'B tắt trả lời');
-  assert.equal(nhomTraLoiKhiTag(CH, 'Z'), false, 'nhóm lạ phải là false');
-  assert.equal(layDmHost(CH, '111'), 'dm-111');
-  assert.equal(layDmHost(CH, '999'), null);
-  assert.equal(timHostTheoDm(CH, 'dm-111')?.userId, '111');
-  assert.equal(timHostTheoDm(CH, 'A'), null);
-  assert.deepEqual(danhSachHostUserId(CH), ['111']);
-  assert.equal(layNhom(CH, 'B')?.ten, 'Nhóm B');
+  assert.equal(isHost(CH, 111), true, 'so chuỗi trần -> trượt bẫy lệch kiểu');
+  assert.equal(isGroupListened(CH, 'A'), true);
+  assert.equal(isGroupListened(CH, 'Z'), false);
+  assert.equal(groupRepliesOnTag(CH, 'A'), true);
+  assert.equal(groupRepliesOnTag(CH, 'B'), false, 'B tắt trả lời');
+  assert.equal(groupRepliesOnTag(CH, 'Z'), false, 'nhóm lạ phải là false');
+  assert.equal(hostDmChatId(CH, '111'), 'dm-111');
+  assert.equal(hostDmChatId(CH, '999'), null);
+  assert.equal(findHostByDm(CH, 'dm-111')?.userId, '111');
+  assert.equal(findHostByDm(CH, 'A'), null);
+  assert.deepEqual(hostUserIds(CH), ['111']);
+  assert.equal(findGroup(CH, 'B')?.ten, 'Nhóm B');
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -341,7 +341,7 @@ test('B12 gate là HÀM THUẦN — không sửa tin, không sửa config', () =
 // ═══════════════════════════════════════════════════════════════════════════
 
 test('C1 nguồn CHỈ gồm nhóm đang hỏi -> trả lời TRONG NHÓM, coCheo=false', () => {
-  const kq = quyetDinhHuongTraLoi({
+  const kq = decideReplyRoute({
     requestId: 'r1', chatIdHoi: 'A', nguon: ['A'], tonTaiHangDoi: true,
   });
   assert.equal(kq.huong, HUONG_TRA_LOI.NHOM);
@@ -350,7 +350,7 @@ test('C1 nguồn CHỈ gồm nhóm đang hỏi -> trả lời TRONG NHÓM, coChe
 });
 
 test('C2 ★ có nguồn nhóm KHÁC -> DM_HOST, coCheo=true, liệt kê nguồn lạ', () => {
-  const kq = quyetDinhHuongTraLoi({
+  const kq = decideReplyRoute({
     requestId: 'r1', chatIdHoi: 'A', nguon: ['A', 'B', 'C'], tonTaiHangDoi: true,
   });
   assert.equal(kq.huong, HUONG_TRA_LOI.DM_HOST);
@@ -360,7 +360,7 @@ test('C2 ★ có nguồn nhóm KHÁC -> DM_HOST, coCheo=true, liệt kê nguồn
 
 test('C3 KHÔNG đọc gì cả (nguồn rỗng) -> vẫn trả lời trong nhóm', () => {
   // Ca hợp lệ: Claude trả lời bằng kiến thức chung, không tra kho.
-  const kq = quyetDinhHuongTraLoi({
+  const kq = decideReplyRoute({
     requestId: 'r1', chatIdHoi: 'A', nguon: [], tonTaiHangDoi: true,
   });
   assert.equal(kq.huong, HUONG_TRA_LOI.NHOM);
@@ -375,16 +375,16 @@ test('C4 ★ FAIL-CLOSED: request_id lạ / hàng đợi hết hạn -> TU_CHOI,
     { requestId: 'r1', chatIdHoi: null, nguon: ['A'], tonTaiHangDoi: true },
     { requestId: 'r1', chatIdHoi: '', nguon: ['B'], tonTaiHangDoi: true },
   ]) {
-    const kq = quyetDinhHuongTraLoi(boiCanh);
+    const kq = decideReplyRoute(boiCanh);
     assert.equal(kq.huong, HUONG_TRA_LOI.TU_CHOI, JSON.stringify(boiCanh));
     assert.equal(kq.coCheo, false);
   }
-  assert.equal(quyetDinhHuongTraLoi({}).huong, HUONG_TRA_LOI.TU_CHOI);
-  assert.equal(quyetDinhHuongTraLoi(null).huong, HUONG_TRA_LOI.TU_CHOI);
+  assert.equal(decideReplyRoute({}).huong, HUONG_TRA_LOI.TU_CHOI);
+  assert.equal(decideReplyRoute(null).huong, HUONG_TRA_LOI.TU_CHOI);
 });
 
 test('C5 lệch KIỂU string/number không được làm nguồn hoá "lạ"', () => {
-  const kq = quyetDinhHuongTraLoi({
+  const kq = decideReplyRoute({
     requestId: 'r1', chatIdHoi: '9990000000001', nguon: [9990000000001], tonTaiHangDoi: true,
   });
   // Số này > MAX_SAFE_INTEGER nên String(number) vẫn ra đúng chữ số ở đây;
@@ -393,57 +393,57 @@ test('C5 lệch KIỂU string/number không được làm nguồn hoá "lạ"', 
 });
 
 test('C6 ★ tích luỹ theo requestId qua NHIỀU lượt gọi tool, không reset giữa chừng', () => {
-  const b = taoBoTichLuy();
+  const b = createSourceLedger();
   // Claude tra 3 lần rồi mới trả lời. Reset giữa chừng thì lần cuối trông
   // "sạch" và luật bị lách mà không ai cố ý.
-  ghiNhanNguon(b, 'r1', ['A']);
-  ghiNhanNguon(b, 'r1', ['B']);
-  ghiNhanNguon(b, 'r1', ['A', 'C']);
-  assert.deepEqual(layNguon(b, 'r1'), ['A', 'B', 'C']);
+  recordSources(b, 'r1', ['A']);
+  recordSources(b, 'r1', ['B']);
+  recordSources(b, 'r1', ['A', 'C']);
+  assert.deepEqual(getSources(b, 'r1'), ['A', 'B', 'C']);
 
-  const kq = quyetDinhHuongTraLoi({
-    requestId: 'r1', chatIdHoi: 'A', nguon: layNguon(b, 'r1'), tonTaiHangDoi: true,
+  const kq = decideReplyRoute({
+    requestId: 'r1', chatIdHoi: 'A', nguon: getSources(b, 'r1'), tonTaiHangDoi: true,
   });
   assert.equal(kq.huong, HUONG_TRA_LOI.DM_HOST, 'lượt cuối chỉ đọc A nhưng phiên đã đọc B, C');
   assert.deepEqual(kq.nguonLa, ['B', 'C']);
 });
 
 test('C7 hai phiên KHÁC nhau không lẫn nguồn của nhau', () => {
-  const b = taoBoTichLuy();
-  ghiNhanNguon(b, 'r1', ['A']);
-  ghiNhanNguon(b, 'r2', ['B']);
-  assert.deepEqual(layNguon(b, 'r1'), ['A']);
-  assert.deepEqual(layNguon(b, 'r2'), ['B']);
-  xoaPhien(b, 'r1');
-  assert.deepEqual(layNguon(b, 'r1'), []);
-  assert.deepEqual(layNguon(b, 'r2'), ['B'], 'xoá phiên này làm mất phiên kia');
+  const b = createSourceLedger();
+  recordSources(b, 'r1', ['A']);
+  recordSources(b, 'r2', ['B']);
+  assert.deepEqual(getSources(b, 'r1'), ['A']);
+  assert.deepEqual(getSources(b, 'r2'), ['B']);
+  clearSession(b, 'r1');
+  assert.deepEqual(getSources(b, 'r1'), []);
+  assert.deepEqual(getSources(b, 'r2'), ['B'], 'xoá phiên này làm mất phiên kia');
 });
 
 test('C8 requestId rỗng khi ghi nhận -> BỎ QUA, không gộp nhầm vào phiên khác', () => {
-  const b = taoBoTichLuy();
-  ghiNhanNguon(b, 'r1', ['A']);
-  ghiNhanNguon(b, '', ['BI-MAT']);
-  ghiNhanNguon(b, null, ['BI-MAT']);
-  assert.deepEqual(layNguon(b, 'r1'), ['A'], 'nguồn của phiên rỗng đã lẫn sang r1');
+  const b = createSourceLedger();
+  recordSources(b, 'r1', ['A']);
+  recordSources(b, '', ['BI-MAT']);
+  recordSources(b, null, ['BI-MAT']);
+  assert.deepEqual(getSources(b, 'r1'), ['A'], 'nguồn của phiên rỗng đã lẫn sang r1');
   assert.equal(b.soPhien(), 1);
 });
 
-test('C9 donRac chỉ dọn theo TUỔI, và KHÔNG dọn khi tham số vô nghĩa', () => {
-  const b = taoBoTichLuy();
-  ghiNhanNguon(b, 'r1', ['A', 'B']);
-  assert.equal(donRac(b, 60_000), 0, 'phiên mới toanh mà đã bị dọn');
-  assert.deepEqual(layNguon(b, 'r1'), ['A', 'B']);
+test('C9 sweepStale chỉ dọn theo TUỔI, và KHÔNG dọn khi tham số vô nghĩa', () => {
+  const b = createSourceLedger();
+  recordSources(b, 'r1', ['A', 'B']);
+  assert.equal(sweepStale(b, 60_000), 0, 'phiên mới toanh mà đã bị dọn');
+  assert.deepEqual(getSources(b, 'r1'), ['A', 'B']);
 
   // Giả lập phiên già bằng cách đẩy lùi mốc tạo.
   b._kho.get('r1').taoLuc = Date.now() - 10 * 60_000;
-  assert.equal(donRac(b, -1), 0, 'tham số rác mà vẫn dọn -> tự mở đường rò');
-  assert.equal(donRac(b, 'ba phút'), 0);
-  assert.equal(donRac(b, 5 * 60_000), 1);
+  assert.equal(sweepStale(b, -1), 0, 'tham số rác mà vẫn dọn -> tự mở đường rò');
+  assert.equal(sweepStale(b, 'ba phút'), 0);
+  assert.equal(sweepStale(b, 5 * 60_000), 1);
   assert.equal(b.soPhien(), 0);
 });
 
 test('C10 nguồn lạ chỉ để GHI LOG — quyết định không mang theo câu chữ nào', () => {
-  const kq = quyetDinhHuongTraLoi({
+  const kq = decideReplyRoute({
     requestId: 'r1', chatIdHoi: 'A', nguon: ['B'], tonTaiHangDoi: true,
   });
   // cauTrungTinh phải do caller lấy từ config, KHÔNG do file này sinh ra.
@@ -454,15 +454,15 @@ test('C10 nguồn lạ chỉ để GHI LOG — quyết định không mang theo 
 
 test('C11 mã lý do có mặt đủ để G8 ghi log phân biệt được các ca', () => {
   assert.equal(
-    quyetDinhHuongTraLoi({ requestId: 'r', chatIdHoi: 'A', nguon: ['A'], tonTaiHangDoi: false }).lyDo,
+    decideReplyRoute({ requestId: 'r', chatIdHoi: 'A', nguon: ['A'], tonTaiHangDoi: false }).lyDo,
     LY_DO_LEAK.HANG_DOI_KHONG_CON,
   );
   assert.equal(
-    quyetDinhHuongTraLoi({ requestId: 'r', chatIdHoi: 'A', nguon: ['B'], tonTaiHangDoi: true }).lyDo,
+    decideReplyRoute({ requestId: 'r', chatIdHoi: 'A', nguon: ['B'], tonTaiHangDoi: true }).lyDo,
     LY_DO_LEAK.CO_NGUON_LA,
   );
   assert.equal(
-    quyetDinhHuongTraLoi({ requestId: 'r', chatIdHoi: 'A', nguon: ['A'], tonTaiHangDoi: true }).lyDo,
+    decideReplyRoute({ requestId: 'r', chatIdHoi: 'A', nguon: ['A'], tonTaiHangDoi: true }).lyDo,
     LY_DO_LEAK.KHONG_CO_NGUON_LA,
   );
 });
@@ -472,7 +472,7 @@ test('C11 mã lý do có mặt đủ để G8 ghi log phân biệt được các
 // ═══════════════════════════════════════════════════════════════════════════
 
 test('D1 ba file của G4 KHÔNG có console.log (stdout là kênh giao thức MCP)', () => {
-  const goc = path.join(THU_MUC_PACK, 'src', 'policy');
+  const goc = path.join(PACK_ROOT, 'src', 'policy');
   for (const ten of ['access.js', 'gate.js', 'leak_guard.js']) {
     const src = fs.readFileSync(path.join(goc, ten), 'utf8');
     assert.equal(/console\.log\s*\(/.test(src), false, `${ten} có console.log`);
@@ -481,7 +481,7 @@ test('D1 ba file của G4 KHÔNG có console.log (stdout là kênh giao thức M
 });
 
 test('D2 policy KHÔNG import gì từ src/mcp/ hay src/store/ (tầng dưới không biết tầng trên)', () => {
-  const goc = path.join(THU_MUC_PACK, 'src', 'policy');
+  const goc = path.join(PACK_ROOT, 'src', 'policy');
   for (const ten of ['access.js', 'gate.js', 'leak_guard.js']) {
     const src = fs.readFileSync(path.join(goc, ten), 'utf8');
     assert.equal(/from\s+['"][^'"]*\/mcp\//.test(src), false, `${ten} import từ src/mcp/`);

@@ -45,7 +45,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { docCauHinh, layDmHost, danhSachHostUserId, layNhom } from '../src/policy/access.js';
+import { readConfig, hostDmChatId, hostUserIds, findGroup } from '../src/policy/access.js';
 import { expandPath } from '../src/lib/paths.js';
 import { safeLogText } from '../src/lib/redact.js';
 import { GIOI_HAN } from '../src/lib/hang_so.js';
@@ -152,7 +152,7 @@ export function layNoiDung(t) {
  */
 export function chonDich(cauHinh, t) {
   if (t.nhom) {
-    const n = layNhom(cauHinh, t.nhom);
+    const n = findGroup(cauHinh, t.nhom);
     if (!n) {
       // Không cho gửi vào nhóm LẠ: allowlist là allowlist, kể cả chiều gửi ra.
       throw new Error(
@@ -163,13 +163,13 @@ export function chonDich(cauHinh, t) {
     return { loai: 'nhom', chatId: n.chatId, nhan: n.ten || n.chatId };
   }
 
-  const ds = danhSachHostUserId(cauHinh) ?? [];
+  const ds = hostUserIds(cauHinh) ?? [];
   const uid = t.host || ds[0];
   if (!uid) throw new Error('config.hosts[] rỗng — không biết nhắc cho ai');
   if (t.host && !ds.includes(t.host)) {
     throw new Error(`--host ${t.host} không có trong config.hosts[]`);
   }
-  const dm = layDmHost(cauHinh, uid);
+  const dm = hostDmChatId(cauHinh, uid);
   if (!dm) {
     throw new Error(
       `Host ${uid} chưa có dmChatId trong config. Điền hosts[].dmChatId — `
@@ -185,7 +185,7 @@ export async function main(argv) {
 
   let cauHinh;
   try {
-    cauHinh = docCauHinh(t.config);
+    cauHinh = readConfig(t.config);
   } catch (e) {
     err(`⛔ Cấu hình: ${e.message}`);
     return MA.CAU_HINH;

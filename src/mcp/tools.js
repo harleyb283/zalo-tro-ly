@@ -77,8 +77,8 @@ import {
   layHangDoi, capNhatHangDoi, ghiNhatKyTruyVan, ghiTin,
   xinDuyet, xemYeuCauDuyet, duyetYeuCau,
 } from '../store/write.js';
-import { layNguon, ghiNhanNguon, quyetDinhHuongTraLoi, xoaPhien } from '../policy/leak_guard.js';
-import { layDmHost } from '../policy/access.js';
+import { getSources, recordSources, decideReplyRoute, clearSession } from '../policy/leak_guard.js';
+import { hostDmChatId } from '../policy/access.js';
 import { guiVaoNhom, guiDmHost, guiNhieuPhan, canChiaNho, baoDamTag } from '../zalo/send.js';
 
 /** @typedef {import('../types.d.ts').KetQuaTool} KetQuaTool */
@@ -992,7 +992,7 @@ export function dangKyTool(server, phuThuoc) {
     // (`src/index.js` truyền vào). Vắng nó ⇒ `tra_loi` gửi thẳng như hôm nay.
     ...(phuThuoc.kho ?? {}),
   };
-  const chinhSach = { layNguon, ghiNhanNguon, quyetDinhHuongTraLoi, xoaPhien, layDmHost, ...(phuThuoc.chinhSach ?? {}) };
+  const chinhSach = { getSources, recordSources, decideReplyRoute, clearSession, hostDmChatId, ...(phuThuoc.chinhSach ?? {}) };
   const guiTin = { guiVaoNhom, guiDmHost, ...(phuThuoc.guiTin ?? {}) };
   const lich = { taoLich, chotLich, huyLich, xemLich, demDangCho, ...(phuThuoc.lich ?? {}) };
   const nhac = {
@@ -1120,7 +1120,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
   // rồi mới trả lời, quên cộng dồn một lần là lần cuối trông "sạch" và luật
   // bị lách mà KHÔNG AI CỐ Ý.
   try {
-    chinhSach.ghiNhanNguon(boTichLuy, phien.requestId, nguon);
+    chinhSach.recordSources(boTichLuy, phien.requestId, nguon);
   } catch (e) {
     // Không ghi nhận được nguồn ⇒ tra_loi sau này sẽ không biết có chéo hay
     // không ⇒ TỪ CHỐI TRẢ DỮ LIỆU. Trả dữ liệu mà mất dấu nguồn là đúng ca
@@ -1252,8 +1252,8 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   let nguon = [];
   let qd;
   try {
-    nguon = chinhSach.layNguon(boTichLuy, phien.requestId) ?? [];
-    qd = chinhSach.quyetDinhHuongTraLoi({
+    nguon = chinhSach.getSources(boTichLuy, phien.requestId) ?? [];
+    qd = chinhSach.decideReplyRoute({
       requestId: phien.requestId,
       chatIdHoi,
       nguon,
@@ -1275,7 +1275,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   let dmChatId = null;
   if (qd.huong === HUONG_TRA_LOI.DM_HOST) {
     try {
-      dmChatId = toId(chinhSach.layDmHost(cauHinh, phien.dong.user_id), 'cauHinh.dmChatId');
+      dmChatId = toId(chinhSach.hostDmChatId(cauHinh, phien.dong.user_id), 'cauHinh.dmChatId');
     } catch (e) {
       return _loi(MA_LOI.CAU_HINH_SAI, cleanError('không tra được DM host', e).message);
     }
@@ -1441,7 +1441,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       if (uidHostCanTag && !laDmHoi
           && (tagRa.khongTraRa.includes(uidHostCanTag) || tagRa.trungTen.includes(uidHostCanTag))) {
         try {
-          const dmLui = toId(chinhSach.layDmHost(cauHinh, uidHostCanTag), 'cauHinh.dmChatId');
+          const dmLui = toId(chinhSach.hostDmChatId(cauHinh, uidHostCanTag), 'cauHinh.dmChatId');
           if (dmLui) {
             await guiMot(
               dmLui,
@@ -1854,7 +1854,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
 
   let dmChatId;
   try {
-    dmChatId = toId(chinhSach.layDmHost(cauHinh, phien.dong.user_id), 'cauHinh.dmChatId');
+    dmChatId = toId(chinhSach.hostDmChatId(cauHinh, phien.dong.user_id), 'cauHinh.dmChatId');
     // ═══ 🔴 v10 — CỬA 2: người gửi KHÔNG phải host ═══
     // Tra DM theo NGƯỜI GỬI thì ở lượt cửa 2 luôn ra `null` (người gửi là
     // người phụ trách), nên hai ca "XIN dời lịch" / "XIN đóng" mà anh duyệt
@@ -1872,7 +1872,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
     // dư, ⛔ đừng đi viết một bài test giả vờ đo được nó.
     if (!dmChatId && phien.idViecMoCua) {
       dmChatId = toId(
-        chinhSach.layDmHost(cauHinh, kho.layHostDatViec(db, phien.idViecMoCua)),
+        chinhSach.hostDmChatId(cauHinh, kho.layHostDatViec(db, phien.idViecMoCua)),
         'cauHinh.dmChatId',
       );
     }
@@ -1964,15 +1964,15 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
 
   // Định danh MỀM: thiếu/sai request_id thì KHÔNG làm hỏng tool, chỉ là không
   // được xem số liệu kho.
-  let laHost = false;
+  let isHost = false;
   try {
     const phien = _kiemPhien(kho, db, thamSo);
-    if (!phien.loi) laHost = _laHost(cauHinh, phien);
+    if (!phien.loi) isHost = _laHost(cauHinh, phien);
   } catch (e) {
     _log(cleanError('không xác định được người gọi trang_thai -> coi là người ngoài', e).message);
   }
 
-  if (!laHost) return _ok({ sucKhoe: _sucKhoeGon(sucKhoe) });
+  if (!isHost) return _ok({ sucKhoe: _sucKhoeGon(sucKhoe) });
 
   let so = { soTinDaLuu: 0, soThuHoiMoCoi: 0, soHangDoiCho: 0, soNhomDangNghe: 0 };
   try {
@@ -2046,7 +2046,7 @@ function _dongPhien(kho, chinhSach, db, boTichLuy, requestId) {
     _log(cleanError(`không cập nhật được hàng đợi ${requestId}`, e).message);
   }
   try {
-    chinhSach.xoaPhien(boTichLuy, requestId);
+    chinhSach.clearSession(boTichLuy, requestId);
   } catch (e) {
     _log(cleanError(`không xoá được phiên tích luỹ ${requestId}`, e).message);
   }
@@ -2099,7 +2099,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
   if (phien.loi) return phien.loi;
 
   const nguoiDat = String(phien.dong.user_id ?? '');
-  if (!layDmHost(cauHinh, nguoiDat) && !(cauHinh.hosts ?? []).some((h) => h.userId === nguoiDat)) {
+  if (!hostDmChatId(cauHinh, nguoiDat) && !(cauHinh.hosts ?? []).some((h) => h.userId === nguoiDat)) {
     // Chỉ host mới đặt được lịch. Đi qua chính danh sách host của config, không
     // thêm cửa mới — thêm cửa là thêm chỗ để quên đồng bộ.
     return _loi(MA_LOI.BI_CHAN_RO_CHEO, 'Chỉ host mới được đặt lịch nhắc.');
@@ -2422,9 +2422,9 @@ export const _noiBoChoTest = { _kiemPhien, _cat, _goi, _datLichNhap, _datLichCho
 // 8. NHẮC THEO ĐUỔI — 4 tool
 //
 // Tầng dữ liệu + logic nằm ở `src/lich/theo_duoi.js`. Bốn hàm dưới chỉ làm
-// đúng 3 việc: kiểm phiên, xác định `laHost`, gọi hàm tương ứng.
+// đúng 3 việc: kiểm phiên, xác định `isHost`, gọi hàm tương ứng.
 //
-// 🔴 `laHost` TÍNH Ở ĐÂY chứ không để tầng dưới tự đoán: tầng dưới chỉ thấy
+// 🔴 `isHost` TÍNH Ở ĐÂY chứ không để tầng dưới tự đoán: tầng dưới chỉ thấy
 // `db`, không thấy config. Truyền sai một lần là bất kỳ ai trong nhóm cũng
 // tắt được lời nhắc của chính mình — tức người bị nhắc tự gỡ được cái nhắc họ.
 // ═══════════════════════════════════════════════════════════════════════
@@ -2441,7 +2441,7 @@ export const _noiBoChoTest = { _kiemPhien, _cat, _goi, _datLichNhap, _datLichCho
  * chung đã đòi hai thứ đó trước khi tới đây, nên hàm này là **lớp thứ hai** —
  * cố ý dư, phòng khi ai đó thêm một tool nghiệp vụ mà quên khai vào danh sách.
  *
- * ⛔ ĐỪNG đổi thành `laHost || true`. Lớp này giữ đúng một thứ: hành động đổi
+ * ⛔ ĐỪNG đổi thành `isHost || true`. Lớp này giữ đúng một thứ: hành động đổi
  * trạng thái **luôn** truy được về một câu ai đó thật sự đã gõ.
  */
 function _duocLamNghiepVu(cauHinh, phien, thamSo) {
@@ -2754,7 +2754,7 @@ function _chinhNhipNhac({ kho, nhac, db, cauHinh }, thamSo) {
   try {
     kq = nhac.chinhNhip(db, {
       id,
-      laHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
+      isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
       chuKyNgay: thamSo.chuKyNgay,
       chuKyPhut: thamSo.chuKyPhut,
       tranSoLan: thamSo.tranSoLan,
@@ -2788,7 +2788,7 @@ function _dongNhac({ kho, nhac, db, cauHinh }, thamSo) {
     kq = nhac.dongNhac(db, {
       id,
       nguoiDong: String(phien.dong.user_id ?? ''),
-      laHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
+      isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
       bayGioMs: Date.now(),
     });
   } catch (e) {
@@ -3165,7 +3165,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
       id: thamSo.id,
       chatId: phien.dong.chat_id_hoi,
       nguoiMo: String(phien.dong.user_id ?? ''),
-      laHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
+      isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
       noiTran: thamSo.noiTran === true,
       bayGioMs: Date.now(),
     });

@@ -115,7 +115,7 @@ function dungTool(db, api, { guiHong = false } = {}) {
       guiDmHost: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
     },
     chinhSach: {
-      quyetDinhHuongTraLoi: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
+      decideReplyRoute: () => ({ huong: HUONG_TRA_LOI.NHOM, coCheo: false, nguonLa: [], lyDo: 'sạch' }),
     },
   });
   return async (name, args) => JSON.parse((await xuLy({ params: { name, arguments: args } })).content[0].text);

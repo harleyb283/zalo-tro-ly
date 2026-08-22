@@ -33,7 +33,7 @@ import { dongDb, moDb } from '../src/store/db.js';
 import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
 import { dsNguoiTrongNhom, layLoaiHoiThoai, layUidCanTagCuaNhac } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC } from '../src/lib/hang_so.js';
-import { quyetDinhHuongTraLoi } from '../src/policy/leak_guard.js';
+import { decideReplyRoute } from '../src/policy/leak_guard.js';
 import { quyetDinh } from '../src/policy/gate.js';
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -114,7 +114,7 @@ function dungTool(db, api, { hosts, cauTrungTinh = 'Em nhắn riêng anh rồi �
     },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
     guiTin: { guiVaoNhom, guiDmHost },      // ★ tầng gửi THẬT
-    ...(huong ? { chinhSach: { quyetDinhHuongTraLoi: () => huong } } : {}),
+    ...(huong ? { chinhSach: { decideReplyRoute: () => huong } } : {}),
   });
   return async (n, a) => JSON.parse((await xuLy({ params: { name: n, arguments: a } })).content[0].text);
 }
@@ -559,11 +559,11 @@ test('★★★ E4 gate: DM KHÔNG cần tag mới kích hoạt, NHÓM thì CẦ
 test('★★★ E5 leak_guard: DM là MỘT NGUỒN RIÊNG, không lẫn với nhóm', () => {
   // Đọc lịch sử nhóm rồi trả lời trong DM ⇒ vẫn là chéo nguồn. Và đọc lịch sử
   // của CHÍNH DM đó thì KHÔNG chéo.
-  const cheo = quyetDinhHuongTraLoi({ requestId: 'r', chatIdHoi: DM, nguon: [NHOM], tonTaiHangDoi: true });
+  const cheo = decideReplyRoute({ requestId: 'r', chatIdHoi: DM, nguon: [NHOM], tonTaiHangDoi: true });
   assert.equal(cheo.huong, HUONG_TRA_LOI.DM_HOST);
   assert.deepEqual(cheo.nguonLa, [NHOM]);
 
-  const sach = quyetDinhHuongTraLoi({ requestId: 'r', chatIdHoi: DM, nguon: [DM], tonTaiHangDoi: true });
+  const sach = decideReplyRoute({ requestId: 'r', chatIdHoi: DM, nguon: [DM], tonTaiHangDoi: true });
   assert.equal(sach.huong, HUONG_TRA_LOI.NHOM, 'đọc lịch sử của chính DM đó KHÔNG phải chéo nguồn');
   assert.deepEqual(sach.nguonLa, []);
 });

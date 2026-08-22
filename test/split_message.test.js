@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { splitMessage, findSplitPoint, charLength, MAX_PARTS } from '../src/lib/split_message.js';
-import { kiemCauHinh, KENH_PHU_HOP_LE } from '../src/policy/access.js';
+import { validateConfig, VALID_SIDE_CHANNELS } from '../src/policy/access.js';
 
 const nhoHon = (phan, tran) => phan.every((p) => charLength(p) <= tran);
 
@@ -136,7 +136,7 @@ test('A11 KHÔNG cắt chồng với catAnToan — hai hàm khác việc', async
 // ═══════════════════════════════════════════════════════════════════════
 
 test('🔴 B1 config KHÔNG khai gì -> kenhPhu="zalo", tichHop TẮT HẾT', () => {
-  const c = kiemCauHinh(cauHinhGia());
+  const c = validateConfig(cauHinhGia());
   assert.equal(c.kenhPhu, 'zalo', 'người tải pack về phải dùng được ngay');
   // 🔴 `moPhienLenh: null` là CÔNG TẮC TẮT của panel-mỗi-nhóm (v10.2). Mặc định
   // có giá trị ⇒ người tải pack về bị pack tự chạy một lệnh shell họ chưa từng
@@ -150,7 +150,7 @@ test('🔴 B1b `chuyenViecLenh` ĐÃ BỊ BỎ HẲN — không được lặng 
   // khi chẳng có gì chạy. Bỏ hẳn 20/08/2026.
   // Bài này canh CẢ HAI chiều: (a) validate không còn nhả nó ra, (b) người dùng
   // có lỡ điền thì cũng bị BỎ QUA chứ không được âm thầm chấp nhận.
-  const c = kiemCauHinh(cauHinhGia({
+  const c = validateConfig(cauHinhGia({
     tichHop: { chuyenViecLenh: 'lenh-cu', kenhPhuLenh: 'lenh-that' },
   }));
   assert.equal('chuyenViecLenh' in c.tichHop, false,
@@ -158,8 +158,8 @@ test('🔴 B1b `chuyenViecLenh` ĐÃ BỊ BỎ HẲN — không được lặng 
   assert.equal(c.tichHop.kenhPhuLenh, 'lenh-that', 'kenhPhuLenh vẫn phải dùng được');
 });
 
-test('🔴 B2 hai khoá mới KHÔNG còn bị kiemCauHinh nuốt mất', () => {
-  const c = kiemCauHinh(cauHinhGia({
+test('🔴 B2 hai khoá mới KHÔNG còn bị validateConfig nuốt mất', () => {
+  const c = validateConfig(cauHinhGia({
     kenhPhu: 'telegram',
     tichHop: { kenhPhuLenh: 'lenh-b' },
   }));
@@ -168,18 +168,18 @@ test('🔴 B2 hai khoá mới KHÔNG còn bị kiemCauHinh nuốt mất', () => 
 });
 
 test('B3 kenhPhu giá trị lạ -> CẢNH BÁO rồi về "zalo", KHÔNG chết', () => {
-  const c = kiemCauHinh(cauHinhGia({ kenhPhu: 'sms' }));
+  const c = validateConfig(cauHinhGia({ kenhPhu: 'sms' }));
   assert.equal(c.kenhPhu, 'zalo', 'gõ sai một chữ mà không khởi động được là phạt quá nặng');
-  assert.deepEqual([...KENH_PHU_HOP_LE], ['zalo', 'telegram', 'khong']);
+  assert.deepEqual([...VALID_SIDE_CHANNELS], ['zalo', 'telegram', 'khong']);
 });
 
 test('B4 tichHop không phải chuỗi -> coi như TẮT, không nổ', () => {
-  const c = kiemCauHinh(cauHinhGia({ tichHop: { kenhPhuLenh: '  ', moPhienLenh: 42 } }));
+  const c = validateConfig(cauHinhGia({ tichHop: { kenhPhuLenh: '  ', moPhienLenh: 42 } }));
   assert.deepEqual(c.tichHop, { kenhPhuLenh: null, moPhienLenh: null });
 });
 
 test('B5 kenhPhu="khong" vẫn hợp lệ', () => {
-  assert.equal(kiemCauHinh(cauHinhGia({ kenhPhu: 'khong' })).kenhPhu, 'khong');
+  assert.equal(validateConfig(cauHinhGia({ kenhPhu: 'khong' })).kenhPhu, 'khong');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
