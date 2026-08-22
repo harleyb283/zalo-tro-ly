@@ -396,7 +396,7 @@ export function dungMentions(msg, dsNguoi) {
  * @param {Array<{uid: string, ten: string}>} dsNguoi người CÓ THẬT trong nhóm, tra LÚC GỬI
  * @param {string[]} uids      uid BẮT BUỘC phải được tag
  * @param {string|null} [uidTroLy] uid CHÍNH BOT — không bao giờ tự tag mình.
- *   Lớp chặn THỨ HAI: `dsNguoiTrongNhom` đã lọc bot ở tầng truy vấn, nhưng hàm
+ *   Lớp chặn THỨ HAI: `groupMembers` đã lọc bot ở tầng truy vấn, nhưng hàm
  *   này còn nhận `dsNguoi` từ chỗ khác (test, gói khác, tương lai) nên không
  *   được phụ thuộc vào việc người gọi đã lọc sạch. `"0"`/rỗng ⇒ KHÔNG BIẾT,
  *   không lọc ai (uid `"0"` có thể là người thật).
@@ -542,7 +542,7 @@ function _xepHang() {
  * ⇒ KHÔNG tự `import '../store/write.js'` (file này không có `db` handle, và
  *   tự mở DB thứ hai trong tiến trình là mời gọi khoá chéo).
  * ⇒ Nhận `tuyChon.ghiLai(tin)` từ ngoài. G8 nối dây:
- *      guiVaoNhom(api, id, text, { ghiLai: (t) => ghiTin(db, t, {doTroLyTao:true}) })
+ *      guiVaoNhom(api, id, text, { ghiLai: (t) => writeMessage(db, t, {doTroLyTao:true}) })
  *   Tham số THÊM ở cuối nên mọi lời gọi 3 đối số cũ vẫn chạy.
  * ⚠️ Không truyền `ghiLai` ⇒ lịch sử THIẾU VẾ TRẢ LỜI. Đọc lại chỉ thấy câu
  *   hỏi, không thấy trợ lý đã đáp gì. Vì vậy bỏ trống là có CẢNH BÁO stderr,

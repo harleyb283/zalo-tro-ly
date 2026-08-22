@@ -6,7 +6,7 @@
  * CÁCH DÙNG trong file .js (không cần cài gì):
  *     /** @typedef {import('../types.d.ts').TinChuanHoa} TinChuanHoa *\/
  *     /** @param {TinChuanHoa} tin *\/
- *     export function ghiTin(db, tin) { ... }
+ *     export function writeMessage(db, tin) { ... }
  *
  * 🔴 LUẬT HOA/THƯỜNG — nguồn sai lệch số 1 giữa các gói:
  *     · Trong JS (biến, đối tượng, tham số):  camelCase   → `chatId`, `tsZalo`

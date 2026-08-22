@@ -22,11 +22,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoGhiNho, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, writeMemo, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import {
-  _xoaPhamViChoTest, datClientId, datPhamVi, dsNguoiTrongNhom, layGhiNho,
-  layPhamVi, layTinGanNhat, layUidCanTagCuaNhac, thongKe, truyVanLichSu,
+  _xoaPhamViChoTest, setClientId, setReadScope, groupMembers, readMemos,
+  getReadScope, latestMessages, reminderTagUids, storeStats, queryHistory,
 } from '../src/store/query.js';
 import { CHE_DO, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, VAI } from '../src/lib/hang_so.js';
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
@@ -58,10 +58,10 @@ function thuMucTam() {
 }
 
 function dbHaiNhom() {
-  const db = moDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM_A, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
-  upsertHoiThoai(db, { chatId: NHOM_B, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
-  const tin = (chatId, msgId, userId, ten, noiDung) => ghiTin(db, {
+  const db = openDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM_A, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
+  upsertConversation(db, { chatId: NHOM_B, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
+  const tin = (chatId, msgId, userId, ten, noiDung) => writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung, contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -78,84 +78,84 @@ function dbHaiNhom() {
 
 test('★★★ P1 NGHIỆM THU①: khoá nhóm A, hỏi nhóm B -> 0 DÒNG của B', () => {
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  const kq = truyVanLichSu(db, { chatId: NHOM_B });
+  setReadScope(NHOM_A);
+  const kq = queryHistory(db, { chatId: NHOM_B });
   assert.equal(kq.rows.length, 2, 'phải trả dữ liệu nhóm A, không phải trả rỗng');
   for (const r of kq.rows) {
     assert.equal(String(r.chat_id), NHOM_A, `dòng của ${r.chat_id} lọt vào pane nhóm A`);
   }
   assert.deepEqual(kq.nguonChatIds, [NHOM_A], 'nguồn khai ra cũng phải đúng phạm vi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ P2 NGHIỆM THU②: khoá nhóm A, BỎ TRỐNG chatId -> CHỈ nhóm A', () => {
   // 🔴 Đây là cửa rò nguy hiểm nhất: mặc định cũ của `lich_su` là "bỏ trống =
   // MỌI hội thoại". Chỉ cần model quên một tham số là nó đọc cả kho.
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  const kq = truyVanLichSu(db, {});
+  setReadScope(NHOM_A);
+  const kq = queryHistory(db, {});
   assert.equal(kq.rows.length, 2);
   assert.deepEqual([...new Set(kq.rows.map((r) => String(r.chat_id)))], [NHOM_A],
     '🔴 "bỏ trống" trong pane nhóm PHẢI nghĩa là "nhóm của tôi", ⛔ không phải "tất cả"');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ P3 tìm theo TỪ KHOÁ cũng bị ép phạm vi', () => {
   // Tìm từ khoá là đường vòng hiển nhiên nhất: không truyền chatId, chỉ truyền
   // một chữ, rồi đọc kết quả của mọi nhóm.
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  const kq = truyVanLichSu(db, { tuKhoa: 'BÍ MẬT' });
+  setReadScope(NHOM_A);
+  const kq = queryHistory(db, { tuKhoa: 'BÍ MẬT' });
   assert.equal(kq.rows.length, 0, 'tìm từ khoá vượt được phạm vi = khoá vô nghĩa');
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ P4 `thongKe` cũng bị ép — CON SỐ CŨNG LÀ DỮ LIỆU', () => {
+test('★★★ P4 `storeStats` cũng bị ép — CON SỐ CŨNG LÀ DỮ LIỆU', () => {
   // "Kho có N tin, đang nghe M nhóm" nói cho pane nhóm biết có bao nhiêu nhóm
   // khác tồn tại và chúng ồn tới đâu. Rò ở dạng gọn hơn, vẫn là rò.
   const db = dbHaiNhom();
-  const toanBo = thongKe(db);
+  const toanBo = storeStats(db);
   assert.equal(toanBo.soTinDaLuu, 3);
   assert.equal(toanBo.soNhomDangNghe, 2);
 
-  datPhamVi(NHOM_A);
-  const trongPhamVi = thongKe(db);
+  setReadScope(NHOM_A);
+  const trongPhamVi = storeStats(db);
   assert.equal(trongPhamVi.soTinDaLuu, 2, 'đếm cả kho = khai ra kho có bao nhiêu tin');
   assert.equal(trongPhamVi.soNhomDangNghe, 1, 'khai ra có mấy nhóm khác đang được nghe');
   assert.equal(trongPhamVi.phamVi, NHOM_A);
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ P5 `dsNguoiTrongNhom` bị ép — TÊN NGƯỜI là dữ liệu riêng', () => {
+test('★★★ P5 `groupMembers` bị ép — TÊN NGƯỜI là dữ liệu riêng', () => {
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  const ds = dsNguoiTrongNhom(db, NHOM_B);
+  setReadScope(NHOM_A);
+  const ds = groupMembers(db, NHOM_B);
   assert.deepEqual(ds.map((x) => x.uid), [HOST],
     'danh sách thành viên nhóm khác nói cho pane này biết ai có mặt ở đó');
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ P6 `layGhiNho` bị ép — ghi nhớ nhóm khác là dữ liệu nhóm khác', () => {
+test('★★★ P6 `readMemos` bị ép — ghi nhớ nhóm khác là dữ liệu nhóm khác', () => {
   const db = dbHaiNhom();
-  taoGhiNho(db, { chatId: NHOM_A, nguoiGhi: HOST, noiDung: 'của A', nguyenVan: 'a' });
-  taoGhiNho(db, { chatId: NHOM_B, nguoiGhi: HOST, noiDung: 'BÍ MẬT của B', nguyenVan: 'b' });
-  datPhamVi(NHOM_A);
-  const kq = layGhiNho(db, { chatId: NHOM_B });
+  writeMemo(db, { chatId: NHOM_A, nguoiGhi: HOST, noiDung: 'của A', nguyenVan: 'a' });
+  writeMemo(db, { chatId: NHOM_B, nguoiGhi: HOST, noiDung: 'BÍ MẬT của B', nguyenVan: 'b' });
+  setReadScope(NHOM_A);
+  const kq = readMemos(db, { chatId: NHOM_B });
   assert.equal(kq.rows.length, 1);
   assert.equal(kq.rows[0].noi_dung, 'của A');
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★ P7 `layTinGanNhat` đi qua cùng cửa nên cũng bị ép', () => {
+test('★★ P7 `latestMessages` đi qua cùng cửa nên cũng bị ép', () => {
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  const kq = layTinGanNhat(db, NHOM_B, 50);
+  setReadScope(NHOM_A);
+  const kq = latestMessages(db, NHOM_B, 50);
   assert.deepEqual([...new Set(kq.rows.map((r) => String(r.chat_id)))], [NHOM_A]);
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ P7b `layUidCanTagCuaNhac` bị ép — UID là dữ liệu riêng NHẤT', () => {
-  // 🔴 Đường này KHÔNG đi qua `truyVanLichSu`: nó tra thẳng `lich_hen` theo id.
+test('★★★ P7b `reminderTagUids` bị ép — UID là dữ liệu riêng NHẤT', () => {
+  // 🔴 Đường này KHÔNG đi qua `queryHistory`: nó tra thẳng `lich_hen` theo id.
   // `idNhac` suy từ hàng đợi nên model không tự chọn được, nhưng dữ liệu cũ /
   // lỗi ghi vẫn trỏ được sang nhóm khác — và thứ nó trả về là **uid người
   // thật**, món riêng tư nhất trong kho.
@@ -168,30 +168,30 @@ test('★★★ P7b `layUidCanTagCuaNhac` bị ép — UID là dữ liệu riên
   });
   chotLich(db, { id: idB, ma: idB, nguoiDat: NGUOI_B });
 
-  assert.ok(layUidCanTagCuaNhac(db, idB), 'không khoá thì phải đọc được — nếu không bài này rỗng');
-  datPhamVi(NHOM_A);
-  assert.equal(layUidCanTagCuaNhac(db, idB), null,
+  assert.ok(reminderTagUids(db, idB), 'không khoá thì phải đọc được — nếu không bài này rỗng');
+  setReadScope(NHOM_A);
+  assert.equal(reminderTagUids(db, idB), null,
     '🔴 pane nhóm A đọc được uid người nhóm B');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ P8 KHÔNG khoá phạm vi -> đọc được cả kho (⛔ không vá quá tay)', () => {
   // Đây là chiều ngược lại: daemon và chế độ một-tiến-trình vốn có toàn quyền
   // hợp lệ. Vá quá tay ở đây là trợ lý mù trên chính máy đang chạy hôm nay.
   const db = dbHaiNhom();
-  assert.equal(layPhamVi(), null);
-  assert.equal(truyVanLichSu(db, {}).rows.length, 3);
-  assert.equal(truyVanLichSu(db, { chatId: NHOM_B }).rows.length, 1);
-  dongDb(db);
+  assert.equal(getReadScope(), null);
+  assert.equal(queryHistory(db, {}).rows.length, 3);
+  assert.equal(queryHistory(db, { chatId: NHOM_B }).rows.length, 1);
+  closeDb(db);
 });
 
 test('★★★ P9 phạm vi KHÔNG có đường nào nhận từ tham số tool', () => {
   // ⛔ Model tự nới phạm vi của chính nó thì hàng rào chỉ còn là lời đề nghị.
   // Bài này canh cấu trúc: không tool nào khai tham số phạm vi, và không chỗ
-  // nào trong `tools.js` gọi `datPhamVi`.
+  // nào trong `tools.js` gọi `setReadScope`.
   const src = fs.readFileSync(path.join(GOC, 'src/mcp/tools.js'), 'utf8');
-  assert.ok(!src.includes('datPhamVi'),
-    '🔴 `tools.js` gọi datPhamVi = model có đường đổi phạm vi của chính nó');
+  assert.ok(!src.includes('setReadScope'),
+    '🔴 `tools.js` gọi setReadScope = model có đường đổi phạm vi của chính nó');
   for (const ten of ['phamVi', 'pham_vi', 'scope', 'clientId', 'client_id']) {
     assert.ok(!new RegExp(`${ten}:\\s*\\{\\s*type:`).test(src),
       `có tham số tool tên "${ten}" — phạm vi/danh tính ⛔ KHÔNG được là tham số`);
@@ -220,7 +220,7 @@ function dungTool(db) {
       ],
     },
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
-    kho: { ghiNhatKyTruyVan: (_db, b) => { nhatKy.push(b); } },
+    kho: { writeQueryLog: (_db, b) => { nhatKy.push(b); } },
   });
   return {
     nhatKy,
@@ -229,7 +229,7 @@ function dungTool(db) {
 }
 
 function phien(db, rid = 'r1', chatIdHoi = NHOM_A) {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi, msgId: 'a1', userId: HOST,
     noiDung: 'tổng hợp hôm nay', tsTao: new Date().toISOString(),
   });
@@ -238,7 +238,7 @@ function phien(db, rid = 'r1', chatIdHoi = NHOM_A) {
 
 test('★★★ T1 qua tool `lich_su`: hỏi nhóm B -> chỉ nhóm A, và NÓI RÕ vì sao', async () => {
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
+  setReadScope(NHOM_A);
   const { goi } = dungTool(db);
   const r = await goi(TEN_TOOL.LICH_SU, { request_id: phien(db), chatId: NHOM_B });
 
@@ -250,12 +250,12 @@ test('★★★ T1 qua tool `lich_su`: hỏi nhóm B -> chỉ nhóm A, và NÓI 
   assert.match(r.duLieu.nhac, /DM/, 'phải chỉ đường DM');
   assert.match(r.duLieu.nhac, /KHÔNG ĐƯỢC PHÉP XEM/,
     'phải phân biệt "không được xem" với "không có gì"');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2 NGHIỆM THU③: 20 lượt của pane nhóm -> co_cheo = 0 trên 100%', async () => {
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
+  setReadScope(NHOM_A);
   const { goi, nhatKy } = dungTool(db);
   for (let i = 0; i < 20; i += 1) {
     // Cố tình hỏi LUNG TUNG: lúc nhóm B, lúc bỏ trống, lúc tìm từ khoá.
@@ -272,16 +272,16 @@ test('★★★ T2 NGHIỆM THU③: 20 lượt của pane nhóm -> co_cheo = 0 t
   await goi(TEN_TOOL.LICH_SU, { request_id: phien(db, 'rz') });
   assert.deepEqual(nhatKy.filter((x) => x.coCheo === true), [],
     'pane nhóm mà còn dòng co_cheo=1 nghĩa là vẫn đọc được nhóm khác');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và ghi ĐÚNG', async () => {
-  // ⚠️ Bài này cố ý KHÔNG stub `kho.ghiNhatKyTruyVan` — stub chỉ chứng minh
+  // ⚠️ Bài này cố ý KHÔNG stub `kho.writeQueryLog` — stub chỉ chứng minh
   // "tools.js có truyền", ⛔ không chứng minh "cột tồn tại và giá trị vào được
   // đúng ô". Đây đúng ca `ref_test_hang_gia_khong_bat_duoc_loi_kieu_o_tang_db`.
   const db = dbHaiNhom();
-  datPhamVi(NHOM_A);
-  datClientId('pane-nhom-a');
+  setReadScope(NHOM_A);
+  setClientId('pane-nhom-a');
   let xuLy;
   registerTools({
     setRequestHandler(sc, f) { if (sc?.shape?.method?.value === 'tools/call') xuLy = f; },
@@ -311,7 +311,7 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
   assert.ok(dong, 'không có dòng nhật ký = mất bằng chứng nghiệm thu');
   assert.equal(dong.client_id, 'pane-nhom-a', 'client_id phải là TÊN PANE, không phải null/khác');
   assert.equal(dong.co_cheo, 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KHÔNG qua lich_su)', async () => {
@@ -329,7 +329,7 @@ test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KH
     });
     chotLich(db, { id: `L${ma}`, ma: `L${ma}`, nguoiDat: HOST });
   }
-  datPhamVi(NHOM_A);
+  setReadScope(NHOM_A);
   const { goi } = dungTool(db);
 
   const rn = await goi(TEN_TOOL_NHAC.XEM_NHAC, { request_id: phien(db, 'r1') });
@@ -347,7 +347,7 @@ test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KH
     assert.equal(x.chatIdDich, NHOM_A, `lịch của ${x.chatIdDich} lọt vào pane nhóm A`);
   }
   assert.deepEqual(dsL.filter((x) => /NB/.test(x.noiDung)), []);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -357,7 +357,7 @@ test('★★★ T4 `xem_nhac` / `xem_lich` cũng bị lọc (đường đọc KH
 function chayClient(env) {
   const d = thuMucTam();
   const pDb = path.join(d, 'kho', 'lichsu.db');
-  dongDb(moDb(pDb));
+  closeDb(openDb(pDb));
   const cfg = path.join(d, 'config.json');
   fs.writeFileSync(cfg, JSON.stringify({
     hosts: [{ userId: HOST, ten: 'Chủ máy', dmChatId: '9993000000000000003' }],
@@ -404,31 +404,31 @@ test('★★ E4 khai CẢ HAI -> từ chối, ⛔ không tự đoán ý', () => 
   assert.match(r.ra, /CẢ HAI/);
 });
 
-test('★★★ E5 `datPhamVi(null)` = toàn quyền, KHÁC "chưa ai chốt"', async () => {
+test('★★★ E5 `setReadScope(null)` = toàn quyền, KHÁC "chưa ai chốt"', async () => {
   // Hai trạng thái này giống nhau ở kết quả đọc nhưng khác nhau ở Ý NGHĨA, và
   // phải phân biệt được để nghiệm thu: "pane DM host" vs "daemon".
-  const { daChotPhamVi } = await import('../src/store/query.js');
-  assert.equal(daChotPhamVi(), false, 'chưa ai chốt');
-  datPhamVi(null);
-  assert.equal(layPhamVi(), null);
-  assert.equal(daChotPhamVi(), true, 'đã chốt là toàn quyền — một QUYẾT ĐỊNH, không phải mặc định');
+  const { isScopeLocked } = await import('../src/store/query.js');
+  assert.equal(isScopeLocked(), false, 'chưa ai chốt');
+  setReadScope(null);
+  assert.equal(getReadScope(), null);
+  assert.equal(isScopeLocked(), true, 'đã chốt là toàn quyền — một QUYẾT ĐỊNH, không phải mặc định');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 // M — chế độ một tiến trình KHÔNG đổi hành vi
 // ═══════════════════════════════════════════════════════════════════════
 
-test('★★★ M1 chế độ MỘT TIẾN TRÌNH: không ai gọi datPhamVi -> đọc cả kho', () => {
+test('★★★ M1 chế độ MỘT TIẾN TRÌNH: không ai gọi setReadScope -> đọc cả kho', () => {
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
-  // `datPhamVi` chỉ được gọi trong `chayClient`, ⛔ không ở đường daemon.
+  // `setReadScope` chỉ được gọi trong `chayClient`, ⛔ không ở đường daemon.
   const truocClient = truocNeo(idx, 'async function chayClient');
   const sauClient = tuNeo(idx, 'export async function rutOutbox');
-  assert.ok(!truocClient.includes('datPhamVi('), 'đường daemon ⛔ không được khoá phạm vi');
-  assert.ok(!sauClient.includes('datPhamVi('), 'đường daemon ⛔ không được khoá phạm vi');
+  assert.ok(!truocClient.includes('setReadScope('), 'đường daemon ⛔ không được khoá phạm vi');
+  assert.ok(!sauClient.includes('setReadScope('), 'đường daemon ⛔ không được khoá phạm vi');
 
   const db = dbHaiNhom();
-  assert.equal(truyVanLichSu(db, {}).rows.length, 3, 'daemon phải đọc được cả kho như hôm nay');
-  dongDb(db);
+  assert.equal(queryHistory(db, {}).rows.length, 3, 'daemon phải đọc được cả kho như hôm nay');
+  closeDb(db);
 });
 
 test('★★★ M2 config `cheDo` (việc B) — mặc định và giá trị lạ đều về một-tiến-trình', async () => {

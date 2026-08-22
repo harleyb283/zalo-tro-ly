@@ -20,9 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { truyVanLichSu } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
+import { queryHistory } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_NHAC, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -40,13 +40,13 @@ process.on('exit', () => {
   for (const d of RAC) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* */ } }
 });
 
-/** DB thật + vài tin để `dsNguoiTrongNhom` có người tra. */
+/** DB thật + vài tin để `groupMembers` có người tra. */
 function dbTam({ tenTrong = 'Trọng Nguyễn' } = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum2-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
-  const tin = (msgId, userId, ten, ts) => ghiTin(db, {
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const tin = (msgId, userId, ten, ts) => writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung: 'nói gì đó', contentRaw: null,
     tsZalo: ts, tuToi: false, coTagHost: false,
@@ -56,9 +56,9 @@ function dbTam({ tenTrong = 'Trọng Nguyễn' } = {}) {
   return db;
 }
 
-/** Ghi thêm một tin MỚI HƠN để đổi tên hiển thị (dsNguoiTrongNhom lấy tin mới nhất). */
+/** Ghi thêm một tin MỚI HƠN để đổi tên hiển thị (groupMembers lấy tin mới nhất). */
 function doiTen(db, userId, tenMoi) {
-  ghiTin(db, {
+  writeMessage(db, {
     chatId: NHOM, msgId: `m-doiten-${tenMoi}`, cliMsgId: null, userId, tenLucGui: tenMoi,
     msgType: 'chat.text', noiDung: 'đổi tên rồi', contentRaw: null,
     tsZalo: 1_800_000_000_000, tuToi: false, coTagHost: false,
@@ -124,7 +124,7 @@ function phienNhac(db, idNhac, requestId = 'req-nhac') {
   // thiếu token là dựng một trạng thái production KHÔNG tạo ra được.
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
     .run({ t: Date.now(), id: String(idNhac) });
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId, chatIdHoi: NHOM, msgId: `nhac:${idNhac}:0`,
     userId: HOST, noiDung: '[LỜI NHẮC…]', tsTao: new Date().toISOString(),
   });
@@ -142,7 +142,7 @@ test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
 test('T2a ★★★ dat_nhac_theo_duoi nhận tagUserIds + nguoiPhuTrach -> DB có CẢ HAI, câu xác nhận in "Tag"', async () => {
   const db = dbTam();
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm-host', userId: HOST,
     noiDung: 'nhắc Trọng nhé', tsTao: new Date().toISOString(),
   });
@@ -160,13 +160,13 @@ test('T2a ★★★ dat_nhac_theo_duoi nhận tagUserIds + nguoiPhuTrach -> DB c
 
   assert.match(kq.duLieu.cauXacNhan, /Tag mỗi lượt: .*@Trọng Nguyễn/,
     'câu xác nhận phải cho anh thấy sẽ tag AI trước khi anh gõ "ok"');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T2a-2 ★★★ THIẾU cả hai -> câu xác nhận PHẢI cảnh báo "KHÔNG TAG AI"', async () => {
   const db = dbTam();
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm-host', userId: HOST,
     noiDung: 'nhắc vụ kia', tsTao: new Date().toISOString(),
   });
@@ -177,7 +177,7 @@ test('T2a-2 ★★★ THIẾU cả hai -> câu xác nhận PHẢI cảnh báo "K
   assert.equal(kq.ok, true, JSON.stringify(kq));
   assert.match(kq.duLieu.cauXacNhan, /KHÔNG TAG AI/,
     'anh gõ "ok" cho một lời nhắc chạy nhiều ngày mà không tag được ai — phải bắt được TRƯỚC');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -191,12 +191,12 @@ test('T2b ★★★ đường (a): gói gửi model chứa TÊN HIỂN THỊ và
 
   const goi = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), truyVanLichSu, taoHangDoi,
+    db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: (d, c) => {
-      const { dsNguoiTrongNhom } = require_ds();
-      return dsNguoiTrongNhom(d, c);
+    groupMembers: (d, c) => {
+      const { groupMembers } = require_ds();
+      return groupMembers(d, c);
     },
     guiThongBao: async (payload) => { goi.push(payload); return true; },
   });
@@ -204,7 +204,7 @@ test('T2b ★★★ đường (a): gói gửi model chứa TÊN HIỂN THỊ và
   assert.equal(goi.length, 1, 'phải giao đúng một lượt cho model');
   assert.match(goi[0].noiDung, /Trọng Nguyễn/, 'model không được cho biết TÊN -> nó đoán, và đã đoán sai thật');
   assert.ok(goi[0].noiDung.includes(TRONG), 'phải có UID — uid mới là nguồn sự thật');
-  dongDb(db);
+  closeDb(db);
 });
 
 /** import động cho gọn (query.js là read layer thật). */
@@ -231,7 +231,7 @@ test('T2c ★★★ tra_loi: model QUÊN @Tên -> server TỰ tag đúng uid', a
   const mt = daGui[0].noiDung.mentions ?? [];
   assert.equal(mt.length, 1, 'model viết chữ trần mà server không tag -> đúng triệu chứng anh gặp');
   assert.equal(String(mt[0].uid), TRONG, 'tag nhầm người còn tệ hơn không tag');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T2c-2 ★★★ tra_loi: model ĐÃ tự viết @Tên -> ĐÚNG MỘT mention, không nhân đôi', async () => {
@@ -250,7 +250,7 @@ test('T2c-2 ★★★ tra_loi: model ĐÃ tự viết @Tên -> ĐÚNG MỘT ment
     `chữ "@Trọng Nguyễn" xuất hiện ${(msg.match(/@Trọng Nguyễn/g) ?? []).length} lần trong tin`);
   assert.deepEqual(kq.duLieu.tag.daCoSan, [TRONG], 'phải nhận ra model đã tự tag rồi');
   assert.deepEqual(kq.duLieu.tag.daThem, [], 'không được chèn thêm');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -277,7 +277,7 @@ test('T2d ★★★ đổi tên hiển thị: mention VẪN đúng uid, và @tê
     '"@Trọng Nguyễn" không khớp ai mà đi qua IM LẶNG -> đúng lỗi câm B4');
   assert.ok(Array.isArray(kq.duLieu.canhBao) && kq.duLieu.canhBao.some((c) => /KHÔNG khớp ai/.test(c)),
     'cảnh báo phải ĐI RA theo kết quả tool — stderr thì không ai đọc');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -287,7 +287,7 @@ test('T2d ★★★ đổi tên hiển thị: mention VẪN đúng uid, và @tê
 test('T2e ★★★ uid CHƯA TỪNG nhắn -> tool TRẢ VỀ "không tag được", câu xác nhận nói rõ', async () => {
   const db = dbTam();
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm-host', userId: HOST,
     noiDung: 'nhắc anh Quyết', tsTao: new Date().toISOString(),
   });
@@ -303,7 +303,7 @@ test('T2e ★★★ uid CHƯA TỪNG nhắn -> tool TRẢ VỀ "không tag đư�
   assert.match(kq.duLieu.cauXacNhan, /Chưa tag được uid/,
     'anh phải thấy điều này TRƯỚC khi gõ "ok"');
   assert.match(kq.duLieu.nhac, /chưa tag được uid/i, 'phải dặn model nói lại cho anh');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -320,8 +320,8 @@ test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội du
   //   qua `tra_loi`) cho ra CÙNG một kết quả tag. Chung kết quả = chung luật.
   const db = dbTam();
   const nhac = taoNhac(db, { chuKyPhut: 3, nguoiPhuTrach: TRONG });
-  const { dsNguoiTrongNhom } = dsNguoiCache;
-  const dsNguoi = dsNguoiTrongNhom(db, NHOM);
+  const { groupMembers } = dsNguoiCache;
+  const dsNguoi = groupMembers(db, NHOM);
 
   const { dungNoiDung } = await import('../src/lich/bo_chay.js');
   const CAU = '@Trọng Nguyễn ơi, chốt giúp em nhé!';
@@ -341,5 +341,5 @@ test('T2f ★★★ HAI đường gửi dùng CHUNG một luật: cùng nội du
   assert.equal(daGui[0].noiDung.msg, duongB.text,
     'hai đường cho ra hai câu KHÁC nhau -> vẫn còn hai bản sao của luật');
   assert.deepEqual(kq.duLieu.tag.daCoSan, duongB.daCoSan, 'hai đường phải kết luận giống nhau');
-  dongDb(db);
+  closeDb(db);
 });

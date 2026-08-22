@@ -20,9 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, layHangDoiCho, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { _xoaPhamViChoTest, datPhamVi, truyVanLichSu } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, takePendingQueue, enqueueQuestion, upsertConversation } from '../src/store/write.js';
+import { _xoaPhamViChoTest, setReadScope, queryHistory } from '../src/store/query.js';
 import { CHE_DO, GIAN_CHO_MO_PANE_MS, VAI } from '../src/lib/hang_so.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -55,11 +55,11 @@ test.after(() => { _xoaPhamViChoTest(); });
 
 /** DB TẠM có sẵn 3 hội thoại + hàng đợi. ⛔ KHÔNG dùng DB thật. */
 function dbTam() {
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   for (const [c, l] of [[DM_HOST, 'DM'], [NHOM_A, 'GROUP'], [NHOM_B, 'GROUP']]) {
-    upsertHoiThoai(db, { chatId: c, loai: l, ten: 'x', duocNghe: true });
+    upsertConversation(db, { chatId: c, loai: l, ten: 'x', duocNghe: true });
   }
-  const tin = (chatId, msgId, noiDung) => ghiTin(db, {
+  const tin = (chatId, msgId, noiDung) => writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung, contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -71,7 +71,7 @@ function dbTam() {
 }
 
 function xepHang(db, rid, chatId, tuoiMs = 0) {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: chatId, msgId: rid, userId: HOST,
     noiDung: 'x', tsTao: new Date(Date.now() - tuoiMs).toISOString(),
   });
@@ -84,7 +84,7 @@ function xepHang(db, rid, chatId, tuoiMs = 0) {
 function khoiDong(env, tuyChonCauHinh = {}) {
   const d = tam();
   const pDb = path.join(d, 'kho', 'lichsu.db');
-  dongDb(moDb(pDb));                       // dựng schema cho client mở được
+  closeDb(openDb(pDb));                       // dựng schema cho client mở được
   const cfg = path.join(d, 'config.json');
   fs.writeFileSync(cfg, JSON.stringify({
     hosts: [{ userId: HOST, ten: 'Chủ máy', dmChatId: DM_HOST }],
@@ -178,24 +178,24 @@ test('★★★ R1 NGHIỆM THU②: router chỉ NHẶT dòng của DM host (t�
   xepHang(db, 'r-dm', DM_HOST);
   xepHang(db, 'r-a', NHOM_A);
   xepHang(db, 'r-b', NHOM_B);
-  const ds = layHangDoiCho(db, 600_000, { chatIdHoi: DM_HOST });
+  const ds = takePendingQueue(db, 600_000, { chatIdHoi: DM_HOST });
   assert.deepEqual(ds.map((r) => String(r.request_id)), ['r-dm'],
     '🔴 router nhặt cả tin nhóm — nó sẽ trả lời vào nhóm bằng giọng của Router');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ R2 NGHIỆM THU③: router ĐỌC ĐƯỢC nhóm khác (đó là CHỦ ĐÍCH)', () => {
   // Chiều ngược của R1. Anh chốt: *"host DM trực tiếp thì được hỏi về toàn bộ
   // DB"*. Vá quá tay ở đây là router mù trên chính việc nó sinh ra để làm.
   const db = dbTam();
-  datPhamVi(null);                       // đúng thứ `ZTL_PHAM_VI=toan_bo` đặt
-  const kq = truyVanLichSu(db, {});
+  setReadScope(null);                       // đúng thứ `ZTL_PHAM_VI=toan_bo` đặt
+  const kq = queryHistory(db, {});
   assert.equal(kq.rows.length, 3, 'router phải đọc được cả kho');
   assert.deepEqual([...new Set(kq.rows.map((r) => String(r.chat_id)))].sort(),
     [NHOM_A, NHOM_B, DM_HOST].sort());
-  const kqA = truyVanLichSu(db, { chatId: NHOM_A });
+  const kqA = queryHistory(db, { chatId: NHOM_A });
   assert.equal(kqA.rows.length, 1, 'hỏi thẳng một nhóm cũng phải ra');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ R3 🔴 `ZTL_TUYEN` ⛔ KHÔNG tự nới phạm vi đọc', () => {
@@ -204,9 +204,9 @@ test('★★★ R3 🔴 `ZTL_TUYEN` ⛔ KHÔNG tự nới phạm vi đọc', () 
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
   const kh = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(!/datPhamVi\([^)]*tuyenTho/.test(kh),
-    '🔴 `tuyenTho` đi vào datPhamVi = khoá định tuyến mở luôn quyền đọc');
-  assert.match(kh, /datPhamVi\(toanBo \? null : phamViTho\)/,
+  assert.ok(!/setReadScope\([^)]*tuyenTho/.test(kh),
+    '🔴 `tuyenTho` đi vào setReadScope = khoá định tuyến mở luôn quyền đọc');
+  assert.match(kh, /setReadScope\(toanBo \? null : phamViTho\)/,
     'phạm vi đọc CHỈ suy từ ZTL_PHAM_VI / ZTL_CHAT_ID');
   // 🔴 Hậu kiểm cũng ⛔ không được dính `tuyenTho`.
   // ⚠️ `indexOf('log(')` KHÔNG dùng được làm mốc kết thúc: trong `chayClient`
@@ -224,7 +224,7 @@ test('★★★ R3 🔴 `ZTL_TUYEN` ⛔ KHÔNG tự nới phạm vi đọc', () 
   // mọi thứ đúng, và chỉ TÁCH RA đúng lúc code hỏng — tức đúng lúc cần log nhất.
   const dongDoc = tuNeo(kh, 'ĐỌC : KHOÁ vào');
   assert.match(dongDoc.slice(0, 80), /\$\{epThu\}/,
-    '🔴 log in lại LỜI KHAI: bỏ mất `datPhamVi` thì dòng này vẫn đúng y hệt');
+    '🔴 log in lại LỜI KHAI: bỏ mất `setReadScope` thì dòng này vẫn đúng y hệt');
 });
 
 test('★★★ R4 router khai `ZTL_TUYEN` ⇒ hậu kiểm phạm vi VẪN chạy và VẪN là toàn bộ', () => {
@@ -278,9 +278,9 @@ test('★★★ N4 HÀNH VI: ngưỡng 0 nhặt dòng MỚI, ngưỡng 37s thì 
   // Bài anh em với N1/N2: hai bài kia canh CẤU HÌNH, bài này canh HÀNH VI.
   const db = dbTam();
   xepHang(db, 'moi', NHOM_A, 1_000);
-  assert.equal(layHangDoiCho(db, 600_000, { treToiThieuMs: 0 }).length, 1,
+  assert.equal(takePendingQueue(db, 600_000, { treToiThieuMs: 0 }).length, 1,
     'ngưỡng 0 ⇒ nhặt ngay');
-  assert.equal(layHangDoiCho(db, 600_000, { treToiThieuMs: GIAN_CHO_MO_PANE_MS }).length, 0,
+  assert.equal(takePendingQueue(db, 600_000, { treToiThieuMs: GIAN_CHO_MO_PANE_MS }).length, 0,
     'ngưỡng 37s ⇒ dòng mới chưa tới lượt');
-  dongDb(db);
+  closeDb(db);
 });

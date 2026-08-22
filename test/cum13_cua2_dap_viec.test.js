@@ -19,9 +19,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { layHostDatViec, timViecMoCua2, _xoaPhamViChoTest } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
+import { taskOwnerHost, timViecMoCua2, _xoaPhamViChoTest } from '../src/store/query.js';
 import { quyetDinh, LY_DO } from '../src/policy/gate.js';
 import { chotLich, huyLich } from '../src/lich/lich_hen.js';
 import { dongNhac, taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -77,15 +77,15 @@ const tin = (p) => ({
 
 /** Dựng DB có MỘT lời nhắc đang theo đuổi, giao cho `PHU_TRACH` ở `NHOM`. */
 function dbCoNhac(tuyChon = {}) {
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   for (const c of [NHOM, NHOM_KHAC]) {
-    upsertHoiThoai(db, { chatId: c, loai: 'GROUP', ten: 'g', duocNghe: true });
+    upsertConversation(db, { chatId: c, loai: 'GROUP', ten: 'g', duocNghe: true });
   }
-  ghiTin(db, tin({ msgId: 'cu1', noiDung: 'tin cũ' }));
-  // ⚠️ `dsNguoiTrongNhom` suy danh sách từ `tin_nhan.ten_luc_gui` ⇒ host phải
+  writeMessage(db, tin({ msgId: 'cu1', noiDung: 'tin cũ' }));
+  // ⚠️ `groupMembers` suy danh sách từ `tin_nhan.ten_luc_gui` ⇒ host phải
   // TỪNG NHẮN trong nhóm thì mới tra ra tên mà dựng mention. Đây cũng chính là
   // ca hỏng thật ngoài đời: host chưa từng nhắn ⇒ tag bốc hơi trong im lặng.
-  ghiTin(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh nhé' }));
+  writeMessage(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh nhé' }));
   const id = tuyChon.id ?? 'NHAC1';
   taoNhacTheoDuoi(db, {
     id,
@@ -110,21 +110,21 @@ test('★★★ Q1 đủ BA điều kiện -> tìm thấy việc (cửa 2 MỞ)'
   const v = timViecMoCua2(db, NHOM, PHU_TRACH);
   assert.equal(v?.id, id);
   assert.equal(v.noiDung, 'gửi báo giá cho khách');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Q2 SAI NGƯỜI -> đóng (quyền đi theo VIỆC, ⛔ không theo NGƯỜI)', () => {
   const { db } = dbCoNhac();
   assert.equal(timViecMoCua2(db, NHOM, NGUOI_KHAC), null);
   assert.equal(timViecMoCua2(db, NHOM, HOST), null, 'host đi đường riêng, ⛔ không qua cửa 2');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Q3 SAI NHÓM -> đóng', () => {
   const { db } = dbCoNhac();
   assert.equal(timViecMoCua2(db, NHOM_KHAC, PHU_TRACH), null,
     '🔴 mở ở nhóm khác = người đó điều khiển trợ lý ở mọi nhóm chung');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
@@ -132,7 +132,7 @@ test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
   assert.ok(timViecMoCua2(db, NHOM, PHU_TRACH), 'chưa đóng thì phải mở — nếu không bài này rỗng');
   dongNhac(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: Date.now() });
   assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (bẫy em tự tìm ra)', () => {
@@ -142,13 +142,13 @@ test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (b
   huyLich(db, { id });
   assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null,
     '🔴 việc đã huỷ mà cửa vẫn mở — người đó nói chuyện với trợ lý về một việc không còn');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Q6 lời nhắc gắn vào DM -> ⛔ KHÔNG mở (anh chốt: không có cửa 2 trong DM)', () => {
   const { db } = dbCoNhac({ chatIdDich: DM_HOST, loaiDich: 'DM' });
   assert.equal(timViecMoCua2(db, DM_HOST, PHU_TRACH), null);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ Q7 thiếu dữ liệu -> đóng, ⛔ không ném', () => {
@@ -156,7 +156,7 @@ test('★★ Q7 thiếu dữ liệu -> đóng, ⛔ không ném', () => {
   for (const [c, u] of [[null, PHU_TRACH], [NHOM, null], [null, null], ['', ''], [undefined, undefined]]) {
     assert.equal(timViecMoCua2(db, c, u), null, `chatId=${c} userId=${u}`);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -250,7 +250,7 @@ function dungTool(db, doiCauHinh = {}) {
 }
 
 function phien(db, rid, idViec, noiDung = 'sắp xong rồi anh') {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: NHOM, msgId: rid, userId: PHU_TRACH,
     noiDung, tsTao: new Date().toISOString(), chiNghe: true, idViecMoCua: idViec,
   });
@@ -267,7 +267,7 @@ test('★★★ T1 CỬA 2 MỞ: `tra_loi` chạy được và TIN THẬT SỰ �
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(daGui.length, 1, 'cửa 2 mà không nói được thì mở làm gì');
     assert.equal(daGui[0].noi, 'nhom');
-    dongDb(db);
+    closeDb(db);
   });
 });
 
@@ -303,7 +303,7 @@ test('★★★ T2 CỬA 2 + `xinHostDuyet` -> MỘT tin trong nhóm, TAG HOST T
   const text = daGoiApi[0].noiDung?.msg ?? daGoiApi[0].text;
   assert.equal(text.slice(cuaHost.pos, cuaHost.pos + cuaHost.len), '@Chủ máy',
     '🔴 pos/len lệch = Zalo tag nhầm đoạn chữ, hoặc không tag gì');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2b BA CA: chung chung ⛔ KHÔNG tag · có mốc / báo xong ⇒ CÓ tag', async () => {
@@ -328,7 +328,7 @@ test('★★★ T2b BA CA: chung chung ⛔ KHÔNG tag · có mốc / báo xong �
     const men = daGoiApi[0].noiDung?.mentions ?? [];
     assert.equal(men.length, soTag, `🔴 ${ten}: mong ${soTag} mention, nhận ${men.length}`);
     if (soTag) assert.equal(String(men[0].uid), HOST, ten);
-    dongDb(db);
+    closeDb(db);
   }
 });
 
@@ -342,16 +342,16 @@ test('★★★ T2c `xinHostDuyet` KHÔNG mở thêm quyền nào — bật ở 
   });
   assert.equal(r.ok, false, '🔴 `xinHostDuyet` mở được cửa = model tự cấp quyền cho mình');
   assert.deepEqual(daGui, []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, phải LÙI về DM', async () => {
-  // 🔴 `dsNguoiTrongNhom` suy danh sách từ `tin_nhan.ten_luc_gui`. Host chưa
+  // 🔴 `groupMembers` suy danh sách từ `tin_nhan.ten_luc_gui`. Host chưa
   // nhắn lần nào ⇒ không tra ra tên ⇒ `baoDamTag` bỏ qua TRONG IM LẶNG ⇒ câu
   // "anh duyệt cho em nhé" KHÔNG tới ai, mà nhìn từ ngoài thì mọi thứ ổn.
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
-  ghiTin(db, tin({ msgId: 'c1', noiDung: 'tin cũ' }));      // chỉ NGƯỜI PHỤ TRÁCH nhắn
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
+  writeMessage(db, tin({ msgId: 'c1', noiDung: 'tin cũ' }));      // chỉ NGƯỜI PHỤ TRÁCH nhắn
   taoNhacTheoDuoi(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'gửi báo giá', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
@@ -372,7 +372,7 @@ test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, ph�
   assert.equal(daGui[1].noi, 'dm', 'rồi mới lùi về DM host');
   assert.equal(daGui[1].c, DM_HOST);
   assert.match(daGui[1].t, /KHÔNG tag được anh/, 'phải nói RÕ vì sao có tin này');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag bừa, PHẢI lùi', async () => {
@@ -380,12 +380,12 @@ test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag b�
   // cụm mơ hồ chỉ tạo chữ không tag được ai. Nhưng khi đó lời xin cũng KHÔNG
   // tới host ⇒ phải lùi y như ca "chưa từng nhắn". Đường lùi chỉ xét
   // `khongTraRa` mà quên `trungTen` là bỏ sót đúng một nửa số ca hỏng.
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
-  ghiTin(db, tin({ msgId: 'd1', noiDung: 'x' }));
-  ghiTin(db, tin({ msgId: 'd2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
+  writeMessage(db, tin({ msgId: 'd1', noiDung: 'x' }));
+  writeMessage(db, tin({ msgId: 'd2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
   // ★ Người thứ ba TRÙNG TÊN với host.
-  ghiTin(db, tin({ msgId: 'd3', userId: NGUOI_KHAC, tenLucGui: 'Chủ máy', noiDung: 'x' }));
+  writeMessage(db, tin({ msgId: 'd3', userId: NGUOI_KHAC, tenLucGui: 'Chủ máy', noiDung: 'x' }));
   taoNhacTheoDuoi(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'gửi báo giá', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
@@ -404,7 +404,7 @@ test('★★★ T2d2 HOST TRÙNG TÊN với người khác -> ⛔ không tag b�
     '🔴 dán @Tên mơ hồ = chữ trần, tag nhầm hoặc không tag ai');
   assert.equal(daGui.length, 2, '🔴 trùng tên mà không lùi = lời xin bốc hơi');
   assert.equal(daGui[1].noi, 'dm');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM không có mention)', async () => {
@@ -412,7 +412,7 @@ test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM k
   // lùi cho một lượt DM là gửi cho host TIN THỨ HAI vào đúng chỗ vừa gửi.
   const { db, id } = dbCoNhac();
   // Lượt DM: `chat_id_hoi` chính là DM host.
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-dm', chatIdHoi: DM_HOST, msgId: 'mdm', userId: HOST,
     noiDung: 'anh hỏi', tsTao: new Date().toISOString(), chiNghe: false, idViecMoCua: id,
   });
@@ -420,16 +420,16 @@ test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM k
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: 'r-dm', text: 'Dạ anh.', xinHostDuyet: true });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(daGui.length, 1, `🔴 lượt DM mà gửi ${daGui.length} tin — anh nhận hai tin liền`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2d4 ⛔ KHÔNG bao giờ tag CHÍNH BOT, kể cả khi host = tài khoản bot', async () => {
   // Trợ lý chạy trên chính tài khoản của host ⇒ `nguoi_dat` có thể trùng uid
   // bot. Tag chính mình là một mention vô nghĩa gửi vào nhóm người thật.
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
-  ghiTin(db, tin({ msgId: 'b1', noiDung: 'x' }));
-  ghiTin(db, tin({ msgId: 'b2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
+  writeMessage(db, tin({ msgId: 'b1', noiDung: 'x' }));
+  writeMessage(db, tin({ msgId: 'b2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'x' }));
   taoNhacTheoDuoi(db, {
     id: 'NHAC1', ma: 'NHAC1', chatIdDich: NHOM, loaiDich: 'GROUP',
     noiDung: 'x', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
@@ -464,7 +464,7 @@ test('★★★ T2d4 ⛔ KHÔNG bao giờ tag CHÍNH BOT, kể cả khi host = t
   assert.ok(!men.some((m) => String(m.uid) === HOST),
     `🔴 BOT TỰ TAG CHÍNH MÌNH: ${JSON.stringify(men)}`);
   assert.ok(!daGoiApi[0].noiDung.msg.startsWith('@'), 'cũng ⛔ không được dán chữ @ trần');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2e TAG ĂN thì ⛔ KHÔNG lùi (⛔ không gửi hai tin vô cớ)', async () => {
@@ -474,7 +474,7 @@ test('★★★ T2e TAG ĂN thì ⛔ KHÔNG lùi (⛔ không gửi hai tin vô c
     request_id: phien(db, 'r-khonglui', id), text: 'Dạ vâng ạ. Anh xác nhận nhé ạ?', xinHostDuyet: true,
   });
   assert.equal(daGui.length, 1, `🔴 gửi ${daGui.length} tin — anh nhận HAI thông báo cho MỘT việc`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T2f trần độ dài đo phần MODEL VIẾT — tag do code chèn ⛔ không bị cắt', async () => {
@@ -492,7 +492,7 @@ test('★★★ T2f trần độ dài đo phần MODEL VIẾT — tag do code ch
   assert.ok(di.length > TRAN_NOI_CUA2, 'tin đi ra PHẢI dài hơn trần (đã cộng phần tag)');
   assert.ok(di.endsWith(sat), '🔴 tin bị CẮT CỤT — phần model viết không còn nguyên');
   assert.equal(daGoiApi[0].noiDung.mentions?.length, 1, 'tag vẫn phải ăn');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệp vụ mở, RA LỆNH vẫn đóng)', async () => {
@@ -545,7 +545,7 @@ test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệ
   const d = db.prepare('SELECT trang_thai_td, chu_ky_ngay FROM lich_hen WHERE id = $i').get({ i: id });
   assert.equal(d.trang_thai_td, 'dang_theo_duoi', '🔴 đóng được lời nhắc mà ⛔ không để lại vết');
   assert.equal(d.chu_ky_ngay, 1, 'nhịp bị đổi = người đó tự dời lịch');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T4 danh sách tool NÓI đúng MỘT cái, ⛔ không có tool ghi, ⛔ không nhắn riêng', () => {
@@ -565,7 +565,7 @@ test('★★★ T5 CỬA 2 ĐÓNG (lượt chỉ nghe thuần) -> `tra_loi` vẫ
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db, 'r3', null), text: 'Dạ' });
   assert.equal(r.ok, false);
   assert.deepEqual(daGui, [], '🔴 cửa đóng mà tin vẫn đi ra');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T6 phiên tự khai `idViecMoCua` qua THAM SỐ TOOL -> ⛔ không lọt', async () => {
@@ -577,7 +577,7 @@ test('★★★ T6 phiên tự khai `idViecMoCua` qua THAM SỐ TOOL -> ⛔ khô
     assert.equal(r.ok, false, `model tự khai ${JSON.stringify(doi)} mà lọt`);
   }
   assert.deepEqual(daGui, []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T7 TRẦN ĐỘ DÀI: câu dài ⇒ chặn (chống biến thành chatbot)', async () => {
@@ -591,19 +591,19 @@ test('★★★ T7 TRẦN ĐỘ DÀI: câu dài ⇒ chặn (chống biến thàn
 
   const vua = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db, 'r5', id), text: 'a'.repeat(TRAN_NOI_CUA2) });
   assert.equal(vua.ok, true, 'đúng trần thì phải qua — ⛔ đừng chặn nhầm câu hợp lệ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T8 trần CHỈ áp cho lượt cửa 2, ⛔ không áp cho HOST', async () => {
   const { db } = dbCoNhac();
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-host', chatIdHoi: NHOM, msgId: 'mh', userId: HOST,
     noiDung: 'anh hỏi', tsTao: new Date().toISOString(), chiNghe: false,
   });
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: 'r-host', text: 'a'.repeat(TRAN_NOI_CUA2 + 500) });
   assert.equal(r.ok, true, '🔴 chặn nhầm host là trợ lý cụt lủn với chính chủ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T9 đường XIN host chỉ mở KHI CỬA 2 MỞ, ⛔ không đại trà', async () => {
@@ -616,7 +616,7 @@ test('★★★ T9 đường XIN host chỉ mở KHI CỬA 2 MỞ, ⛔ không đ
   });
   assert.equal(r.ok, false, '🔴 cửa đóng mà vẫn nhắn được vào DM anh');
   assert.deepEqual(daGui, []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T10 TAG đúng host CỦA VIỆC ĐÓ, ⛔ không phải host bất kỳ', async () => {
@@ -639,7 +639,7 @@ test('★★★ T10 TAG đúng host CỦA VIỆC ĐÓ, ⛔ không phải host b�
   const men = daGoiApi[0]?.noiDung?.mentions ?? [];
   assert.deepEqual(men.map((m) => String(m.uid)), [HOST],
     `🔴 tag NHẦM NGƯỜI — kéo người ngoài cuộc vào việc không phải của họ: ${JSON.stringify(men)}`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T11 `idViecMoCua` chuỗi RỖNG -> ép về NULL (cửa ĐÓNG)', () => {
@@ -648,20 +648,20 @@ test('★★★ T11 `idViecMoCua` chuỗi RỖNG -> ép về NULL (cửa ĐÓNG)
   // hai tầng hiểu ngược nhau là chỗ hỏng câm sinh ra.
   const { db } = dbCoNhac();
   for (const [i, v] of ['', '   ', null, undefined, 0, false].entries()) {
-    taoHangDoi(db, {
+    enqueueQuestion(db, {
       requestId: `rr${i}`, chatIdHoi: NHOM, msgId: `mm${i}`, userId: PHU_TRACH,
       noiDung: 'x', tsTao: new Date().toISOString(), chiNghe: true, idViecMoCua: v,
     });
     const d = db.prepare('SELECT id_viec_mo_cua FROM hang_doi_hoi WHERE request_id = $r').get({ r: `rr${i}` });
     assert.equal(d.id_viec_mo_cua, null, `giá trị ${JSON.stringify(v)} phải thành NULL`);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn', async () => {
   // 🔴 EM ĐO SAI MỘT LƯỢT, ghi lại để khỏi ai đo sai tiếp.
   // Bản đầu bài này định cô lập điều kiện `phien.idViecMoCua` trong
-  // `_nhanRiengHost` bằng cách tiêm `layHostDatViec` luôn trả host. Nó XANH,
+  // `_nhanRiengHost` bằng cách tiêm `taskOwnerHost` luôn trả host. Nó XANH,
   // và em tưởng lớp đó đang chặn. Thật ra tin bị chặn SỚM HƠN HAI TẦNG, ở
   // `_chanKhiChiNghe` — `nhan_rieng_host` không nằm trong danh sách trắng của
   // lượt chỉ-nghe khi cửa 2 đóng, nên nó chưa bao giờ chạy tới `_nhanRiengHost`.
@@ -681,7 +681,7 @@ test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn
     docSucKhoe: () => ({ trangThai: 'OK' }),
     cauHinh: CAU_HINH,
     boTichLuy: { ghiNhan() {}, lay: () => [], xoa() {}, soPhien: () => 0 },
-    kho: { layHostDatViec: () => HOST },   // vô hiệu lớp trong cùng
+    kho: { taskOwnerHost: () => HOST },   // vô hiệu lớp trong cùng
     guiTin: {
       guiVaoNhom: async () => ({ msgId: 'x' }),
       guiDmHost: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'y' }; },
@@ -700,19 +700,19 @@ test('★★★ T12a BA LỚP che nhau — đo xem lớp NÀO thật sự chặn
   assert.equal(r.lop, LOP.DANH_SACH_TRANG,
     `phải rơi ở LỚP DANH SÁCH TRẮNG — rơi chỗ khác nghĩa là thứ tự lớp đã đổi (thật: ${r.lop})`);
   assert.deepEqual(daGui, []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T12 đường XIN host fail-closed HAI LỚP (⛔ hai lớp phải TÁCH được)', () => {
-  // Lớp 1: chỉ tra khi phiên có `idViecMoCua`. Lớp 2: `layHostDatViec(null)`
+  // Lớp 1: chỉ tra khi phiên có `idViecMoCua`. Lớp 2: `taskOwnerHost(null)`
   // trả null. Bài này canh LỚP 2 riêng — nếu không, gỡ lớp 1 vẫn xanh nhờ lớp
   // 2 che, và ngược lại. Hai lá chắn che nhau là hai lá chắn không đo được.
   const { db, id } = dbCoNhac();
-  assert.equal(layHostDatViec(db, id), HOST, 'phải tra ra host ĐÃ ĐẶT việc');
+  assert.equal(taskOwnerHost(db, id), HOST, 'phải tra ra host ĐÃ ĐẶT việc');
   for (const xau of [null, undefined, '', '   ', 'KHONG_TON_TAI']) {
-    assert.equal(layHostDatViec(db, xau), null, `id ${JSON.stringify(xau)} phải trả null`);
+    assert.equal(taskOwnerHost(db, xau), null, `id ${JSON.stringify(xau)} phải trả null`);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -750,7 +750,7 @@ test('★★★ W1 ĐẦU-CUỐI: người phụ trách nói -> phiên MANG id v
   assert.equal(dong.chi_nghe, 1, 'cửa 2 mở quyền NÓI, ⛔ vẫn KHÔNG phải lượt host');
   assert.equal(daBao[0]?.idViecMoCua, id, 'tin báo cho model cũng phải mang id');
   assert.equal(daBao[0]?.noiDungViec, 'gửi báo giá cho khách', 'model cần BIẾT phạm vi là việc nào');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ W2 ĐẦU-CUỐI: người KHÔNG phụ trách -> phiên KHÔNG mang id', async () => {
@@ -762,7 +762,7 @@ test('★★★ W2 ĐẦU-CUỐI: người KHÔNG phụ trách -> phiên KHÔNG 
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w2'").get();
   assert.equal(dong.id_viec_mo_cua, null, '🔴 cửa mở cho người không phụ trách');
   assert.equal(dong.chi_nghe, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ W3 ĐẦU-CUỐI: HOST gửi -> lượt đầy đủ, ⛔ KHÔNG dính cờ cửa 2', async () => {
@@ -778,7 +778,7 @@ test('★★★ W3 ĐẦU-CUỐI: HOST gửi -> lượt đầy đủ, ⛔ KHÔNG
   assert.equal(dong.id_viec_mo_cua, null,
     '🔴 lượt host mà mang cờ cửa 2 = trần 300 ký tự áp nhầm lên chính chủ');
   void id;
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ W5 id cửa 2 lấy từ PAYLOAD GATE, ⛔ không từ biến tra DB riêng', () => {
@@ -814,7 +814,7 @@ test('★★★ W4 ĐẦU-CUỐI: tra cửa 2 HỎNG -> coi như ĐÓNG, ⛔ KH�
   const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w4'").get();
   assert.ok(dong, 'tra hỏng mà mất luôn phiên = mất tin của người thật');
   assert.equal(dong.id_viec_mo_cua, null, 'hỏng phải về chiều ĐÓNG');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════

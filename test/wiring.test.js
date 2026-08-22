@@ -15,10 +15,10 @@ import test from 'node:test';
 
 import { MA_THOAT, ganXuLyTin, giuKhoaPid, xuLyMotTin } from '../src/index.js';
 import { WS, docTrangThaiWs, listenerSong, taoWatchdog } from '../src/zalo/watchdog.js';
-import { moDb, dongDb } from '../src/store/db.js';
+import { openDb, closeDb } from '../src/store/db.js';
 import { validateConfig } from '../src/policy/access.js';
-import { upsertHoiThoai } from '../src/store/write.js';
-import { truyVanLichSu, thongKe } from '../src/store/query.js';
+import { upsertConversation } from '../src/store/write.js';
+import { queryHistory, storeStats } from '../src/store/query.js';
 import { BACKOFF_NOI_LAI_MS, GIOI_HAN, SU_KIEN, TRANG_THAI_SUC_KHOE } from '../src/lib/hang_so.js';
 
 const GOC = path.resolve(import.meta.dirname, '..');
@@ -328,14 +328,14 @@ test('D3 nha() chỉ xoá khoá CỦA MÌNH, không xoá nhầm của tiến tr�
 
 function dungHe(suaCh = {}) {
   const d = thuMucTam();
-  const db = moDb(path.join(d, 'data', 'lichsu.db'));
+  const db = openDb(path.join(d, 'data', 'lichsu.db'));
   const cauHinh = validateConfig({ ...chGia(), ...suaCh });
   return { d, db, cauHinh };
 }
 
 test('E1 ★ notify NÉM LỖI -> tin VẪN được ghi vào DB', async () => {
   const { db, cauHinh } = dungHe();
-  upsertHoiThoai(db, { chatId: 'A', loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
+  upsertConversation(db, { chatId: 'A', loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
 
   xuLyMotTin(
     {
@@ -347,10 +347,10 @@ test('E1 ★ notify NÉM LỖI -> tin VẪN được ghi vào DB', async () => {
   );
   await new Promise((r) => setTimeout(r, 30));   // để promise notify kịp nổ
 
-  const { rows } = truyVanLichSu(db, { chatId: 'A' });
+  const { rows } = queryHistory(db, { chatId: 'A' });
   assert.equal(rows.length, 1, 'notify hỏng đã kéo theo mất tin thật');
   assert.equal(rows[0].msg_id, 'notify-no');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E2 ★ notify trả FALSE -> hàng đợi GIỮ "cho" để đẩy bù, không mất câu hỏi', async () => {
@@ -363,7 +363,7 @@ test('E2 ★ notify trả FALSE -> hàng đợi GIỮ "cho" để đẩy bù, kh
   const dong = db.prepare('SELECT * FROM hang_doi_hoi').get();
   assert.ok(dong, 'chưa mở hàng đợi');
   assert.equal(dong.trang_thai, 'cho', 'đẩy chưa được mà đã đổi trạng thái');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E3 ★ notify TRẢ TRUE -> chỉ được chuyển "da_day", TUYỆT ĐỐI không "da_tra_loi"', async () => {
@@ -376,7 +376,7 @@ test('E3 ★ notify TRẢ TRUE -> chỉ được chuyển "da_day", TUYỆT Đ�
   const dong = db.prepare('SELECT * FROM hang_doi_hoi').get();
   assert.equal(dong.trang_thai, 'da_day',
     'đã notify KHÔNG có nghĩa là đã tới — bằng chứng duy nhất là Claude gọi lại tool');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ không phải lượt được nói)', async () => {
@@ -391,7 +391,7 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
     tinGia({ msgId: 'nguoi-la', userId: '9990000000999' }),
   );
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(thongKe(db).soTinDaLuu, 1, 'phải lưu lịch sử mọi tin');
+  assert.equal(storeStats(db).soTinDaLuu, 1, 'phải lưu lịch sử mọi tin');
   assert.equal(daBao.length, 1, 'người lạ nay ĐƯỢC đánh thức trợ lý (để nghe)');
 
   // 🔴 Canh GIÁ TRỊ THẬT XUỐNG CỘT DB, ⛔ không chỉ canh "có gọi hàm".
@@ -399,7 +399,7 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
   assert.ok(dong, 'phải có dòng hàng đợi');
   assert.equal(dong.chi_nghe, 1, '🔴 thiếu cờ này là lượt người lạ ĐƯỢC NÓI — rò ra Zalo');
   assert.equal(daBao[0].chiNghe, true, 'tin báo cho model cũng phải mang cờ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng duoc_nghe=0 nên tầng đọc không trả ra', async () => {
@@ -409,12 +409,12 @@ test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng duoc_nghe=0 nên tầng đ
     tinGia({ msgId: 'nhom-la', chatId: 'Z' }),
   );
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(thongKe(db).soTinDaLuu, 1, 'tin phải được LƯU');
-  assert.equal(truyVanLichSu(db, {}).rows.length, 0, 'nhưng KHÔNG được đọc ra (fail-closed)');
+  assert.equal(storeStats(db).soTinDaLuu, 1, 'tin phải được LƯU');
+  assert.equal(queryHistory(db, {}).rows.length, 0, 'nhưng KHÔNG được đọc ra (fail-closed)');
   assert.equal(
     Number(db.prepare("SELECT duoc_nghe d FROM hoi_thoai WHERE chat_id='Z'").get().d), 0,
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E6 nhóm ghiLichSu=false -> nghe nhưng KHÔNG ghi tin', async () => {
@@ -426,9 +426,9 @@ test('E6 nhóm ghiLichSu=false -> nghe nhưng KHÔNG ghi tin', async () => {
     tinGia({ msgId: 'khong-ghi' }),
   );
   await new Promise((r) => setTimeout(r, 20));
-  assert.equal(thongKe(db).soTinDaLuu, 0);
-  assert.equal(thongKe(db).soNhomDangNghe, 1, 'vẫn phải nghe nhóm đó');
-  dongDb(db);
+  assert.equal(storeStats(db).soTinDaLuu, 0);
+  assert.equal(storeStats(db).soNhomDangNghe, 1, 'vẫn phải nghe nhóm đó');
+  closeDb(db);
 });
 
 test('E7 ★ GHI DB hỏng KHÔNG chặn gate — mất 1 dòng còn hơn mất khả năng trả lời', async () => {
@@ -447,7 +447,7 @@ test('E7 ★ GHI DB hỏng KHÔNG chặn gate — mất 1 dòng còn hơn mất 
       tinGia({ msgId: 'db-hong' }),
     ),
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E8 handler KHÔNG để lỗi nổ ngược lên websocket', async () => {
@@ -461,7 +461,7 @@ test('E8 handler KHÔNG để lỗi nổ ngược lên websocket', async () => {
     assert.doesNotThrow(() => boPhat.emit(sk, { rac: true }), `kênh ${sk} làm nổ`);
     assert.doesNotThrow(() => boPhat.emit(sk, null), `kênh ${sk} với null làm nổ`);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -547,16 +547,16 @@ test('K5 ★ cầu nối tạm ĐÃ XOÁ HẲN, không còn hai đường song s
     }
   }
   // Đường DUY NHẤT còn lại: index.js truyền thẳng vào createChannel.
-  assert.match(SRC_INDEX, /layBoiCanhTraLoi: \(requestId\) => layBoiCanhTraLoi\(db, requestId\)/);
+  assert.match(SRC_INDEX, /replyContext: \(requestId\) => replyContext\(db, requestId\)/);
   assert.match(SRC_INDEX, /import\('\.\/store\/query\.js'\)/);
   const q = await import('../src/store/query.js');
-  assert.equal(typeof q.layBoiCanhTraLoi, 'function', 'query.js KHÔNG export hàm index.js đang lấy');
+  assert.equal(typeof q.replyContext, 'function', 'query.js KHÔNG export hàm index.js đang lấy');
 });
 
 test('K6 mọi module + tên hàm index.js nạp ĐỘNG cho v4 đều tồn tại thật', async () => {
   const can = [
     ['./mcp/channel.js', ['createChannel', 'pushPendingQueue']],
-    ['./store/query.js', ['layBoiCanhTraLoi']],
+    ['./store/query.js', ['replyContext']],
     ['./mcp/tools.js', ['registerTools']],
   ];
   for (const [duongDan, ten] of can) {

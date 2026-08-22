@@ -796,7 +796,7 @@ export function xemNhacTheoDuoi(db, { trangThaiTd, soLuong = 50 } = {}) {
  * nhắc lần trước, người đó đã nói gì — đều do TẦNG TRUY VẤN cấp, model chỉ việc
  * diễn đạt.
  *
- * Dùng lại `truyVanLichSu` của query.js (đường đọc DUY NHẤT, có khai nguồn cho
+ * Dùng lại `queryHistory` của query.js (đường đọc DUY NHẤT, có khai nguồn cho
  * luật chống rò chéo) — CỐ Ý không viết bộ đọc thứ hai. Và giới hạn đúng MỘT
  * nhóm (`chat_id_dich`), nên không có chuyện lôi dữ liệu nhóm khác vào câu nhắc.
  *

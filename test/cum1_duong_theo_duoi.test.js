@@ -27,9 +27,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { truyVanLichSu } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { enqueueQuestion, upsertConversation } from '../src/store/write.js';
+import { queryHistory } from '../src/store/query.js';
 import { TRANG_THAI_LICH, TRANG_THAI_TD } from '../src/lib/hang_so.js';
 import { chotLich, layLichDenHan, nhanDangGui, taoLich } from '../src/lich/lich_hen.js';
 import {
@@ -46,8 +46,8 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum1-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return db;
 }
 
@@ -105,7 +105,7 @@ test('T1a ★★★ chayMotNhip chạy TRƯỚC vẫn KHÔNG đụng dòng la_th
     db, api: {}, bayGioMs: bayGio,
     guiVaoNhom: async (_a, c, t) => { daGui.push({ c, t }); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
 
   assert.equal(kq.daGui, 0, 'bộ chạy MỘT LẦN đã gửi hộ lời nhắc theo đuổi');
@@ -119,7 +119,7 @@ test('T1a ★★★ chayMotNhip chạy TRƯỚC vẫn KHÔNG đụng dòng la_th
 
   // Và nó phải CÒN SỐNG với bộ theo-đuổi — đây là điều đã hỏng thật hôm 20/08.
   assert.equal(layNhacDenHan(db, bayGio).length, 1, 'dòng rơi khỏi CẢ HAI truy vấn');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T1a-2 ★★ nhanDangGui TỰ NÓ từ chối dòng theo đuổi (lớp trong, chống ảnh tĩnh cũ)', () => {
@@ -142,7 +142,7 @@ test('T1a-2 ★★ nhanDangGui TỰ NÓ từ chối dòng theo đuổi (lớp tr
   // Đối chứng: cùng hàm đó PHẢI nhận một lịch một lần, nếu không bài trên xanh vô nghĩa.
   lichDaChot(db, bayGio - 1000, 'MOT1');
   assert.equal(nhanDangGui(db, doc(db, 'MOT1').id), true, 'lịch một lần phải nhận được');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -167,19 +167,19 @@ test('T1b ★★★ hai bộ chạy CÙNG TICK -> lời nhắc chỉ đi ĐÚNG 
   const chung = {
     db, api: {}, bayGioMs: bayGio, guiVaoNhom,
     guiDmHost: async () => ({ msgId: 'dm' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   };
 
   // ★ KHÔNG await giữa hai lời gọi — y hệt `index.js`.
   const a = chayMotNhip(chung);
-  const b = chayNhipTheoDuoi({ ...chung, truyVanLichSu, taoHangDoi });
+  const b = chayNhipTheoDuoi({ ...chung, queryHistory, enqueueQuestion });
   await Promise.all([a, b]);
 
   const cuaNhac = daGui.filter((t) => t.includes('chốt giúp địa điểm'));
   assert.equal(cuaNhac.length, 1,
     `lời nhắc đi ${cuaNhac.length} tin — hai tin giống hệt nhau vào nhóm người thật`);
   assert.equal(daGui.length, 2, 'phải đúng 2 tin: 1 của lịch một lần + 1 của lời nhắc');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -200,10 +200,10 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
   for (let i = 0; i < 5; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await chayNhipTheoDuoi({
-      db, api: {}, bayGioMs: t0 + i * 3 * 60_000, truyVanLichSu, taoHangDoi,
+      db, api: {}, bayGioMs: t0 + i * 3 * 60_000, queryHistory, enqueueQuestion,
       guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
       guiDmHost: async () => ({ msgId: 'y' }),
-      dsNguoiTrongNhom: () => [],
+      groupMembers: () => [],
       // Model NHẬN việc nhưng KHÔNG BAO GIỜ gọi `tra_loi` — ca Claude rớt/bận.
       guiThongBao: async () => { soLanGiaoModel += 1; return true; },
     });
@@ -217,7 +217,7 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
   const daNhac = Number(doc(db, 'NHAC').so_lan_da_nhac);
   assert.ok(daNhac - daGui.length <= 1,
     `đã tính ${daNhac} lượt nhưng chỉ gửi ${daGui.length} tin — trần bị đốt bởi lượt chưa gửi`);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -237,13 +237,13 @@ test('T1d ★★★ host ĐÓNG rồi -> quét treo KHÔNG gửi tin nào nữa'
 
   const daGui = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: t0, truyVanLichSu, taoHangDoi,
+    db, api: {}, bayGioMs: t0, queryHistory, enqueueQuestion,
     guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
   assert.equal(daGui.length, 0, 'đóng rồi mà vẫn nhắc = làm phiền người thật về việc ĐÃ XONG');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả không bị đi vòng)', async () => {
@@ -258,13 +258,13 @@ test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả kh�
 
   const daGui = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: t0, truyVanLichSu, taoHangDoi,
+    db, api: {}, bayGioMs: t0, queryHistory, enqueueQuestion,
     guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
   assert.equal(daGui.length, 0, 'van xả bị lưới dự phòng đi vòng qua');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T1d-3 ★★ layNhacTreoChoModel TỰ NÓ lọc trạng thái (lớp ngoài)', () => {
@@ -290,7 +290,7 @@ test('T1d-3 ★★ layNhacTreoChoModel TỰ NÓ lọc trạng thái (lớp ngoà
 
   dat("tam_dung_toi_ms = NULL, trang_thai = 'da_huy'");
   assert.equal(layNhacTreoChoModel(db, t0).length, 0, 'dòng đã chốt sổ mà vẫn lấy ra');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T1d-4 ★★ conDangTheoDuoi: chặn host-đóng/tạm-dừng nhưng CHO QUA lượt chạm trần', () => {
@@ -319,7 +319,7 @@ test('T1d-4 ★★ conDangTheoDuoi: chặn host-đóng/tạm-dừng nhưng CHO Q
   assert.equal(conDangTheoDuoi(db, id, t0), false, 'còn trong hạn tạm dừng mà vẫn nhắc');
 
   assert.equal(conDangTheoDuoi(db, 'khong-co-that', t0), false, 'dòng không tồn tại phải là false');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -338,7 +338,7 @@ test('T1e ★★★ chinhNhip({chuKyPhut:5}) -> mốc kế tiếp cách ĐÚNG 5
   const lech = Number(doc(db, 'NHAC').gui_luc_ms) - t0;
   assert.equal(lech, 5 * 60_000,
     `mốc kế tiếp lệch ${Math.round(lech / 60000)} phút — host siết nhịp mà nó tự giãn sang hôm sau`);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -397,10 +397,10 @@ test('T1g ★★★ lượt CHẠM TRẦN vẫn phải GỬI (trần 3 = nhắc 
   for (let i = 0; i < 3; i += 1) {
     // eslint-disable-next-line no-await-in-loop
     await chayNhipTheoDuoi({
-      db, api: {}, bayGioMs: t0 + i * 60_000, truyVanLichSu, taoHangDoi,
+      db, api: {}, bayGioMs: t0 + i * 60_000, queryHistory, enqueueQuestion,
       guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
       guiDmHost: async () => ({ msgId: 'y' }),
-      dsNguoiTrongNhom: () => [],
+      groupMembers: () => [],
     });
   }
 
@@ -408,5 +408,5 @@ test('T1g ★★★ lượt CHẠM TRẦN vẫn phải GỬI (trần 3 = nhắc 
   const sau = doc(db, 'NHAC');
   assert.equal(sau.trang_thai_td, TRANG_THAI_TD.DA_XONG);
   assert.equal(sau.ly_do_dong, 'HET_LUOT');
-  dongDb(db);
+  closeDb(db);
 });

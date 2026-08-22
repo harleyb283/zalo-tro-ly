@@ -37,7 +37,7 @@ async function dungCap(tuyChon = {}) {
     phienBan: '0.1.0',
     registerTools: tuyChon.registerTools ?? (() => {}),
     khiSanSang: tuyChon.khiSanSang,
-    layBoiCanhTraLoi: tuyChon.layBoiCanhTraLoi,
+    replyContext: tuyChon.replyContext,
   });
 
   const client = new Client({ name: 'client-test', version: '1.0.0' }, { capabilities: {} });
@@ -229,7 +229,7 @@ test('C3 ĐẦU-CUỐI THẬT: client gọi tool qua transport, nhận đúng Ke
     registerTools: (server) => registerTools(server, {
       db: {}, cauHinh: { cauTrungTinh: 'x' }, boTichLuy: {}, api: {},
       docSucKhoe: () => ({ trangThai: 'OK', lyDo: '', tuLuc: '', soLanThuLai: 0 }),
-      kho: { layHangDoi: () => null },   // request_id lạ -> fail-closed
+      kho: { getQueueRow: () => null },   // request_id lạ -> fail-closed
     }),
   });
 
@@ -250,11 +250,11 @@ test('D1 đẩy bù: đẩy được thì chuyển da_day, đẩy hụt thì GI�
   const kq = await imLang(() => pushPendingQueue({
     db: {},
     queueTtlMs: 60000,
-    layHangDoiCho: () => ([
+    takePendingQueue: () => ([
       { request_id: 'r1', chat_id_hoi: 'c1', user_id: 'u1', noi_dung: 'a', ts_tao: '2026-08-20T10:00:00.000Z' },
       { request_id: 'r2', chat_id_hoi: 'c2', user_id: 'u2', noi_dung: 'b', ts_tao: '2026-08-20T10:00:01.000Z' },
     ]),
-    capNhatHangDoi: (_db, rid, tt) => { capNhat.push([rid, tt]); return true; },
+    updateQueueState: (_db, rid, tt) => { capNhat.push([rid, tt]); return true; },
     guiThongBao: async (p) => p.requestId === 'r1',   // r2 đẩy hụt
   }));
   assert.deepEqual(kq.kq, { day: 1, bo: 1 });
@@ -264,8 +264,8 @@ test('D1 đẩy bù: đẩy được thì chuyển da_day, đẩy hụt thì GI�
 test('D2 đọc hàng đợi hỏng -> nuốt lỗi, trả 0/0, không giết tiến trình', async () => {
   const kq = await imLang(() => pushPendingQueue({
     db: {}, queueTtlMs: 1,
-    layHangDoiCho: () => { throw new Error('DB chết'); },
-    capNhatHangDoi: () => true,
+    takePendingQueue: () => { throw new Error('DB chết'); },
+    updateQueueState: () => true,
     guiThongBao: async () => true,
   }));
   assert.deepEqual(kq.kq, { day: 0, bo: 0 });
@@ -317,7 +317,7 @@ test('E2 CHỨNG MINH BẰNG HÀNH VI: nạp 2 module không làm bẩn stdout m
 
 test('G1 ★ trích đoạn tin gốc + tác giả nằm NGAY TRONG content', async () => {
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({
+    replyContext: () => ({
       coTrongKho: true,
       tenNguoiGoc: 'Hảis Assistant',
       noiDungGoc: 'Dạ có, nhưng không phải qua tool em đang dùng ạ',
@@ -337,7 +337,7 @@ test('G1 ★ trích đoạn tin gốc + tác giả nằm NGAY TRONG content', as
 
 test('G2 🔴 tin gốc KHÔNG có trong kho -> content NÓI RÕ, cấm im lặng', async () => {
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({
+    replyContext: () => ({
       coTrongKho: false,
       trichDoan: 'Dạ có, nhưng không phải qua tool',
       ghiChu: 'KHÔNG có tin gốc trong kho (bot chưa nghe lúc đó)',
@@ -352,7 +352,7 @@ test('G2 🔴 tin gốc KHÔNG có trong kho -> content NÓI RÕ, cấm im lặn
 });
 
 test('G3 tin thường -> content KHÔNG bị thêm gì (không nhiễu)', async () => {
-  const { kenh, nhanThongBao } = await dungCap({ layBoiCanhTraLoi: () => null });
+  const { kenh, nhanThongBao } = await dungCap({ replyContext: () => null });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   assert.equal(nhanThongBao[0].params.content, 'anh ơi cho em hỏi');
   assert.equal('tra_loi' in nhanThongBao[0].params.meta, false,
@@ -362,7 +362,7 @@ test('G3 tin thường -> content KHÔNG bị thêm gì (không nhiễu)', async
 
 test('G4 hàm tra bối cảnh NÉM lỗi -> tin báo VẪN đi (phần phụ không giết phần chính)', async () => {
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => { throw new Error('DB đóng rồi'); },
+    replyContext: () => { throw new Error('DB đóng rồi'); },
   });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   assert.equal(nhanThongBao.length, 1, 'mất tin báo vì lỗi phụ trợ là hỏng nặng hơn nhiều');
@@ -372,7 +372,7 @@ test('G4 hàm tra bối cảnh NÉM lỗi -> tin báo VẪN đi (phần phụ kh
 
 test('G5 tin gốc ĐÃ THU HỒI -> đánh dấu rõ, đừng để trợ lý trích lại như thường', async () => {
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({
+    replyContext: () => ({
       coTrongKho: true, tenNguoiGoc: 'Minh Hải', noiDungGoc: 'câu đã xoá', daThuHoi: true,
     }),
   });
@@ -424,7 +424,7 @@ function _epLuatMeta(thongBao, nhan) {
 
 test('H1 ★ CÓ tin gốc — đúng ca đã làm đứt kết nối thật', async () => {
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({
+    replyContext: () => ({
       coTrongKho: true,
       tenNguoiGoc: 'Người A',
       noiDungGoc: 'câu gốc',
@@ -440,7 +440,7 @@ test('H1 ★ CÓ tin gốc — đúng ca đã làm đứt kết nối thật', a
 });
 
 test('H2 ★ KHÔNG có tin gốc — `null` cũng bị từ chối y như object', async () => {
-  const { kenh, nhanThongBao } = await dungCap({ layBoiCanhTraLoi: () => null });
+  const { kenh, nhanThongBao } = await dungCap({ replyContext: () => null });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   _epLuatMeta(nhanThongBao[0], 'không có tin gốc');
   assert.equal('tra_loi' in nhanThongBao[0].params.meta, false, 'phải VẮNG MẶT, không phải null');
@@ -475,7 +475,7 @@ test('H5 ★ payload ÁC: số / boolean / object / undefined ở mọi khoá', 
   // (index.js, pushPendingQueue, bo_chay.js) và sẽ còn thêm. Vá lẻ từng chỗ gọi
   // thì caller thứ tư lại làm đứt kết nối.
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({ coTrongKho: true, noiDungGoc: 'x'.repeat(5000) }),
+    replyContext: () => ({ coTrongKho: true, noiDungGoc: 'x'.repeat(5000) }),
   });
   await imLang(() => kenh.guiThongBao({
     requestId: 12345,                       // số
@@ -499,7 +499,7 @@ test('H5 ★ payload ÁC: số / boolean / object / undefined ở mọi khoá', 
 test('H6 nội dung bối cảnh trong `content` GIỮ NGUYÊN — chỉ meta đổi', async () => {
   // Đây mới là thứ model đọc (đã chứng minh bằng đột biến M6 lượt trước).
   const { kenh, nhanThongBao } = await dungCap({
-    layBoiCanhTraLoi: () => ({ coTrongKho: true, tenNguoiGoc: 'Người A', noiDungGoc: 'câu gốc' }),
+    replyContext: () => ({ coTrongKho: true, tenNguoiGoc: 'Người A', noiDungGoc: 'câu gốc' }),
   });
   await imLang(() => kenh.guiThongBao(TIN_MAU));
   const c = nhanThongBao[0].params.content;

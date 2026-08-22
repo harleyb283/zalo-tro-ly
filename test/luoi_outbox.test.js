@@ -17,8 +17,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiKetQuaGuiRa, nhanViecGui, upsertHoiThoai, xepHangGui } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeSendResult, claimOutbound, upsertConversation, enqueueOutbound } from '../src/store/write.js';
 import { TRANG_THAI_GUI } from '../src/lib/hang_so.js';
 import {
   GIAN_AN_KHOI_DONG_MS, NGUONG_KET_MS, TRAN_LIET_KE, taoBoCanhOutbox,
@@ -36,8 +36,8 @@ process.on('exit', () => {
 function moiTruong() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-obx-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm Dự Án', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm Dự Án', duocNghe: true });
   return { db, so: path.join(d, 'obx.log') };
 }
 
@@ -57,14 +57,14 @@ function docSo(duongDan) {
 /**
  * Xếp một tin vào outbox và đặt mốc thời gian về ĐỒNG HỒ GIẢ của bài test.
  *
- * 🔴 PHẢI đặt lại ts KỂ CẢ KHI `giaMs = 0`. `xepHangGui` đóng dấu bằng
+ * 🔴 PHẢI đặt lại ts KỂ CẢ KHI `giaMs = 0`. `enqueueOutbound` đóng dấu bằng
  * `_bayGio()` — GIỜ MÁY THẬT (2026), trong khi bài test chạy ở `T0` (2023) ⇒ để
  * nguyên thì mọi dòng đều "ở tương lai" so với mốc lọc, và lưới KHÔNG BAO GIỜ
  * thấy chúng. Bài O7b đã đỏ đúng vì chuyện này — bẫy tự cắn của bộ test, không
  * phải lỗi của lưới.
  */
 function xepHang(db, { id = 'g-1', giaMs = 0, text = 'câu trả lời cho anh' } = {}) {
-  const { id: idThat } = xepHangGui(db, { id, requestId: 'r-1', chatIdDich: NHOM, text });
+  const { id: idThat } = enqueueOutbound(db, { id, requestId: 'r-1', chatIdDich: NHOM, text });
   const moc = new Date(T0 - giaMs).toISOString();
   db.prepare('UPDATE hang_doi_gui SET ts_tao = $t, ts_cap_nhat = $t WHERE id = $id')
     .run({ t: moc, id: idThat });
@@ -93,7 +93,7 @@ test('O1 — tin ở "cho" quá ngưỡng: DM host, và KHÔNG bắn gì vào nh
   assert.ok(!daBaoHost[0].includes('câu trả lời cho anh'),
     'bê nội dung tin của một hội thoại sang DM host là mở đúng đường leak_guard cấm');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O1b — chưa tới ngưỡng thì im (đừng bắn khi daemon còn đang đẩy)', async () => {
@@ -108,7 +108,7 @@ test('O1b — chưa tới ngưỡng thì im (đừng bắn khi daemon còn đang
   assert.equal(n.ket, 0);
   assert.equal(daBaoHost.length, 0);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -118,8 +118,8 @@ test('O1b — chưa tới ngưỡng thì im (đừng bắn khi daemon còn đang
 test('O2 — tin đã gửi xong: lưới KHÔNG nổ dù dòng cũ bao nhiêu đi nữa', async () => {
   const { db, so } = moiTruong();
   const id = xepHang(db, { giaMs: NGUONG_KET_MS * 10 });
-  assert.equal(nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
-  assert.equal(ghiKetQuaGuiRa(db, id, { msgId: 'm-999' }), true);
+  assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
+  assert.equal(writeSendResult(db, id, { msgId: 'm-999' }), true);
   // Lùi cả dòng 'da_gui' về quá khứ: tuổi KHÔNG được là lý do để nổ.
   db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
     .run({ t: new Date(T0 - NGUONG_KET_MS * 10).toISOString(), id });
@@ -133,7 +133,7 @@ test('O2 — tin đã gửi xong: lưới KHÔNG nổ dù dòng cũ bao nhiêu �
   assert.equal(n.notifyHost, 0);
   assert.equal(daBaoHost.length, 0);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -144,7 +144,7 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
   const { db, so } = moiTruong();
   const id = xepHang(db);
   // Daemon nhận việc rồi chết trước khi gửi -> dòng nằm 'dang_gui' vĩnh viễn.
-  assert.equal(nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
+  assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
   db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
     .run({ t: new Date(T0 - NGUONG_KET_MS).toISOString(), id });
 
@@ -155,9 +155,9 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
   });
   assert.equal(n.notifyHost, 1, "'dang_gui' quá lâu mà bỏ qua = tin chết câm đúng ca daemon sập");
   assert.match(daBaoHost[0], /dang_gui/);
-  assert.match(daBaoHost[0], /đã thử 1 lần/, 'nhanViecGui cộng so_lan_thu lúc NHẬN — phải hiện ra');
+  assert.match(daBaoHost[0], /đã thử 1 lần/, 'claimOutbound cộng so_lan_thu lúc NHẬN — phải hiện ra');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -178,7 +178,7 @@ test('O4 — kẹt suốt 20 nhịp: host chỉ nhận ĐÚNG MỘT tin', async 
   assert.equal(daBaoHost.length, 1, 'nhịp 30 giây mà báo mỗi nhịp = 120 tin/giờ vào DM của anh');
   assert.equal(docSo(so).filter((r) => r.su_kien === 'ket').length, 1, 'sổ cũng chỉ ghi một lần');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O4b — nhiều tin cùng kẹt: gom MỘT tin, không phải mỗi tin một DM', async () => {
@@ -196,7 +196,7 @@ test('O4b — nhiều tin cùng kẹt: gom MỘT tin, không phải mỗi tin m�
   assert.equal(docSo(so).filter((r) => r.su_kien === 'ket').length, 3,
     'nhưng SỔ phải ghi đủ 3 dòng — gom là chuyện của tin nhắn, không phải của sổ');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O4c — nhiều tin hơn TRAN_LIET_KE: tin DM phải nói rõ còn bao nhiêu nữa', async () => {
@@ -210,7 +210,7 @@ test('O4c — nhiều tin hơn TRAN_LIET_KE: tin DM phải nói rõ còn bao nhi
   assert.match(daBaoHost[0], new RegExp(`${tong} tin đã XẾP HÀNG`));
   assert.match(daBaoHost[0], /và 3 tin nữa/, 'cắt danh sách mà không nói là giấu bớt sự thật');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O4d — tin kẹt rồi ĐI ĐƯỢC: ghi sổ thoat_ket (bằng chứng lưới không kêu oan)', async () => {
@@ -223,8 +223,8 @@ test('O4d — tin kẹt rồi ĐI ĐƯỢC: ghi sổ thoat_ket (bằng chứng l
   await b.chayMotNhip({ db, bayGioMs: T0, notifyHost });
   assert.equal(daBaoHost.length, 1);
 
-  nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
-  ghiKetQuaGuiRa(db, id, { msgId: 'm-1' });
+  claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  writeSendResult(db, id, { msgId: 'm-1' });
 
   const n = await b.chayMotNhip({ db, bayGioMs: T0 + 30_000, notifyHost });
   assert.equal(n.thoatKet, 1);
@@ -232,7 +232,7 @@ test('O4d — tin kẹt rồi ĐI ĐƯỢC: ghi sổ thoat_ket (bằng chứng l
   const d = docSo(so).find((r) => r.su_kien === 'thoat_ket');
   assert.equal(d.trang_thai_cuoi, TRANG_THAI_GUI.DA_GUI);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -262,7 +262,7 @@ test('O5 — outbox rỗng (chế độ một-tiến-trình): lưới KHÔNG bao
     { su_kien: 'dem_outbox', cho: 0, dang_gui: 0 },
   );
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -277,8 +277,8 @@ test('O6 — sổ ghi cả lúc KHOẺ, nhưng chỉ khi có gì đổi', async 
   const id = xepHang(db);
   await b.chayMotNhip({ db, bayGioMs: T0 + 30_000 });
   await b.chayMotNhip({ db, bayGioMs: T0 + 60_000 });   // không đổi gì -> không ghi
-  nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
-  ghiKetQuaGuiRa(db, id, { msgId: 'm-1' });
+  claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  writeSendResult(db, id, { msgId: 'm-1' });
   await b.chayMotNhip({ db, bayGioMs: T0 + 90_000 });
 
   const dem = docSo(so).filter((r) => r.su_kien === 'dem_outbox');
@@ -288,7 +288,7 @@ test('O6 — sổ ghi cả lúc KHOẺ, nhưng chỉ khi có gì đổi', async 
   // 🔴 Đây chính là MẪU SỐ: tuần sau đếm được "kẹt N lần trên tổng M tin đã gửi".
   assert.equal(dem.at(-1).da_gui, 1);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -315,7 +315,7 @@ test('O7 — daemon vừa lên, lô tồn cũ: nhường trọn một nhịp r�
   const n2 = await b.chayMotNhip({ db, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS, notifyHost });
   assert.equal(n2.notifyHost, 1);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O7b — gian ân KHÔNG che ca đang chạy thì bị chặn (mốc ≤150 giây)', async () => {
@@ -337,7 +337,7 @@ test('O7b — gian ân KHÔNG che ca đang chạy thì bị chặn (mốc ≤150
   assert.notEqual(baoLuc, null, 'chặn đường gửi mà im luôn = đúng bệnh cần chống');
   assert.ok(baoLuc <= 150_000, `báo sau ${baoLuc / 1000}s — mốc Router chốt là ≤150 giây`);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -350,9 +350,9 @@ function nhipThat(db, them = {}) {
     api: {},
     guiVaoNhom: them.guiVaoNhom ?? (async () => ({ msgId: 'x' })),
     guiDmHost: them.guiDmHost ?? (async () => ({ msgId: 'y' })),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: null,
-    taoHangDoi: () => {},
+    enqueueQuestion: () => {},
     dmHostChatId: 'dm-host',
     ...them,
   };
@@ -378,7 +378,7 @@ test('O8 — chayNhipTheoDuoi TỰ chạy lưới outbox, không cần index.js 
   // 🔴 Ràng buộc cứng: KHÔNG một tin nào vào nhóm.
   assert.equal(vaoNhom.length, 0, 'bắn vào nhóm người thật = hỏng nặng hơn tin kẹt');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O8b — CÔNG TẮC RIÊNG: ZTL_LUOI_OUTBOX=0 tắt được, và mặc định là BẬT', async () => {
@@ -396,13 +396,13 @@ test('O8b — CÔNG TẮC RIÊNG: ZTL_LUOI_OUTBOX=0 tắt được, và mặc đ
     process.env.ZTL_LUOI_OUTBOX = '0';
     await chayNhipTheoDuoi({ ...p, bayGioMs: T0 });
     assert.equal(dmHost.length, 0, 'tắt mà vẫn chạy = công tắc vô nghĩa');
-    assert.equal(b.thongKe().ket, 0, 'tắt là KHÔNG soi DB, không chỉ là không gửi');
+    assert.equal(b.storeStats().ket, 0, 'tắt là KHÔNG soi DB, không chỉ là không gửi');
 
     delete process.env.ZTL_LUOI_OUTBOX;
     await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + 30_000 });
     assert.equal(dmHost.length, 1, 'MẶC ĐỊNH phải BẬT — lưới này canh sự thật khách quan');
 
-    dongDb(db);
+    closeDb(db);
   } finally {
     if (cu === undefined) delete process.env.ZTL_LUOI_OUTBOX;
     else process.env.ZTL_LUOI_OUTBOX = cu;
@@ -431,7 +431,7 @@ test('O8c — 🔴 công tắc CHỈ nghe ĐÚNG biến của mình, không nghe
     await chayNhipTheoDuoi({ ...p, bayGioMs: T0 + GIAN_AN_KHOI_DONG_MS });
     assert.equal(dmHost.length, 1, 'một biến lạ tắt được lưới = công tắc nghe nhầm đài');
 
-    dongDb(db);
+    closeDb(db);
   } finally {
     for (const k of ['ZTL_LUOI_OUTBOX', 'ZTL_LICH_HEN', 'ZTL_LUOI', 'ZTL_LUOI_OUTBOX_X']) {
       if (cu[k] === undefined) delete process.env[k];
@@ -451,9 +451,9 @@ test('O9 — đọc outbox hỏng: đếm lỗi, KHÔNG ném ra ngoài làm ch�
   });
   const n = await b.chayMotNhip({ db, bayGioMs: T0, notifyHost: async () => {} });
   assert.equal(n.loi, 1);
-  assert.equal(b.thongKe().loi, 1);
+  assert.equal(b.storeStats().loi, 1);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O9b — DM host ném lỗi: nhịp vẫn về bình thường', async () => {
@@ -467,7 +467,7 @@ test('O9b — DM host ném lỗi: nhịp vẫn về bình thường', async () =
   // Chờ microtask của nhánh fire-and-forget xả hết, không để lỗi rơi ra ngoài.
   await new Promise((r) => { setTimeout(r, 5); });
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('O9c — không có đường DM host: vẫn ghi sổ, không im lặng tuyệt đối', async () => {
@@ -479,5 +479,5 @@ test('O9c — không có đường DM host: vẫn ghi sổ, không im lặng tuy
   assert.equal(docSo(so).filter((r) => r.su_kien === 'ket').length, 1,
     'mất đường DM mà sổ cũng trống thì sau này không ai lần ra được');
 
-  dongDb(db);
+  closeDb(db);
 });

@@ -24,7 +24,7 @@
  *     nó quyền nhắn tin.
  *
  *  ② **ĐỒNG HỒ ĐỌC TỪ ĐĨA, không phải từ lúc lưới nhìn thấy.** `ts_cap_nhat` là
- *     mốc ĐÚNG: đặt lúc xếp hàng, và `nhanViecGui` cập nhật lại mỗi lần đổi
+ *     mốc ĐÚNG: đặt lúc xếp hàng, và `claimOutbound` cập nhật lại mỗi lần đổi
  *     trạng thái. Cứ tin nó, ⛔ đừng tự đếm từ lúc quét.
  *
  *  ③ **KHÔNG GIAO LẠI CHO AI, chỉ BÁO.**
@@ -43,7 +43,7 @@
 import fs from 'node:fs';
 
 import { safeLogText, redact } from '../lib/redact.js';
-import { layHangDoiGuiKet } from '../store/write.js';
+import { takeStuckOutbound } from '../store/write.js';
 
 /**
  * ═══ NGƯỠNG 120 GIÂY — GIỮ NGUYÊN SỐ ROUTER GIAO, VÀ ĐÂY LÀ SỐ ĐO ═══
@@ -153,12 +153,12 @@ export function taoBoCanhOutbox(tuyChon = {}) {
   const gianAn = Number.isFinite(Number(tuyChon.gianAnMs))
     ? Number(tuyChon.gianAnMs) : GIAN_AN_KHOI_DONG_MS;
   const duongDanSo = tuyChon.duongDanSo ?? null;
-  // 🔴 TÁI DÙNG `layHangDoiGuiKet` của bước 2 chứ ⛔ KHÔNG chép lại SQL. Hàm đó
+  // 🔴 TÁI DÙNG `takeStuckOutbound` của bước 2 chứ ⛔ KHÔNG chép lại SQL. Hàm đó
   // được viết SẴN CHO lưới này ("Dành cho lưới canh outbox") và nó lọc theo
   // `ts_cap_nhat`, ⛔ không phải `ts_tao` — chép tay rất dễ chép nhầm sang
-  // `ts_tao`, và lúc đó một dòng vừa được `nhanViecGui` đụng vào vẫn bị tính là
+  // `ts_tao`, và lúc đó một dòng vừa được `claimOutbound` đụng vào vẫn bị tính là
   // kẹt từ đầu. Một nguồn sự thật, không hai bản trôi khỏi nhau.
-  const layKet = typeof tuyChon.layKet === 'function' ? tuyChon.layKet : layHangDoiGuiKet;
+  const layKet = typeof tuyChon.layKet === 'function' ? tuyChon.layKet : takeStuckOutbound;
   const mocKhoiDong = Number.isFinite(Number(tuyChon.mocKhoiDongMs))
     ? Number(tuyChon.mocKhoiDongMs) : null;
 
@@ -279,7 +279,7 @@ export function taoBoCanhOutbox(tuyChon = {}) {
 
   return {
     chayMotNhip,
-    thongKe: () => ({ ...tong, dangTheoDoi: so.size }),
+    storeStats: () => ({ ...tong, dangTheoDoi: so.size }),
     /** Chỉ dùng cho test. */
     _so: so,
   };

@@ -3,7 +3,7 @@
  * CỤM 4 — BOT KHÔNG BAO GIỜ LÀ THÀNH VIÊN NHÓM.
  *
  * Triệu chứng THẬT (Router đo trên DB thật 21/08/2026): chạy nguyên văn truy
- * vấn `dsNguoiTrongNhom` thì bot VẪN nằm trong danh sách:
+ * vấn `groupMembers` thì bot VẪN nằm trong danh sách:
  *     999200000000000002|Hảis Assistant   ← BOT
  *     9994000000000000004|Pham Quyet
  *     9991000000000000001|Trọng Nguyễn
@@ -15,7 +15,7 @@
  *    tự-tag lại muốn tên đó biến mất. Cả hai đều đúng ở chỗ của nó ⇒ xoá hôm
  *    nay thì mai bản kia điền lại. Luật phải nằm ở TẦNG ĐỌC.
  *
- * 🔴 VÌ SAO ĐÁNG SỬA: `dsNguoiTrongNhom` là nguồn tên cho `baoDamTag`. Bot còn
+ * 🔴 VÌ SAO ĐÁNG SỬA: `groupMembers` là nguồn tên cho `baoDamTag`. Bot còn
  *    trong đó ⇒ trợ lý có thể tự tag CHÍNH NÓ trong nhóm người thật ⇒ tự đánh
  *    thức chính nó ⇒ vòng lặp tự kích hoạt.
  *
@@ -29,9 +29,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, upsertHoiThoai } from '../src/store/write.js';
-import { dsNguoiTrongNhom, datUidTroLy, layUidTroLy } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, upsertConversation } from '../src/store/write.js';
+import { groupMembers, setAssistantUid, getAssistantUid } from '../src/store/query.js';
 import { baoDamTag } from '../src/zalo/send.js';
 import { registerTools } from '../src/mcp/tools.js';
 import { thanHam } from './_cat_ma.js';
@@ -55,9 +55,9 @@ process.on('exit', () => {
 function dbTam({ uidBot = BOT } = {}) {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum4-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
-  const tin = (msgId, userId, ten, ts, tuyChon) => ghiTin(db, {
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const tin = (msgId, userId, ten, ts, tuyChon) => writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId, tenLucGui: ten,
     msgType: 'chat.text', noiDung: 'nói gì đó', contentRaw: null,
     tsZalo: ts, tuToi: false, coTagHost: false,
@@ -78,39 +78,39 @@ const uids = (ds) => ds.map((n) => String(n.uid)).sort();
 // 1. BIẾT uid bot -> bot BIẾN MẤT, ba người kia CÒN NGUYÊN
 // ═══════════════════════════════════════════════════════════════════════
 
-test('N1 🔴 biết uid bot -> dsNguoiTrongNhom KHÔNG chứa bot, vẫn đủ 3 người kia', () => {
+test('N1 🔴 biết uid bot -> groupMembers KHÔNG chứa bot, vẫn đủ 3 người kia', () => {
   const db = dbTam();
   try {
     // Trước hết CHỨNG MINH dữ liệu đúng là ca hỏng: chưa biết uid thì bot có mặt.
-    datUidTroLy(null);
-    assert.ok(uids(dsNguoiTrongNhom(db, NHOM)).includes(BOT),
+    setAssistantUid(null);
+    assert.ok(uids(groupMembers(db, NHOM)).includes(BOT),
       'dữ liệu dựng sai — bài test này chỉ có nghĩa khi bot THỰC SỰ lọt vào');
 
-    datUidTroLy(BOT);
-    const ds = dsNguoiTrongNhom(db, NHOM);
+    setAssistantUid(BOT);
+    const ds = groupMembers(db, NHOM);
     assert.deepEqual(uids(ds), [QUYET, TRONG, HAI].sort());
     assert.equal(ds.some((n) => String(n.uid) === BOT), false, 'bot vẫn còn trong danh sách');
     // Tên vẫn tra được bình thường cho người thật — không phải "lọc sạch cả mâm".
     assert.equal(ds.find((n) => String(n.uid) === TRONG)?.ten, 'Trọng Nguyễn');
-  } finally { datUidTroLy(null); dongDb(db); }
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 test('N2 truyền uidTroLy thẳng vào tham số cũng lọc được (không cần nhớ trước)', () => {
   const db = dbTam();
   try {
-    datUidTroLy(null);
-    assert.equal(uids(dsNguoiTrongNhom(db, NHOM, BOT)).includes(BOT), false);
-  } finally { dongDb(db); }
+    setAssistantUid(null);
+    assert.equal(uids(groupMembers(db, NHOM, BOT)).includes(BOT), false);
+  } finally { closeDb(db); }
 });
 
 test('N3 tham số THẮNG giá trị đã nhớ', () => {
   const db = dbTam();
   try {
-    datUidTroLy(TRONG);                     // nhớ nhầm người khác
-    const ds = uids(dsNguoiTrongNhom(db, NHOM, BOT));
+    setAssistantUid(TRONG);                     // nhớ nhầm người khác
+    const ds = uids(groupMembers(db, NHOM, BOT));
     assert.equal(ds.includes(BOT), false, 'tham số phải thắng');
     assert.equal(ds.includes(TRONG), true, 'người bị nhớ nhầm phải quay lại');
-  } finally { datUidTroLy(null); dongDb(db); }
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -122,13 +122,13 @@ test('N4 🔴 không biết uid (null/"0"/rỗng) -> KHÔNG lọc ai, giữ nguy
   try {
     const daDu = [QUYET, TRONG, HAI, BOT].sort();
     for (const v of [null, undefined, '', '   ', '0', 0]) {
-      datUidTroLy(v);
-      assert.equal(layUidTroLy(), null, `"${String(v)}" phải là KHÔNG BIẾT`);
-      assert.deepEqual(uids(dsNguoiTrongNhom(db, NHOM)), daDu,
+      setAssistantUid(v);
+      assert.equal(getAssistantUid(), null, `"${String(v)}" phải là KHÔNG BIẾT`);
+      assert.deepEqual(uids(groupMembers(db, NHOM)), daDu,
         `với uid=${String(v)} thì không được lọc ai`);
-      assert.deepEqual(uids(dsNguoiTrongNhom(db, NHOM, v)), daDu);
+      assert.deepEqual(uids(groupMembers(db, NHOM, v)), daDu);
     }
-  } finally { datUidTroLy(null); dongDb(db); }
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 test('N5 🔴 uid "0" của NGƯỜI THẬT không bị xoá oan', () => {
@@ -137,10 +137,10 @@ test('N5 🔴 uid "0" của NGƯỜI THẬT không bị xoá oan', () => {
   // im lặng, không log, và không ai hiểu vì sao không tag được người đó nữa.
   const db = dbTam({ uidBot: '0' });
   try {
-    datUidTroLy('0');
-    assert.equal(uids(dsNguoiTrongNhom(db, NHOM)).includes('0'), true,
+    setAssistantUid('0');
+    assert.equal(uids(groupMembers(db, NHOM)).includes('0'), true,
       'uid "0" phải còn nguyên vì "0" nghĩa là KHÔNG BIẾT, không phải "là bot"');
-  } finally { datUidTroLy(null); dongDb(db); }
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -183,12 +183,12 @@ test('N8 baoDamTag: bot đã được model tự tag sẵn thì cũng không tí
 // ═══════════════════════════════════════════════════════════════════════
 
 test('N9 🔴 registerTools ghi nhớ uid bot -> đường lời nhắc tự chạy cũng lọc được', () => {
-  // `src/lich/bo_chay.js` gọi `dsNguoiTrongNhom(db, chatId)` với ĐÚNG 2 tham số
+  // `src/lich/bo_chay.js` gọi `groupMembers(db, chatId)` với ĐÚNG 2 tham số
   // và không cầm `api`. Chỉ thêm tham số thì đường đó vẫn trả về bot — mà đó là
   // đường nguy hiểm nhất: lời nhắc tự chạy, không có người ngồi xem.
   const db = dbTam();
   try {
-    datUidTroLy(null);
+    setAssistantUid(null);
     const server = { setRequestHandler() {} };
     registerTools(server, {
       db,
@@ -197,16 +197,16 @@ test('N9 🔴 registerTools ghi nhớ uid bot -> đường lời nhắc tự ch�
       api: { getOwnId: () => BOT },
       docSucKhoe: () => ({ trangThai: 'OK' }),
     });
-    assert.equal(layUidTroLy(), BOT, 'registerTools phải ghi nhớ uid bot');
+    assert.equal(getAssistantUid(), BOT, 'registerTools phải ghi nhớ uid bot');
     // Gọi ĐÚNG kiểu bo_chay gọi: 2 tham số, không truyền uid.
-    assert.equal(uids(dsNguoiTrongNhom(db, NHOM)).includes(BOT), false);
-  } finally { datUidTroLy(null); dongDb(db); }
+    assert.equal(uids(groupMembers(db, NHOM)).includes(BOT), false);
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 test('N10 registerTools với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
   const db = dbTam();
   try {
-    datUidTroLy(null);
+    setAssistantUid(null);
     for (const v of ['0', null, undefined]) {
       registerTools({ setRequestHandler() {} }, {
         db,
@@ -215,7 +215,7 @@ test('N10 registerTools với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
         api: { getOwnId: () => v },
         docSucKhoe: () => ({ trangThai: 'OK' }),
       });
-      assert.equal(layUidTroLy(), null, `getOwnId()=${String(v)} phải là KHÔNG BIẾT`);
+      assert.equal(getAssistantUid(), null, `getOwnId()=${String(v)} phải là KHÔNG BIẾT`);
     }
     // api ném lỗi cũng không được làm chết việc đăng ký tool.
     registerTools({ setRequestHandler() {} }, {
@@ -225,8 +225,8 @@ test('N10 registerTools với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
       api: { getOwnId() { throw new Error('chưa đăng nhập'); } },
       docSucKhoe: () => ({ trangThai: 'OK' }),
     });
-    assert.equal(layUidTroLy(), null);
-  } finally { datUidTroLy(null); dongDb(db); }
+    assert.equal(getAssistantUid(), null);
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -240,15 +240,15 @@ test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot
   // TOÀN BỘ dòng của bot đều cờ 0.
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum4b-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
   try {
-    upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+    upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
     for (const [msgId, uid, ten, ts] of [
       ['m-hai', HAI, 'Minh Hải', 1_700_000_000_000],
       ['m-bot-1', BOT, 'Hảis Assistant', 1_700_000_001_000],
       ['m-bot-2', BOT, 'Hảis Assistant', 1_700_000_002_000],
     ]) {
-      ghiTin(db, {
+      writeMessage(db, {
         chatId: NHOM, msgId, cliMsgId: null, userId: uid, tenLucGui: ten,
         msgType: 'chat.text', noiDung: 'x', contentRaw: null,
         tsZalo: ts, tuToi: false, coTagHost: false,
@@ -258,25 +258,25 @@ test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot
       .get(BOT).c;
     assert.equal(co1, 0, 'ca thử phải là: bot KHÔNG có dòng nào mang cờ 1');
 
-    datUidTroLy(BOT);
-    assert.equal(uids(dsNguoiTrongNhom(db, NHOM)).includes(BOT), false,
+    setAssistantUid(BOT);
+    assert.equal(uids(groupMembers(db, NHOM)).includes(BOT), false,
       'lọc theo cờ thì ca này thủng — phải lọc theo uid');
-  } finally { datUidTroLy(null); dongDb(db); }
+  } finally { setAssistantUid(null); closeDb(db); }
 });
 
-test('N13 truy vấn dsNguoiTrongNhom KHÔNG được dựa vào cờ `do_tro_ly_tao`', () => {
+test('N13 truy vấn groupMembers KHÔNG được dựa vào cờ `do_tro_ly_tao`', () => {
   // Chốt cứng ở mức MÃ NGUỒN, vì hành vi sai của cách-lọc-bằng-cờ chỉ lộ ra
   // trong đúng ca cuộc-đua — dễ "sửa" nhầm rồi thấy test vẫn xanh.
   const s = fs.readFileSync(new URL('../src/store/query.js', import.meta.url), 'utf8');
   // ⚠️ Bản cũ: `s.slice(i, s.indexOf('\\n}', i))` KHÔNG hề kiểm `i >= 0`. Đổi tên
   // hàm ⇒ i = -1 ⇒ cắt ra CHUỖI RỖNG ⇒ regex không khớp ⇒ bài test XANH VĨNH VIỄN
   // trong khi ⛔ không canh gì cả. `thanHam` NÉM khi mất neo.
-  const than = thanHam(s, 'export function dsNguoiTrongNhom');
+  const than = thanHam(s, 'export function groupMembers');
   assert.equal(/do_tro_ly_tao/.test(than), false,
-    'dsNguoiTrongNhom dựa vào do_tro_ly_tao — cột đó thua cuộc đua 35,3%, phải lọc theo uid');
+    'groupMembers dựa vào do_tro_ly_tao — cột đó thua cuộc đua 35,3%, phải lọc theo uid');
 });
 
-test('N11 mọi chỗ trong src/ đọc danh sách người đều đi qua dsNguoiTrongNhom', () => {
+test('N11 mọi chỗ trong src/ đọc danh sách người đều đi qua groupMembers', () => {
   // Nếu sau này ai viết truy vấn `ten_luc_gui` riêng để suy ra thành viên nhóm,
   // luật lọc bot ở đây không áp được cho nó. Bài này bắt đúng lúc đó, thay vì
   // chờ bot tự tag mình lần nữa trên hệ thật.
@@ -297,5 +297,5 @@ test('N11 mọi chỗ trong src/ đọc danh sách người đều đi qua dsNgu
   };
   duyet(goc);
   assert.deepEqual(nghiNgo, [],
-    `có chỗ tự suy danh sách thành viên ngoài dsNguoiTrongNhom -> phải lọc bot ở đó: ${nghiNgo.join(', ')}`);
+    `có chỗ tự suy danh sách thành viên ngoài groupMembers -> phải lọc bot ở đó: ${nghiNgo.join(', ')}`);
 });

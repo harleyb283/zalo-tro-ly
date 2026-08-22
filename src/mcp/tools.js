@@ -66,16 +66,16 @@ import { redact, cleanError } from '../lib/redact.js';
 import { toId } from '../lib/ids.js';
 
 import {
-  truyVanLichSu, thongKe, dsNguoiTrongNhom, layUidCanTagCuaNhac, datUidTroLy,
+  queryHistory, storeStats, groupMembers, reminderTagUids, setAssistantUid,
 } from '../store/query.js';
 import { layLichDanhChoChuaRoGui, layNhacBatBienVo } from '../lich/theo_duoi.js';
-import { taoGhiNho, ghiNhatKyCongGhi, moLaiNhac, ghiVetHanhDong, xemVetHanhDong } from '../store/write.js';
+import { writeMemo, writeWriteGateLog, reopenReminder, writeActionTrail, readActionTrail } from '../store/write.js';
 import {
-  layGhiNho, demGhiNhoCuaPhien, layLoaiHoiThoai, layClientId, layPhamVi, layHostDatViec,
+  readMemos, countTurnMemos, conversationKind, getClientId, getReadScope, taskOwnerHost,
 } from '../store/query.js';
 import {
-  layHangDoi, capNhatHangDoi, ghiNhatKyTruyVan, ghiTin,
-  xinDuyet, xemYeuCauDuyet, duyetYeuCau,
+  getQueueRow, updateQueueState, writeQueryLog, writeMessage,
+  requestApproval, listApprovalRequests, resolveApproval,
 } from '../store/write.js';
 import { getSources, recordSources, decideReplyRoute, clearSession } from '../policy/leak_guard.js';
 import { hostDmChatId } from '../policy/access.js';
@@ -718,7 +718,7 @@ function _kiemPhien(kho, db, thamSo) {
   }
   let dong;
   try {
-    dong = kho.layHangDoi(db, requestId);
+    dong = kho.getQueueRow(db, requestId);
   } catch (e) {
     return { loi: _loi(MA_LOI.DB_LOI, cleanError('không đọc được hàng đợi', e).message) };
   }
@@ -982,12 +982,12 @@ export function registerTools(server, phuThuoc) {
   // mỗi gói phải tự nghiệm thu được, không chờ gói khác). G8 wiring KHÔNG
   // cần truyền gì thêm. Đã báo Router.
   const kho = {
-    truyVanLichSu, thongKe, layHangDoi, capNhatHangDoi, ghiNhatKyTruyVan, ghiTin,
-    dsNguoiTrongNhom, layUidCanTagCuaNhac,
-    taoGhiNho, layGhiNho, demGhiNhoCuaPhien, ghiNhatKyCongGhi, moLaiNhac,
-    ghiVetHanhDong, xemVetHanhDong,
-    layLoaiHoiThoai, layHostDatViec,
-    xinDuyet, xemYeuCauDuyet, duyetYeuCau,
+    queryHistory, storeStats, getQueueRow, updateQueueState, writeQueryLog, writeMessage,
+    groupMembers, reminderTagUids,
+    writeMemo, readMemos, countTurnMemos, writeWriteGateLog, reopenReminder,
+    writeActionTrail, readActionTrail,
+    conversationKind, taskOwnerHost,
+    requestApproval, listApprovalRequests, resolveApproval,
     // ⚠️ CỐ Ý KHÔNG có mặc định. `xepHangGuiRa` chỉ được nối ở chế độ TÁCH
     // (`src/index.js` truyền vào). Vắng nó ⇒ `tra_loi` gửi thẳng như hôm nay.
     ...(phuThuoc.kho ?? {}),
@@ -1003,12 +1003,12 @@ export function registerTools(server, phuThuoc) {
   const { db, cauHinh, boTichLuy, api } = phuThuoc;
 
   // 🔴 Ghi nhớ uid bot cho TẦNG TRUY VẤN ngay lúc dựng.
-  // `dsNguoiTrongNhom` còn bị gọi từ `src/lich/bo_chay.js` và `src/index.js` —
+  // `groupMembers` còn bị gọi từ `src/lich/bo_chay.js` và `src/index.js` —
   // những đường KHÔNG cầm `api`, nên không thể truyền tham số xuống. Nhớ một
   // lần ở đây là mọi đường đều lọc được bot, kể cả đường lời nhắc tự chạy.
-  // Không đọc được uid ⇒ `datUidTroLy` giữ null ⇒ KHÔNG lọc ai (fail-open có
+  // Không đọc được uid ⇒ `setAssistantUid` giữ null ⇒ KHÔNG lọc ai (fail-open có
   // chủ đích: thà bot lọt vào danh sách còn hơn xoá nhầm người thật).
-  datUidTroLy(_uidTroLyTuApi(api));
+  setAssistantUid(_uidTroLyTuApi(api));
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DECLARATIONS }));
 
@@ -1027,7 +1027,7 @@ export function registerTools(server, phuThuoc) {
       let _tt = null;
       if (typeof thamSo?.request_id === 'string' && thamSo.request_id.trim()) {
         let _phien = null;
-        try { _phien = kho.layHangDoi(db, thamSo.request_id.trim()); } catch { /* để tool tự báo */ }
+        try { _phien = kho.getQueueRow(db, thamSo.request_id.trim()); } catch { /* để tool tự báo */ }
         _tt = _phien
           ? {
             chiNghe: Number(_phien.chi_nghe) === 1,
@@ -1101,7 +1101,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
 
   let kq;
   try {
-    kq = kho.truyVanLichSu(db, {
+    kq = kho.queryHistory(db, {
       chatId: thamSo.chatId,
       tuKhoa: thamSo.tuKhoa,
       soLuong: thamSo.soLuong,
@@ -1141,7 +1141,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
     thoiGian: _iso(r.ts_zalo),
     daThuHoi: Number(r.da_thu_hoi) === 1,
     // 🔴 KHÔNG BAO GIỜ trả `daThuHoi` trần. Cờ này do tầng truy vấn đặt
-    // (query.moTaThuHoi) và nói rõ mình chắc tới đâu:
+    // (query.describeRecall) và nói rõ mình chắc tới đâu:
     //   nguon='SU_KIEN'   -> biết ai + lúc nào
     //   nguon='DOI_CHIEU' -> chỉ biết KHOẢNG giữa hai lượt quét
     // Thiếu nó thì model sẽ đọc `thu_hoi_luc` của dòng DOI_CHIEU (vốn là lúc
@@ -1153,7 +1153,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
   // Model hỏi nhóm B mà nhận 0 dòng sẽ tưởng "nhóm B không có gì", rồi nói với
   // host y như thế — một câu SAI SỰ THẬT. Nói thẳng là bị giới hạn phạm vi, và
   // CHỈ ĐƯỜNG cho host: DM thì hỏi được hết.
-  const pv = layPhamVi();
+  const pv = getReadScope();
   const hoiNoiKhac = pv !== null && thamSo.chatId !== undefined && thamSo.chatId !== null
     && String(thamSo.chatId).trim() !== '' && String(thamSo.chatId).trim() !== pv;
   return _ok({
@@ -1180,7 +1180,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
  *
  * ⚠️ Đây là câu SQL DUY NHẤT nằm ngoài `src/store/` trong cả gói G5, cố ý và
  * đã báo Router: `DuLieuLichSu.tin[].tenHoiThoai` là hợp đồng G0 nhưng
- * `truyVanLichSu()` chỉ trả cột của `tin_nhan` nên không có tên. Chỉ ĐỌC, chỉ
+ * `queryHistory()` chỉ trả cột của `tin_nhan` nên không có tên. Chỉ ĐỌC, chỉ
  * lấy đúng 2 cột, hỏng thì trả map rỗng (tên là thứ trang trí — mất tên không
  * được phép làm hỏng câu trả lời).
  */
@@ -1301,16 +1301,16 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   // ⚠️ `!laDmHoi` KHÔNG phải cho gọn. DM KHÔNG CÓ cơ chế mention: `UserMessage`
   // của zca-js không có trường `mentions`, và `send.js` chỉ dựng mentions khi
   // `loaiThread === ThreadType.Group`. Chạy `baoDamTag` cho một DM thì nó
-  // CHÈN THẲNG chuỗi "@<tên>" vào đầu tin — đo thật: `dsNguoiTrongNhom` với một
+  // CHÈN THẲNG chuỗi "@<tên>" vào đầu tin — đo thật: `groupMembers` với một
   // chat DM trả về MỘT PHẦN TỬ (chính host), KHÔNG rỗng như ai cũng tưởng. Nên
   // host sẽ nhận một tin nhắn riêng mở đầu bằng "@<tên chính mình>": chữ trần,
   // không tag được ai, và trông như trợ lý hỏng.
   if (qd.huong === HUONG_TRA_LOI.NHOM && !laDmHoi) {
     try {
-      const dsNguoiNhom = kho.dsNguoiTrongNhom(db, chatIdHoi) ?? [];
+      const dsNguoiNhom = kho.groupMembers(db, chatIdHoi) ?? [];
       // Lượt nhắc ⇒ có uid bắt buộc. Câu hỏi thường ⇒ mảng rỗng, nhưng VẪN gọi
       // để bắt `khongKhop` (B4: `@Tên` model viết mà không khớp ai trong nhóm).
-      const can = idNhac ? kho.layUidCanTagCuaNhac(db, idNhac) : null;
+      const can = idNhac ? kho.reminderTagUids(db, idNhac) : null;
       // ═══ 🔴 CỬA 2 — XIN PHÉP BẰNG CÁCH TAG HOST TRONG NHÓM ═══
       // Anh chốt 21/08/2026, nguyên văn: *"Anh cần mày tag anh trong nhóm cơ"*.
       // MỘT tin, vừa ghi nhận với người phụ trách, vừa tag host để xin duyệt —
@@ -1322,7 +1322,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       // là kéo người ngoài cuộc vào một việc không phải của họ).
       //
       // ⚠️ ĐO 21/08/2026: `phien.idViecMoCua &&` ở đây là LỚP DƯ THỪA —
-      // `layHostDatViec(db, null)` vốn đã trả `null`. Đột biến gỡ nó SỐNG SÓT
+      // `taskOwnerHost(db, null)` vốn đã trả `null`. Đột biến gỡ nó SỐNG SÓT
       // (tương đương); gỡ CẢ HAI thì `T10` đỏ. Giữ vì nó nói ra ý định.
       //
       // ⚠️ `xinHostDuyet` là PHÂN LOẠI do model quyết (nó đọc được câu người ta
@@ -1330,13 +1330,13 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       // phiền host một tin, ⛔ không đóng/đổi được gì. Và nó chỉ có tác dụng
       // khi phiên THẬT SỰ mang `idViecMoCua` — code kiểm, ⛔ không tin model.
       if (phien.idViecMoCua && thamSo?.xinHostDuyet === true) {
-        const uidHost = kho.layHostDatViec(db, phien.idViecMoCua);
+        const uidHost = kho.taskOwnerHost(db, phien.idViecMoCua);
         if (uidHost) {
           uidHostCanTag = String(uidHost);
           canTagThem.push(uidHostCanTag);
         }
       }
-      // Lớp chặn thứ hai. `dsNguoiTrongNhom` đã lọc bot ở tầng truy vấn rồi,
+      // Lớp chặn thứ hai. `groupMembers` đã lọc bot ở tầng truy vấn rồi,
       // nhưng `can.uids` đến từ bảng `lich_hen` — dữ liệu cũ hoặc sai vẫn có
       // thể chứa uid bot, và không tầng nào khác chặn đường đó.
       const kqTag = baoDamTag(
@@ -1425,7 +1425,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       msgId = kqG.msgId;
 
       // ═══ 🔴 CỬA 2 — ĐƯỜNG LÙI KHI TAG HỎNG ═══
-      // Host không ở trong nhóm / chưa từng nhắn ⇒ `dsNguoiTrongNhom` không tra
+      // Host không ở trong nhóm / chưa từng nhắn ⇒ `groupMembers` không tra
       // ra tên ⇒ `baoDamTag` bỏ qua trong IM LẶNG (`khongTraRa`), hoặc trùng
       // tên với người khác (`trungTen`). Khi đó câu "anh duyệt cho em nhé"
       // KHÔNG tới ai cả — lời xin bốc hơi, mà nhìn từ ngoài thì mọi thứ ổn.
@@ -1591,7 +1591,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
  * Nguyên tắc rút ra — gặp một câu khẳng định "không thể xảy ra", hãy ĐẾM THỬ trên
  * dữ liệu thật.
  *
- * ✅ Nay `ghiTin()` tự ép cờ bằng `UPDATE` sau `INSERT OR IGNORE` (xem A8 trong
+ * ✅ Nay `writeMessage()` tự ép cờ bằng `UPDATE` sau `INSERT OR IGNORE` (xem A8 trong
  * `store/write.js`) ⇒ thắng bất kể ai tới trước. Vẫn KHÔNG được đổi sang
  * `INSERT OR REPLACE`: nó sẽ đè mất `noi_dung`/`ts_zalo` của bản ghi đúng.
  *
@@ -1646,8 +1646,8 @@ function _uidTroLyTuApi(api) {
 function _laDmDich(kho, db, cauHinh, chatId) {
   if (!chatId) return false;
   try {
-    if (db && typeof kho?.layLoaiHoiThoai === 'function') {
-      const loai = kho.layLoaiHoiThoai(db, chatId);
+    if (db && typeof kho?.conversationKind === 'function') {
+      const loai = kho.conversationKind(db, chatId);
       if (loai === LOAI_HOI_THOAI.DM) return true;
       if (loai === LOAI_HOI_THOAI.GROUP) return false;
     }
@@ -1664,8 +1664,8 @@ function _tuyChonGui(kho, db, api, chatIdNhom) {
   /** @type {any} */
   const t = {};
 
-  if (db && typeof kho.ghiTin === 'function') {
-    t.ghiLai = (tin) => kho.ghiTin(db, tin, { doTroLyTao: true });
+  if (db && typeof kho.writeMessage === 'function') {
+    t.ghiLai = (tin) => kho.writeMessage(db, tin, { doTroLyTao: true });
   }
 
   // uid bot: tiêm từ đây chứ không để send.js tự gọi — send.js giữ bất biến
@@ -1674,9 +1674,9 @@ function _tuyChonGui(kho, db, api, chatIdNhom) {
   if (uidTL !== null) t.uidTroLy = uidTL;
 
   // Danh sách người để tag — CHỈ người có thật trong ĐÚNG nhóm đó.
-  if (chatIdNhom && db && typeof kho.dsNguoiTrongNhom === 'function') {
+  if (chatIdNhom && db && typeof kho.groupMembers === 'function') {
     try {
-      t.dsNguoi = kho.dsNguoiTrongNhom(db, chatIdNhom);
+      t.dsNguoi = kho.groupMembers(db, chatIdNhom);
     } catch (e) {
       _log(cleanError('không tra được danh sách người trong nhóm -> sẽ không tag ai', e).message);
     }
@@ -1872,7 +1872,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
     // dư, ⛔ đừng đi viết một bài test giả vờ đo được nó.
     if (!dmChatId && phien.idViecMoCua) {
       dmChatId = toId(
-        chinhSach.hostDmChatId(cauHinh, kho.layHostDatViec(db, phien.idViecMoCua)),
+        chinhSach.hostDmChatId(cauHinh, kho.taskOwnerHost(db, phien.idViecMoCua)),
         'cauHinh.dmChatId',
       );
     }
@@ -1976,7 +1976,7 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
 
   let so = { soTinDaLuu: 0, soThuHoiMoCoi: 0, soHangDoiCho: 0, soNhomDangNghe: 0 };
   try {
-    so = { ...so, ...(kho.thongKe(db) ?? {}) };
+    so = { ...so, ...(kho.storeStats(db) ?? {}) };
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('đếm số liệu kho thất bại', e).message);
   }
@@ -2020,11 +2020,11 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
 
 function _ghiNhatKy(kho, db, requestId, chatIdHoi, nguon, qd, huong) {
   try {
-    kho.ghiNhatKyTruyVan(db, {
+    kho.writeQueryLog(db, {
       // v8 — PANE nào đọc. Lấy từ tầng truy vấn (nơi giữ danh tính tiến trình),
       // ⛔ không nhận từ tham số tool: model tự khai mình là pane nào thì cột
       // này thành vô nghĩa đúng lúc cần nó nhất.
-      clientId: layClientId(),
+      clientId: getClientId(),
       requestId,
       chatIdHoi,
       nguonChatIds: nguon ?? [],
@@ -2041,7 +2041,7 @@ function _ghiNhatKy(kho, db, requestId, chatIdHoi, nguon, qd, huong) {
 function _dongPhien(kho, chinhSach, db, boTichLuy, requestId) {
   _quenDauGhi(requestId);
   try {
-    kho.capNhatHangDoi(db, requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
+    kho.updateQueueState(db, requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
   } catch (e) {
     _log(cleanError(`không cập nhật được hàng đợi ${requestId}`, e).message);
   }
@@ -2162,7 +2162,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
   let tagKhongTraRa = [];
   if (tagUserIds.length && nhom.loai === 'GROUP') {
     try {
-      const bang = new Map(kho.dsNguoiTrongNhom(db, chatIdDich).map((n) => [String(n.uid), n.ten]));
+      const bang = new Map(kho.groupMembers(db, chatIdDich).map((n) => [String(n.uid), n.ten]));
       for (const u of tagUserIds) {
         if (bang.has(u)) tenTag.push(bang.get(u));
         else tagKhongTraRa.push(u);
@@ -2220,7 +2220,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
   // phải để lại vết và câu xác nhận phải nêu rõ TÊN NHÓM ĐÍCH — anh đọc là thấy.
   if (cheo) {
     try {
-      kho.ghiNhatKyTruyVan(db, {
+      kho.writeQueryLog(db, {
         requestId: phien.requestId,
         chatIdHoi: chatIdDat,
         nguonChatIds: [chatIdDich],
@@ -2367,7 +2367,7 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
   // qua `lich_su`, tức lách đúng chỗ vừa khoá.
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
   // nơi khác. (Hai hàm kia nằm trong `src/lich/`, ngoài phạm vi lượt sửa này.)
-  const _pv = layPhamVi();
+  const _pv = getReadScope();
   if (_pv !== null) ds = ds.filter((d) => String(d.chat_id_dich) === _pv);
   const bayGio = Date.now();
   return _ok({
@@ -2679,10 +2679,10 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
   // Đứng ở nhóm A dặn nhắc vào nhóm B là nhu cầu THẬT, nhưng nó là một lần dữ
   // liệu đi từ hội thoại này sang hội thoại khác. `_datLichNhap` ghi nhật ký cho
   // đúng ca này; chỗ này thì không — mà lời nhắc LẶP LẠI còn để lại dấu vết lâu
-  // hơn nhiều. Dùng lại ĐÚNG `kho.ghiNhatKyTruyVan`, ⛔ không viết bản thứ hai.
+  // hơn nhiều. Dùng lại ĐÚNG `kho.writeQueryLog`, ⛔ không viết bản thứ hai.
   if (chatIdDat !== chatIdDich) {
     try {
-      kho.ghiNhatKyTruyVan(db, {
+      kho.writeQueryLog(db, {
         requestId: phien.requestId,
         chatIdHoi: chatIdDat,
         nguonChatIds: [chatIdDich],
@@ -2721,7 +2721,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
 function _tenTrongNhom(kho, db, chatId, uid) {
   if (!uid) return null;
   try {
-    const ds = kho.dsNguoiTrongNhom(db, chatId) ?? [];
+    const ds = kho.groupMembers(db, chatId) ?? [];
     return ds.find((n) => String(n.uid) === String(uid))?.ten ?? null;
   } catch {
     return null;
@@ -2824,7 +2824,7 @@ function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
   // qua `lich_su`, tức lách đúng chỗ vừa khoá.
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
   // nơi khác. (Hai hàm kia nằm trong `src/lich/`, ngoài phạm vi lượt sửa này.)
-  const _pv = layPhamVi();
+  const _pv = getReadScope();
   if (_pv !== null) ds = ds.filter((d) => String(d.chat_id_dich) === _pv);
 
   return _ok({
@@ -2865,7 +2865,7 @@ function _xinDuyet({ kho, db, cauHinh, api }, thamSo) {
 
   let ra;
   try {
-    ra = kho.xinDuyet(db, {
+    ra = kho.requestApproval(db, {
       chatIdXin: String(phien.dong.chat_id_hoi),
       requestId: phien.requestId,
       nguoiNoi: thamSo?.nguonNguoi ?? null,
@@ -2904,7 +2904,7 @@ function _xemYeuCau({ kho, db }, thamSo) {
   }
   let ds;
   try {
-    ds = kho.xemYeuCauDuyet(db, { trangThai: thamSo?.trangThai, soLuong: 50 });
+    ds = kho.listApprovalRequests(db, { trangThai: thamSo?.trangThai, soLuong: 50 });
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không đọc được hàng đợi duyệt', e).message);
   }
@@ -2944,7 +2944,7 @@ function _duyetYeuCau({ kho, db }, thamSo) {
 
   let kq;
   try {
-    kq = kho.duyetYeuCau(db, id, thamSo?.dongY === true, {
+    kq = kho.resolveApproval(db, id, thamSo?.dongY === true, {
       nguoiDuyet: phien.dong.user_id ?? null,
       ghiChu: thamSo?.ghiChu ?? null,
     });
@@ -2998,7 +2998,7 @@ function _ghiVetNeuOk(nen, phien, tenTool, thamSo, ketQua) {
   }
   const chatId = phien.chatIdHoi ?? thamSo?.chatId ?? null;
   try {
-    nen.kho.ghiVetHanhDong(nen.db, {
+    nen.kho.writeActionTrail(nen.db, {
       chatId,
       requestId: thamSo?.request_id ?? null,
       tenTool,
@@ -3055,7 +3055,7 @@ function _boQua({ kho, db }, thamSo) {
   if (phien.loi) return phien.loi;
 
   try {
-    kho.capNhatHangDoi(db, phien.requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
+    kho.updateQueueState(db, phien.requestId, TRANG_THAI_HANG_DOI.DA_TRA_LOI);
   } catch (e) {
     return _loi(MA_LOI.DB_LOI, cleanError('không đóng được lượt', e).message);
   }
@@ -3110,7 +3110,7 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
   const _ngGhi = _nguonCuaHanhDong(cauHinh, phien, thamSo);
   let ghi;
   try {
-    ghi = kho.taoGhiNho(db, {
+    ghi = kho.writeMemo(db, {
       chatId,
       requestId: phien.requestId,
       nguoiGhi: String(phien.dong.user_id ?? ''),
@@ -3161,7 +3161,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
 
   let kq;
   try {
-    kq = kho.moLaiNhac(db, {
+    kq = kho.reopenReminder(db, {
       id: thamSo.id,
       chatId: phien.dong.chat_id_hoi,
       nguoiMo: String(phien.dong.user_id ?? ''),
@@ -3272,8 +3272,8 @@ function _daGhiTrongPhien(kho, db, requestId) {
   // Lớp bền: `ghi_nho` có cột `request_id`. Bắt được ca daemon vừa nạp lại
   // module mà lượt vẫn còn sống.
   try {
-    if (typeof kho?.demGhiNhoCuaPhien === 'function' && typeof db?.prepare === 'function'
-        && kho.demGhiNhoCuaPhien(db, requestId) > 0) {
+    if (typeof kho?.countTurnMemos === 'function' && typeof db?.prepare === 'function'
+        && kho.countTurnMemos(db, requestId) > 0) {
       return [TEN_TOOL_GHI.GHI_NHO];
     }
   } catch (e) {
@@ -3320,7 +3320,7 @@ function _congGhi({ kho, db, cauHinh }, phien, thamSo, laLuotNhac) {
   const chatId = phien.dong?.chat_id_hoi ?? null;
   const ghiLai = (suKien, lyDo) => {
     try {
-      kho.ghiNhatKyCongGhi(db, { requestId: phien.requestId, chatId, suKien, cueTrung: cue, lyDo });
+      kho.writeWriteGateLog(db, { requestId: phien.requestId, chatId, suKien, cueTrung: cue, lyDo });
     } catch (e) {
       // Sổ đo hỏng thì mất SỐ LIỆU; sổ đo làm chết một câu trả lời thì mất CÂU
       // TRẢ LỜI. Không bao giờ để cái sau xảy ra vì cái trước.

@@ -20,11 +20,11 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  BUOC_MIGRATE, dongDb, kiemPhienBanHoacNem, layPhienBan, migrate, moDb, moTaSchema,
+  MIGRATION_STEPS, closeDb, assertSchemaVersion, getSchemaVersion, migrate, openDb, describeSchema,
 } from '../src/store/db.js';
 import {
-  ghiKetQuaGuiRa, layHangDoiGuiCho, layHangDoiGuiKet, nhanViec, nhanViecGui,
-  taoHangDoi, upsertHoiThoai, xepHangGui,
+  writeSendResult, takePendingOutbound, takeStuckOutbound, claimQuestion, claimOutbound,
+  enqueueQuestion, upsertConversation, enqueueOutbound,
 } from '../src/store/write.js';
 import {
   PHIEN_BAN_SCHEMA, TRANG_THAI_GUI, TRANG_THAI_HANG_DOI, HUONG_TRA_LOI,
@@ -49,8 +49,8 @@ function thuMucTam(ten = 'ztl-cum9-') {
 }
 
 function dbTam() {
-  const db = moDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return db;
 }
 
@@ -61,7 +61,7 @@ function dbTam() {
 /** Cấu trúc thật đọc từ SQLite: bảng -> [cột:kiểu]. ⛔ không tự khai theo tài liệu. */
 function moTaCot(db) {
   const ra = {};
-  for (const b of moTaSchema(db).bang) {
+  for (const b of describeSchema(db).bang) {
     ra[b] = db.prepare(`PRAGMA table_info(${b})`).all()
       .map((c) => `${c.name}:${String(c.type).toUpperCase()}`)
       .sort();
@@ -73,12 +73,12 @@ test('★★★ M1 DB TRẮNG và DB CŨ ĐÃ MIGRATE phải ra CÙNG MỘT cấ
   // 🔴 Pack đã dính đúng lỗi họ này: `schema.sql` còn hardcode phiên bản cũ nên
   // DB TRẮNG sinh ra ở phiên bản sai. Cột thiếu ở một trong hai đường là hỏng
   // CÂM — máy người mới cài có cấu trúc khác máy đang chạy, và không ai báo gì.
-  const trang = moDb(path.join(thuMucTam(), 'kho', 'a.db'));
+  const trang = openDb(path.join(thuMucTam(), 'kho', 'a.db'));
 
   // Dựng một DB "cũ": nạp schema rồi HẠ phiên bản xuống v6 và bỏ hai bảng của
   // v7 đi — đúng hình dạng một DB đang chạy trước lượt nâng cấp này.
   const pCu = path.join(thuMucTam(), 'kho', 'b.db');
-  const cu = moDb(pCu);
+  const cu = openDb(pCu);
   cu.exec('DROP TABLE IF EXISTS hang_doi_gui');       // v7
   cu.exec('DROP TABLE IF EXISTS nguon_phien');        // v7
   // v8 thêm CỘT vào bảng đã có ⇒ dựng lại bảng đó ở hình dạng CHƯA có cột,
@@ -89,7 +89,7 @@ test('★★★ M1 DB TRẮNG và DB CŨ ĐÃ MIGRATE phải ra CÙNG MỘT cấ
     chat_id_hoi TEXT NOT NULL, nguon_chat_ids TEXT NOT NULL,
     co_cheo INTEGER NOT NULL, huong_tra_loi TEXT, ts TEXT NOT NULL)`);
   cu.prepare("UPDATE meta SET gia_tri = '6' WHERE khoa = 'schema_version'").run();
-  assert.equal(layPhienBan(cu), '6', 'dựng sai tiền đề thì bài này vô nghĩa');
+  assert.equal(getSchemaVersion(cu), '6', 'dựng sai tiền đề thì bài này vô nghĩa');
 
   const kq = migrate(cu);
   assert.equal(kq.daDoi, true);
@@ -97,11 +97,11 @@ test('★★★ M1 DB TRẮNG và DB CŨ ĐÃ MIGRATE phải ra CÙNG MỘT cấ
   // là bài sẽ bị sửa cho xanh thay vì được đọc. Canh ĐIỂM ĐẦU và ĐIỂM CUỐI.
   assert.equal(kq.buocDaChay[0], '6->7');
   assert.equal(kq.buocDaChay.at(-1), `${Number(PHIEN_BAN_SCHEMA) - 1}->${PHIEN_BAN_SCHEMA}`);
-  assert.equal(layPhienBan(cu), PHIEN_BAN_SCHEMA);
+  assert.equal(getSchemaVersion(cu), PHIEN_BAN_SCHEMA);
 
   assert.deepEqual(moTaCot(cu), moTaCot(trang),
     'hai đường dựng DB ra cấu trúc KHÁC nhau -> máy người mới cài khác máy đang chạy');
-  dongDb(trang); dongDb(cu);
+  closeDb(trang); closeDb(cu);
 });
 
 test('★★★ M2 `schema.sql` và `PHIEN_BAN_SCHEMA` phải nói CÙNG MỘT SỐ', () => {
@@ -115,7 +115,7 @@ test('★★★ M2 `schema.sql` và `PHIEN_BAN_SCHEMA` phải nói CÙNG MỘT S
 test('★★★ M3 có bước migrate cho MỌI khoảng phiên bản, không đứt quãng', () => {
   // Thiếu một bước ở giữa thì DB cũ vừa đủ tuổi sẽ NÉM lúc mở — và nó chỉ lộ
   // trên máy có DB cũ, tức trên máy anh chứ không phải trên máy đang code.
-  const co = new Set(BUOC_MIGRATE.map((b) => b.tu));
+  const co = new Set(MIGRATION_STEPS.map((b) => b.tu));
   for (let v = 1; v < Number(PHIEN_BAN_SCHEMA); v += 1) {
     assert.ok(co.has(String(v)), `thiếu bước migrate từ v${v}`);
   }
@@ -126,7 +126,7 @@ test('★★★ M4 CHẠM DB THẬT: kiểu từng cột của hai bảng mới 
   // tầng ghi thì lỗi SAI KIỂU không lộ. SQLite có "type affinity" — nhét chuỗi
   // vào cột INTEGER thì nó im lặng đổi kiểu, hoặc im lặng GIỮ NGUYÊN chuỗi.
   const db = dbTam();
-  const { dong } = xepHangGui(db, {
+  const { dong } = enqueueOutbound(db, {
     requestId: 'r1', chatIdDich: NHOM, text: 'xin chào', tagUserIds: [HOST],
   });
   assert.equal(typeof dong.id, 'string');
@@ -146,26 +146,26 @@ test('★★★ M4 CHẠM DB THẬT: kiểu từng cột của hai bảng mới 
   assert.equal(typeof r.request_id, 'string');
   assert.equal(typeof r.chat_id, 'string');
   assert.equal(typeof r.ts, 'number', 'ts phải là SỐ — sweepStale so sánh nó với Date.now()');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B1 — moDb({migrate:false}) + kiểm phiên bản
+// B1 — openDb({migrate:false}) + kiểm phiên bản
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Dựng một DB ở phiên bản CŨ hơn code. */
 function dbPhienBanCu(v = '6') {
   const p = path.join(thuMucTam(), 'kho', 'cu.db');
-  const db = moDb(p);
+  const db = openDb(p);
   db.prepare('UPDATE meta SET gia_tri = ? WHERE khoa = ?').run(v, 'schema_version');
-  dongDb(db);
+  closeDb(db);
   return p;
 }
 
 test('★★★ B1a client mở DB LỆCH PHIÊN BẢN -> NÉM, thông điệp nêu CẢ HAI số', () => {
   const p = dbPhienBanCu('6');
   let loi = null;
-  try { moDb(p, { migrate: false }); } catch (e) { loi = e; }
+  try { openDb(p, { migrate: false }); } catch (e) { loi = e; }
   assert.ok(loi, '🔴 client chạy tiếp trên cấu trúc cũ = hỏng CÂM, cột thiếu trả undefined');
   assert.match(loi.message, /v6/, 'thiếu số của DB');
   assert.match(loi.message, new RegExp(`v${PHIEN_BAN_SCHEMA}`), 'thiếu số client cần');
@@ -179,35 +179,35 @@ test('★★★ B1b client mở DB TRẮNG -> cũng NÉM (⛔ không tự dựng
   // ⚠️ Canh ĐÚNG câu của nhánh DB-trắng. Bản đầu em canh `/…|daemon/i` — quá
   // lỏng: gỡ nhánh này đi thì câu "lệch phiên bản" (cũng có chữ daemon) lọt
   // qua, và đột biến M3 sống sót đúng vì thế.
-  assert.throws(() => moDb(p, { migrate: false }), /chưa có cấu trúc nào/);
+  assert.throws(() => openDb(p, { migrate: false }), /chưa có cấu trúc nào/);
 });
 
 test('★★★ B1c DB ĐÚNG phiên bản -> mở được, và KHÔNG migrate gì', () => {
   const p = path.join(thuMucTam(), 'kho', 'ok.db');
-  dongDb(moDb(p));                       // daemon dựng trước
-  const db = moDb(p, { migrate: false }); // client mở sau
-  assert.equal(layPhienBan(db), PHIEN_BAN_SCHEMA);
+  closeDb(openDb(p));                       // daemon dựng trước
+  const db = openDb(p, { migrate: false }); // client mở sau
+  assert.equal(getSchemaVersion(db), PHIEN_BAN_SCHEMA);
   assert.equal(db.prepare('SELECT count(*) c FROM hang_doi_gui').get().c, 0, 'bảng v7 phải có mặt');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B1d MẶC ĐỊNH vẫn migrate — đường một-tiến-trình KHÔNG đổi hành vi', () => {
   // Đây là bài canh ràng buộc trùm. Vá quá tay ở đây là daemon thật không mở
   // nổi DB cũ, tức hệ đang chạy chết ngay lần restart kế tiếp.
   const p = dbPhienBanCu('6');
-  const db = moDb(p);                    // ⛔ không truyền tuỳ chọn
-  assert.equal(layPhienBan(db), PHIEN_BAN_SCHEMA, 'daemon phải TỰ nâng cấp như trước giờ');
-  dongDb(db);
+  const db = openDb(p);                    // ⛔ không truyền tuỳ chọn
+  assert.equal(getSchemaVersion(db), PHIEN_BAN_SCHEMA, 'daemon phải TỰ nâng cấp như trước giờ');
+  closeDb(db);
 });
 
-test('★★ B1e `kiemPhienBanHoacNem` trả về phiên bản khi khớp', () => {
+test('★★ B1e `assertSchemaVersion` trả về phiên bản khi khớp', () => {
   const db = dbTam();
-  assert.equal(kiemPhienBanHoacNem(db, 'x.db'), PHIEN_BAN_SCHEMA);
-  dongDb(db);
+  assert.equal(assertSchemaVersion(db, 'x.db'), PHIEN_BAN_SCHEMA);
+  closeDb(db);
 });
 
 test('★★★ B1f TIẾN TRÌNH THẬT: client lệch phiên bản thoát với mã ≠ 0', () => {
-  // ⚠️ `moDb` chỉ NÉM; "thoát mã ≠0" là việc của tiến trình. Bài này chạy một
+  // ⚠️ `openDb` chỉ NÉM; "thoát mã ≠0" là việc của tiến trình. Bài này chạy một
   // tiến trình node thật để chứng minh chuỗi đó nối được, ⛔ không suy từ code.
   const p = dbPhienBanCu('6');
   const goc = process.cwd();
@@ -216,7 +216,7 @@ test('★★★ B1f TIẾN TRÌNH THẬT: client lệch phiên bản thoát vớ
   try {
     execFileSync(process.execPath, ['-e',
       `import(${JSON.stringify(path.join(goc, 'src/store/db.js'))})`
-      + `.then(m => m.moDb(${JSON.stringify(p)}, { migrate: false }))`,
+      + `.then(m => m.openDb(${JSON.stringify(p)}, { migrate: false }))`,
     ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     ma = e.status; ra = String(e.stderr ?? '');
@@ -227,48 +227,48 @@ test('★★★ B1f TIẾN TRÌNH THẬT: client lệch phiên bản thoát vớ
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B2 — nhanViec (CAS)
+// B2 — claimQuestion (CAS)
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ B2a HAI người cùng nhận một việc -> ĐÚNG MỘT người được true', () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'hỏi', tsTao: new Date().toISOString(),
   });
-  const a = nhanViec(db, 'r1', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY);
-  const b = nhanViec(db, 'r1', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY);
+  const a = claimQuestion(db, 'r1', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY);
+  const b = claimQuestion(db, 'r1', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY);
   assert.deepEqual([a, b], [true, false],
     'cả hai cùng thắng = cả hai cùng gửi = hai tin vào nhóm người thật');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B2b trạng thái ĐẦU không khớp -> KHÔNG nhận được, và KHÔNG đổi gì', () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'hỏi', tsTao: new Date().toISOString(),
   });
-  assert.equal(nhanViec(db, 'r1', TRANG_THAI_HANG_DOI.DA_TRA_LOI, TRANG_THAI_HANG_DOI.BO), false);
+  assert.equal(claimQuestion(db, 'r1', TRANG_THAI_HANG_DOI.DA_TRA_LOI, TRANG_THAI_HANG_DOI.BO), false);
   assert.equal(
     db.prepare('SELECT trang_thai t FROM hang_doi_hoi WHERE request_id = ?').get('r1').t,
     TRANG_THAI_HANG_DOI.CHO, 'thua CAS mà vẫn ghi đè là hỏng đúng thứ CAS sinh ra để chặn',
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ B2c request_id lạ -> false, không nổ', () => {
   const db = dbTam();
-  assert.equal(nhanViec(db, 'khong-co', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY), false);
-  dongDb(db);
+  assert.equal(claimQuestion(db, 'khong-co', TRANG_THAI_HANG_DOI.CHO, TRANG_THAI_HANG_DOI.DA_DAY), false);
+  closeDb(db);
 });
 
 test('★★★ B2d trạng thái lạ -> NÉM ngay ở JS, không để CHECK của SQLite nổ', () => {
   // Thông điệp "CHECK constraint failed" của SQLite không nói sai ở đâu, sai
-  // giá trị gì — cùng lý do `capNhatHangDoi` đã chặn ở JS từ trước.
+  // giá trị gì — cùng lý do `updateQueueState` đã chặn ở JS từ trước.
   const db = dbTam();
-  assert.throws(() => nhanViec(db, 'r1', 'linh_tinh', TRANG_THAI_HANG_DOI.BO), /Hợp lệ/);
-  dongDb(db);
+  assert.throws(() => claimQuestion(db, 'r1', 'linh_tinh', TRANG_THAI_HANG_DOI.BO), /Hợp lệ/);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -277,21 +277,21 @@ test('★★★ B2d trạng thái lạ -> NÉM ngay ở JS, không để CHECK c
 
 test('★★★ B3a HAI bộ chạy cùng nhặt một tin -> ĐÚNG MỘT được gửi', () => {
   const db = dbTam();
-  const { id } = xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin' });
-  const a = nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
-  const b = nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  const { id } = enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin' });
+  const a = claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  const b = claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   assert.deepEqual([a, b], [true, false]);
   assert.equal(db.prepare('SELECT so_lan_thu s FROM hang_doi_gui WHERE id = ?').get(id).s, 1,
     'đếm lượt thử phải cộng lúc NHẬN — cộng lúc gửi xong thì tiến trình chết giữa chừng là mất lượt');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B3b gửi xong ghi msg_id; gửi hỏng ghi LÝ DO, ⛔ không để rỗng', () => {
   const db = dbTam();
-  const a = xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
-  const b = xepHangGui(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
-  ghiKetQuaGuiRa(db, a.id, { msgId: '9992000000000000002' });
-  ghiKetQuaGuiRa(db, b.id, { lyDo: 'mạng rớt' });
+  const a = enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
+  const b = enqueueOutbound(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
+  writeSendResult(db, a.id, { msgId: '9992000000000000002' });
+  writeSendResult(db, b.id, { lyDo: 'mạng rớt' });
 
   const ra = db.prepare('SELECT * FROM hang_doi_gui WHERE id = ?').get(a.id);
   assert.equal(ra.trang_thai, TRANG_THAI_GUI.DA_GUI);
@@ -300,18 +300,18 @@ test('★★★ B3b gửi xong ghi msg_id; gửi hỏng ghi LÝ DO, ⛔ không �
   assert.equal(rb.trang_thai, TRANG_THAI_GUI.LOI);
   assert.match(rb.ly_do, /mạng rớt/);
   assert.equal(rb.msg_id, null, 'gửi hỏng mà ghi msg_id = sổ sách nói dối');
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ B3c `layHangDoiGuiCho` CHỈ trả việc CHƯA AI NHẬN', () => {
+test('★★★ B3c `takePendingOutbound` CHỈ trả việc CHƯA AI NHẬN', () => {
   const db = dbTam();
-  const a = xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
-  xepHangGui(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
-  nhanViecGui(db, a.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
-  const ds = layHangDoiGuiCho(db);
+  const a = enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
+  enqueueOutbound(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
+  claimOutbound(db, a.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  const ds = takePendingOutbound(db);
   assert.equal(ds.length, 1, "trả cả 'dang_gui' là bốc lại việc người khác đang cầm");
   assert.equal(ds[0].text, 'B');
-  dongDb(db);
+  closeDb(db);
 });
 
 test("★★★ B3d tin KẸT gồm cả 'cho' lẫn 'dang_gui' quá lâu", () => {
@@ -319,25 +319,25 @@ test("★★★ B3d tin KẸT gồm cả 'cho' lẫn 'dang_gui' quá lâu", () =
   // đó thì tin nằm lại vĩnh viễn mà lưới canh không thấy — im lặng, đúng thứ
   // pack đã xây cả một module để chống.
   const db = dbTam();
-  const a = xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
-  const b = xepHangGui(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
-  nhanViecGui(db, b.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+  const a = enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'A' });
+  const b = enqueueOutbound(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
+  claimOutbound(db, b.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   const cu = new Date(Date.now() - 600_000).toISOString();
   db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = ?').run(cu);
 
-  const ket = layHangDoiGuiKet(db, 120_000);
+  const ket = takeStuckOutbound(db, 120_000);
   assert.deepEqual(ket.map((x) => x.id).sort(), [a.id, b.id].sort());
   // và tin vừa gửi xong thì KHÔNG phải tin kẹt
-  ghiKetQuaGuiRa(db, a.id, { msgId: '9992000000000000002' });
-  assert.deepEqual(layHangDoiGuiKet(db, 120_000).map((x) => x.id), [b.id]);
-  dongDb(db);
+  writeSendResult(db, a.id, { msgId: '9992000000000000002' });
+  assert.deepEqual(takeStuckOutbound(db, 120_000).map((x) => x.id), [b.id]);
+  closeDb(db);
 });
 
 test('★★ B3e text rỗng -> NÉM (Zalo cũng từ chối tin trống)', () => {
   const db = dbTam();
-  assert.throws(() => xepHangGui(db, { requestId: 'r', chatIdDich: NHOM, text: '   ' }), /rỗng/);
+  assert.throws(() => enqueueOutbound(db, { requestId: 'r', chatIdDich: NHOM, text: '   ' }), /rỗng/);
   assert.equal(db.prepare('SELECT count(*) c FROM hang_doi_gui').get().c, 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -351,21 +351,21 @@ test('★★★ V1 NGHIỆM THU VÀNG: ghi nguồn ở TIẾN TRÌNH A, tiến t
   // ⚠️ Tiến trình A là node THẬT, ⛔ không giả lập bằng hai đối tượng trong
   // cùng một tiến trình — làm thế thì bài này xanh cả trên sổ RAM.
   const p = path.join(thuMucTam(), 'kho', 'chung.db');
-  dongDb(moDb(p));                                    // daemon dựng cấu trúc
+  closeDb(openDb(p));                                    // daemon dựng cấu trúc
   const goc = process.cwd();
 
   execFileSync(process.execPath, ['-e', `
     const dbMod = ${JSON.stringify(path.join(goc, 'src/store/db.js'))};
     const lgMod = ${JSON.stringify(path.join(goc, 'src/policy/leak_guard.js'))};
     Promise.all([import(dbMod), import(lgMod)]).then(([d, l]) => {
-      const db = d.moDb(${JSON.stringify(p)}, { migrate: false });
+      const db = d.openDb(${JSON.stringify(p)}, { migrate: false });
       l.recordSources(l.createSourceLedger({ db }), 'r-chung', [${JSON.stringify(NHOM_B)}]);
-      d.dongDb(db);
+      d.closeDb(db);
     });
   `], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   // ── TIẾN TRÌNH B (chính bài test này) ──
-  const db = moDb(p, { migrate: false });
+  const db = openDb(p, { migrate: false });
   const bo = createSourceLedger({ db });
   assert.deepEqual(getSources(bo, 'r-chung'), [NHOM_B],
     'tiến trình B KHÔNG thấy nguồn của A -> hai sổ khác nhau -> lá chắn mù');
@@ -376,19 +376,19 @@ test('★★★ V1 NGHIỆM THU VÀNG: ghi nguồn ở TIẾN TRÌNH A, tiến t
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'đáp án mang dữ liệu nhóm khác mà vẫn gửi thẳng vào nhóm đang hỏi');
   assert.deepEqual(qd.nguonLa, [NHOM_B]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V2 sổ đĩa SỐNG QUA restart (đóng DB rồi mở lại vẫn còn nguồn)', () => {
   // Sổ RAM mất trắng khi restart, và mất trí nhớ ở đây fail-OPEN.
   const p = path.join(thuMucTam(), 'kho', 'ben.db');
-  const d1 = moDb(p);
+  const d1 = openDb(p);
   recordSources(createSourceLedger({ db: d1 }), 'r1', [NHOM_B]);
-  dongDb(d1);
+  closeDb(d1);
 
-  const d2 = moDb(p);
+  const d2 = openDb(p);
   assert.deepEqual(getSources(createSourceLedger({ db: d2 }), 'r1'), [NHOM_B]);
-  dongDb(d2);
+  closeDb(d2);
 });
 
 test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG trả []', () => {
@@ -401,7 +401,7 @@ test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG tr
   db.exec('DROP TABLE nguon_phien');
   assert.throws(() => bo.lay('r1'), /nguon_phien/i,
     'nuốt lỗi rồi trả [] = fail-OPEN, đúng cái tật của sổ RAM mà bản này sinh ra để chữa');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V3b GHI hỏng cũng NÉM (sổ khuyết một nguồn trông y như sổ sạch)', () => {
@@ -409,7 +409,7 @@ test('★★★ V3b GHI hỏng cũng NÉM (sổ khuyết một nguồn trông y 
   const bo = createSourceLedger({ db });
   db.exec('DROP TABLE nguon_phien');
   assert.throws(() => bo.ghiNhan('r1', [NHOM_B]), /nguon_phien/i);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V4 ghi cùng một nguồn NHIỀU LẦN -> gộp, không đẻ dòng trùng', () => {
@@ -419,7 +419,7 @@ test('★★★ V4 ghi cùng một nguồn NHIỀU LẦN -> gộp, không đẻ 
   bo.ghiNhan('r1', [NHOM_B]);
   assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
   assert.equal(db.prepare('SELECT count(*) c FROM nguon_phien').get().c, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V5 sweepStale xoá theo TUỔI, ⛔ không đụng phiên còn trẻ', () => {
@@ -435,7 +435,7 @@ test('★★★ V5 sweepStale xoá theo TUỔI, ⛔ không đụng phiên còn t
   assert.equal(sweepStale(bo, 3_600_000), 1);
   assert.deepEqual(getSources(bo, 'cu'), []);
   assert.deepEqual(getSources(bo, 'moi'), [NHOM_B], 'dọn nhầm phiên đang sống = mở đường rò');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ V5b sweepStale với ngưỡng rác -> KHÔNG dọn gì (thà giữ rác còn hơn mở đường rò)', () => {
@@ -446,7 +446,7 @@ test('★★ V5b sweepStale với ngưỡng rác -> KHÔNG dọn gì (thà giữ
     assert.equal(sweepStale(bo, xau), 0);
   }
   assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ V6 clearSession chỉ xoá đúng phiên đó', () => {
@@ -458,7 +458,7 @@ test('★★ V6 clearSession chỉ xoá đúng phiên đó', () => {
   assert.deepEqual(getSources(bo, 'r1'), []);
   assert.deepEqual(getSources(bo, 'r2'), [NHOM_B]);
   assert.equal(bo.soPhien(), 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V7 MẶC ĐỊNH vẫn là sổ RAM — đường một-tiến-trình KHÔNG đổi hành vi', () => {
@@ -470,7 +470,7 @@ test('★★★ V7 MẶC ĐỊNH vẫn là sổ RAM — đường một-tiến-t
   recordSources(bo, 'r1', [NHOM_B]);
   assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
   assert.equal(sweepStale(bo, 3_600_000), 0, 'phiên còn trẻ thì không dọn');
-  dongDb(dbTam());
+  closeDb(dbTam());
 });
 
 test('★★ V8 hai kiểu sổ có CÙNG một hợp đồng (cùng API, cùng kết quả)', () => {
@@ -484,5 +484,5 @@ test('★★ V8 hai kiểu sổ có CÙNG một hợp đồng (cùng API, cùng 
     assert.deepEqual(getSources(bo, '   '), [], 'requestId rỗng phải trả rỗng, không nổ');
     assert.equal(bo.soPhien(), 1);
   }
-  dongDb(db);
+  closeDb(db);
 });

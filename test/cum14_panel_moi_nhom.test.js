@@ -12,8 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { layHangDoiCho, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { takePendingQueue, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { SKIP_REASON, createPaneLedger } from '../src/ops/pane_ledger.js';
 import {
   GIAN_CHO_MO_PANE_MS, HAN_MO_PHIEN_MS, NGHI_SAU_GIO_MAC_DINH,
@@ -47,15 +47,15 @@ function dongHo(batDau = 1_700_000_000_000) {
 }
 
 function dbTam() {
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   for (const c of [NHOM_A, NHOM_B, NHOM_C]) {
-    upsertHoiThoai(db, { chatId: c, loai: 'GROUP', ten: 'g', duocNghe: true });
+    upsertConversation(db, { chatId: c, loai: 'GROUP', ten: 'g', duocNghe: true });
   }
   return db;
 }
 
 function xepHang(db, rid, chatId, tuoiMs = 0) {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: chatId, msgId: rid, userId: HOST,
     noiDung: 'anh hỏi', tsTao: new Date(Date.now() - tuoiMs).toISOString(),
   });
@@ -182,17 +182,17 @@ test('★★★ R1 client khoá nhóm A -> CHỈ nhặt dòng của A (⛔ khôn
   const db = dbTam();
   xepHang(db, 'a1', NHOM_A);
   xepHang(db, 'b1', NHOM_B);
-  const ds = layHangDoiCho(db, 600_000, { chatIdHoi: NHOM_A });
+  const ds = takePendingQueue(db, 600_000, { chatIdHoi: NHOM_A });
   assert.deepEqual(ds.map((r) => String(r.chat_id_hoi)), [NHOM_A]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ R2 KHÔNG khoá -> nhặt hết (đường một-tiến-trình, ⛔ không vá quá tay)', () => {
   const db = dbTam();
   xepHang(db, 'a1', NHOM_A);
   xepHang(db, 'b1', NHOM_B);
-  assert.equal(layHangDoiCho(db, 600_000).length, 2);
-  dongDb(db);
+  assert.equal(takePendingQueue(db, 600_000).length, 2);
+  closeDb(db);
 });
 
 test('★★★ R3 NGHIỆM THU③: DỰ PHÒNG chỉ nhặt dòng đã chờ QUÁ ngưỡng', () => {
@@ -201,10 +201,10 @@ test('★★★ R3 NGHIỆM THU③: DỰ PHÒNG chỉ nhặt dòng đã chờ QU
   const db = dbTam();
   xepHang(db, 'moi', NHOM_A, 1_000);                       // vừa tới
   xepHang(db, 'cu', NHOM_B, GIAN_CHO_MO_PANE_MS + 5_000);  // đã chờ quá lâu
-  const ds = layHangDoiCho(db, 3_600_000, { treToiThieuMs: GIAN_CHO_MO_PANE_MS });
+  const ds = takePendingQueue(db, 3_600_000, { treToiThieuMs: GIAN_CHO_MO_PANE_MS });
   assert.deepEqual(ds.map((r) => String(r.request_id)), ['cu'],
     '🔴 dự phòng cướp việc của pane riêng');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ R4 dòng QUÁ HẠN vẫn được đánh `het_han` dù chưa đủ tuổi tối thiểu', () => {
@@ -213,12 +213,12 @@ test('★★★ R4 dòng QUÁ HẠN vẫn được đánh `het_han` dù chưa đ
   const db = dbTam();
   xepHang(db, 'qh', NHOM_A, 10_000);
   const bao = [];
-  layHangDoiCho(db, 5_000, {
+  takePendingQueue(db, 5_000, {
     treToiThieuMs: 3_600_000,               // ngưỡng khổng lồ
     khiHetHan: (r) => bao.push(String(r.request_id)),
   });
   assert.deepEqual(bao, ['qh'], '🔴 dòng quá hạn bị ngưỡng tuổi che mất');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ R5 NGƯỠNG 37s = TỔNG CÓ TÊN, ⛔ không phải số chọn cho tròn', () => {
@@ -344,7 +344,7 @@ test('★★★ W1 ĐẦU-CUỐI: tin mới -> GỌI baoDam đúng nhóm, SAU kh
   assert.equal(goi[0].chatId, NHOM_A);
   assert.equal(goi[0].tenNhom, 'Nhóm A', 'phải truyền tên nhóm cho lệnh của người dùng');
   assert.equal(goi[0].soDongLucGoi, 1, '🔴 gọi TRƯỚC khi ghi hàng đợi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm', async () => {
@@ -377,7 +377,7 @@ test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm'
   assert.deepEqual(goi, [], '🔴 mở pane cho DM = hai phiên tranh nhau hộp thư riêng của anh');
   const n = db.prepare('SELECT COUNT(*) n FROM hang_doi_hoi').get().n;
   assert.equal(n, 1, 'nhưng câu hỏi trong DM VẪN phải vào hàng đợi như thường');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ W2 lời gọi mở pane ⛔ KHÔNG được `await` (chặn callback websocket)', () => {

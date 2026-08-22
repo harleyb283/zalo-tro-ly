@@ -26,8 +26,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { RECENT_WINDOW_MS, blockMessage, decideBlock } from '../src/ops/reply_guard.js';
-import { moDb, dongDb } from '../src/store/db.js';
-import { taoHangDoi, capNhatHangDoi } from '../src/store/write.js';
+import { openDb, closeDb } from '../src/store/db.js';
+import { enqueueQuestion, updateQueueState } from '../src/store/write.js';
 
 const moi = (truMs = 5_000, them = {}) => ({
   request_id: 'r-moi',
@@ -97,7 +97,7 @@ test('B5 ★ mốc ở TƯƠNG LAI (lệch giờ máy) -> ⛔ không chặn', ()
 
 function moiTruong() {
   const thuMuc = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-hook-'));
-  const db = moDb(path.join(thuMuc, 'lichsu.db'));
+  const db = openDb(path.join(thuMuc, 'lichsu.db'));
   return { thuMuc, db };
 }
 
@@ -112,12 +112,12 @@ function chayHook(thuMuc, chatId, vao = '{}') {
 test('C1 ★★★ ĐẦU-CUỐI: dòng `da_day` mới -> hook in JSON chặn', () => {
   const { thuMuc, db } = moiTruong();
   try {
-    taoHangDoi(db, {
+    enqueueQuestion(db, {
       requestId: 'e2e-1', chatIdHoi: '111', msgId: 'm1', userId: '900',
       noiDung: 'anh hỏi gì đó', tsTao: new Date().toISOString(),
     });
-    capNhatHangDoi(db, 'e2e-1', 'da_day');
-    dongDb(db);
+    updateQueueState(db, 'e2e-1', 'da_day');
+    closeDb(db);
 
     const ra = JSON.parse(chayHook(thuMuc, '111'));
     assert.equal(ra.decision, 'block');
@@ -129,12 +129,12 @@ test('C1 ★★★ ĐẦU-CUỐI: dòng `da_day` mới -> hook in JSON chặn', 
 test('C2 ★★★ đã trả lời rồi -> hook im, lượt kết thúc bình thường', () => {
   const { thuMuc, db } = moiTruong();
   try {
-    taoHangDoi(db, {
+    enqueueQuestion(db, {
       requestId: 'e2e-2', chatIdHoi: '111', msgId: 'm2', userId: '900',
       noiDung: 'câu đã đáp', tsTao: new Date().toISOString(),
     });
-    capNhatHangDoi(db, 'e2e-2', 'da_tra_loi');
-    dongDb(db);
+    updateQueueState(db, 'e2e-2', 'da_tra_loi');
+    closeDb(db);
 
     assert.equal(chayHook(thuMuc, '111').trim(), '', '⛔ không được chặn khi đã trả lời');
   } finally { fs.rmSync(thuMuc, { recursive: true, force: true }); }
@@ -143,12 +143,12 @@ test('C2 ★★★ đã trả lời rồi -> hook im, lượt kết thúc bình 
 test('C3 ★★ dòng của NHÓM KHÁC ⛔ không chặn pane này', () => {
   const { thuMuc, db } = moiTruong();
   try {
-    taoHangDoi(db, {
+    enqueueQuestion(db, {
       requestId: 'e2e-3', chatIdHoi: '999', msgId: 'm3', userId: '900',
       noiDung: 'câu của nhóm khác', tsTao: new Date().toISOString(),
     });
-    capNhatHangDoi(db, 'e2e-3', 'da_day');
-    dongDb(db);
+    updateQueueState(db, 'e2e-3', 'da_day');
+    closeDb(db);
 
     assert.equal(chayHook(thuMuc, '111').trim(), '', 'pane chỉ chịu trách nhiệm chỗ của mình');
   } finally { fs.rmSync(thuMuc, { recursive: true, force: true }); }

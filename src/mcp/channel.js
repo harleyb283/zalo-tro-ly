@@ -123,14 +123,14 @@ function _log(msg) {
  *
  * Hai đường, theo thứ tự ưu tiên:
  *  1. `payload.traLoi` — caller tự đưa (đường sạch nhất).
- *  2. `phuThuoc.layBoiCanhTraLoi(requestId)` — tiêm lúc `createChannel` (test dùng).
+ *  2. `phuThuoc.replyContext(requestId)` — tiêm lúc `createChannel` (test dùng).
  *
  * KHÔNG BAO GIỜ ném: tin báo đi được vẫn hơn là chết vì phần phụ trợ.
  */
 function _boiCanhTraLoi(phuThuoc, payload) {
   if (payload?.traLoi) return payload.traLoi;
   try {
-    const ham = phuThuoc?.layBoiCanhTraLoi;
+    const ham = phuThuoc?.replyContext;
     return typeof ham === 'function' ? (ham(String(payload.requestId)) ?? null) : null;
   } catch (e) {
     _log(cleanError('không lấy được bối cảnh reply (đã nuốt)', e).message);
@@ -465,11 +465,11 @@ function _iso(ts) {
  * KÊNH, không phải logic wiring: `index.js` chỉ cần gọi một dòng ở bước ⑨ và
  * trong `khiSanSang`. Đã báo Router.
  *
- * Thứ tự CỐ Ý: `layHangDoiCho()` tự đánh 'het_han' cho câu quá TTL trước khi
+ * Thứ tự CỐ Ý: `takePendingQueue()` tự đánh 'het_han' cho câu quá TTL trước khi
  * trả về ⇒ không bao giờ đẩy một câu hỏi đã cũ (trả lời muộn là vô duyên).
  *
  * @param {{db: any, queueTtlMs: number, guiThongBao: (p: ThongBaoChannel) => Promise<boolean>,
- *          layHangDoiCho: (db: any, ttl: number, t?: object) => any[], capNhatHangDoi: (db: any, rid: string, tt: string) => boolean,
+ *          takePendingQueue: (db: any, ttl: number, t?: object) => any[], updateQueueState: (db: any, rid: string, tt: string) => boolean,
  *          baoHetHan?: (loiNhan: string) => Promise<any>,
  *          tenHoiThoai?: (chatId: string) => string|null}} p
  * @returns {Promise<{day: number, bo: number}>}
@@ -486,7 +486,7 @@ export async function pushPendingQueue(p) {
     // ⚠️ `gomDaDay` MẶC ĐỊNH `true` — giữ nguyên hành vi của hai caller cũ
     // (bước ⑨ khởi động + `khiSanSang`). VÒNG POLL của client phải truyền
     // `false`; xem khối 🔴 ngay dưới.
-    ds = p.layHangDoiCho(p.db, p.queueTtlMs, {
+    ds = p.takePendingQueue(p.db, p.queueTtlMs, {
       gomDaDay: p.gomDaDay !== false,
       khiHetHan: (r) => daHetHan.push(r),
       // ═══════════════════════════════════════════════════════════════
@@ -494,7 +494,7 @@ export async function pushPendingQueue(p) {
       //
       // `index.js` tính `chatIdHoi` (khoá định tuyến pane) và `treToiThieuMs`
       // (ngưỡng dự phòng) rồi truyền vào `pushPendingQueue`… và hàm này ⛔ KHÔNG
-      // chuyển tiếp xuống `layHangDoiCho`. Tức là **khoá định tuyến pane v10.2
+      // chuyển tiếp xuống `takePendingQueue`. Tức là **khoá định tuyến pane v10.2
       // chưa bao giờ chạy**: mọi client cùng quét MỌI dòng, ai CAS trước thì
       // được — kể cả pane khoá vào nhóm A nhặt câu hỏi DM của anh.
       //
@@ -562,9 +562,9 @@ export async function pushPendingQueue(p) {
     // `dang_xu_ly` không nằm trong tập quét ⇒ chỉ thắng đúng một lần.
     // ═══════════════════════════════════════════════════════════════════
     let daCam = false;
-    if (typeof p.nhanViec === 'function') {
+    if (typeof p.claimQuestion === 'function') {
       try {
-        daCam = p.nhanViec(p.db, rid, String(r.trang_thai), 'dang_xu_ly');
+        daCam = p.claimQuestion(p.db, rid, String(r.trang_thai), 'dang_xu_ly');
       } catch (e) {
         _log(cleanError(`nhận việc ${rid} lỗi`, e).message);
       }
@@ -602,17 +602,17 @@ export async function pushPendingQueue(p) {
       // Đã CAS sang `dang_xu_ly` mà đẩy hỏng thì dòng nằm ở trạng thái không ai
       // quét ⇒ câu hỏi của anh bốc hơi cho tới lần khởi động sau.
       // ⚠️ `daCam === false` nghĩa là không ai CAS (caller cũ không truyền
-      // `nhanViec`) ⇒ dòng vẫn nguyên ở `cho`, ⛔ đừng ghi đè: ghi đè là một
+      // `claimQuestion`) ⇒ dòng vẫn nguyên ở `cho`, ⛔ đừng ghi đè: ghi đè là một
       // phép GHI thừa lên dòng đang đúng, và nó che mất trạng thái thật nếu ai
       // đó vừa đổi nó vì lý do khác.
       if (daCam) {
-        try { p.capNhatHangDoi(p.db, rid, 'cho'); }
+        try { p.updateQueueState(p.db, rid, 'cho'); }
         catch (e) { _log(cleanError(`không trả lại được việc ${rid}`, e).message); }
       }
       continue;
     }
     try {
-      p.capNhatHangDoi(p.db, rid, 'da_day');
+      p.updateQueueState(p.db, rid, 'da_day');
       ra.day += 1;
     } catch (e) {
       _log(cleanError(`đẩy được ${rid} nhưng không cập nhật được hàng đợi`, e).message);

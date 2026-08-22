@@ -28,8 +28,8 @@ import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
 import { HUONG_TRA_LOI } from '../src/lib/hang_so.js';
 import { getSources, decideReplyRoute, createSourceLedger } from '../src/policy/leak_guard.js';
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 
 const SRC_INDEX = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
 
@@ -46,10 +46,10 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-noiday-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
-  upsertHoiThoai(db, { chatId: NHOM_KHAC, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
-  ghiTin(db, {
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
+  upsertConversation(db, { chatId: NHOM_KHAC, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
+  writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ', contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -82,10 +82,10 @@ const chiNhomMinh = () => ({
 });
 
 /** Dựng tham số y như `index.js` dựng, chỉ thay phần chạm mạng bằng hàm giả. */
-function chayNhuIndexJs(db, boTichLuy, truyVanLichSu, thu) {
+function chayNhuIndexJs(db, boTichLuy, queryHistory, thu) {
   return chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi, truyVanLichSu,
-    dsNguoiTrongNhom: () => [],
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory,
+    groupMembers: () => [],
     guiVaoNhom: async (_a, _c, t) => { thu.daGuiThangVaoNhom.push(t); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { thu.giaoModel += 1; return true; },
@@ -162,7 +162,7 @@ test('N4 ★★★ CHIỀU (a) bối cảnh SẠCH -> VẪN giao model + leak_gu
   assert.notEqual(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'bối cảnh chỉ trong nhóm mình mà vẫn bị đẩy sang DM host -> lá chắn bắt oan');
   assert.deepEqual(qd.nguonLa ?? [], []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬT, KHÔNG gửi thẳng vào nhóm', async () => {
@@ -190,7 +190,7 @@ test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬ
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'đáp án mang dữ liệu nhóm B mà vẫn gửi thẳng vào nhóm A -> đúng ca lá chắn phải chặn');
   assert.deepEqual(qd.nguonLa, [NHOM_KHAC]);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -213,8 +213,8 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
 
   const dm = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi, truyVanLichSu: chiNhomMinh,
-    dsNguoiTrongNhom: () => [],
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chiNhomMinh,
+    groupMembers: () => [],
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async (_a, chatId, t) => { dm.push({ chatId, t }); return { msgId: 'y' }; },
     guiThongBao: async () => true,
@@ -226,7 +226,7 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
   assert.equal(dm.length, 1, 'lời nhắc tự đóng vì HẾT LƯỢT mà host không được báo -> im lặng tắt');
   assert.equal(dm[0].chatId, HOST);
   assert.match(dm[0].t, /HẾT LƯỢT/, 'câu báo phải nói rõ dừng vì hết lượt, KHÔNG phải vì xong việc');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('N8 ★★ index.js truyền `dmHostChatId` cho CẢ HAI bộ chạy, không chỉ lịch một lần', () => {
@@ -246,8 +246,8 @@ test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bà
   let giaoModel = 0;
   const daGui = [];
   const ra = await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi, truyVanLichSu: chamNhomKhac,
-    dsNguoiTrongNhom: () => [],
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion, queryHistory: chamNhomKhac,
+    groupMembers: () => [],
     guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
     guiThongBao: async () => { giaoModel += 1; return true; },
@@ -257,5 +257,5 @@ test('N6 ★★ nếu ai đó gỡ dây: chiều (b) PHẢI đổi hành vi (bà
   assert.equal(ra.duPhong, 1);
   assert.doesNotMatch(daGui[0] ?? '', /nhóm B/,
     'câu dự phòng KHÔNG được mang nội dung nhóm khác');
-  dongDb(db);
+  closeDb(db);
 });

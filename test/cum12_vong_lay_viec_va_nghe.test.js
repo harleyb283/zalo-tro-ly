@@ -20,9 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
+import { closeDb, openDb } from '../src/store/db.js';
 import {
-  capNhatHangDoi, ghiTin, layHangDoi, layHangDoiCho, nhanViec, taoHangDoi, upsertHoiThoai,
+  updateQueueState, writeMessage, getQueueRow, takePendingQueue, claimQuestion, enqueueQuestion, upsertConversation,
 } from '../src/store/write.js';
 import { pushPendingQueue, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
 import { docDoTre, taoSoDoTre, taoVongLayViec, NHIP_POLL_CLIENT_MS } from '../src/index.js';
@@ -69,14 +69,14 @@ const tin = (p) => ({
 });
 
 function dbTam() {
-  const db = moDb(path.join(tam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
-  ghiTin(db, tin({ msgId: 'cu1', noiDung: 'tin cũ trong nhóm' }));
+  const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  writeMessage(db, tin({ msgId: 'cu1', noiDung: 'tin cũ trong nhóm' }));
   return db;
 }
 
 function phien(db, rid, chiNghe, noiDung = 'người lạ nói gì đó') {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: NHOM, msgId: rid, userId: chiNghe ? NGUOI_LA : HOST,
     noiDung, tsTao: new Date().toISOString(), chiNghe,
   });
@@ -102,7 +102,7 @@ test('★★★ V1 CHẶN CỨNG: `chayClient` PHẢI bật vòng lấy việc',
     'vòng poll PHẢI tắt gomDaDay — bật là mỗi nhịp đẩy lại câu đang xử lý dở');
   assert.match(kh, /motNhipLayViec\(\{ gomDaDay: true \}\)/,
     'lượt ĐẦU phải BẬT gomDaDay — tắt là bỏ rơi dòng mồ côi (lỗi A7)');
-  assert.match(kh, /nhanViec/, 'thiếu CAS = hai client cùng nhặt một dòng');
+  assert.match(kh, /claimQuestion/, 'thiếu CAS = hai client cùng nhặt một dòng');
 });
 
 test('★★★ V6 HÀNH VI: `gomDaDay: false` thật sự KHÔNG đụng dòng đang xử lý dở', async () => {
@@ -111,17 +111,17 @@ test('★★★ V6 HÀNH VI: `gomDaDay: false` thật sự KHÔNG đụng dòng 
   // V1 vẫn xanh.
   const db = dbTam();
   phien(db, 'r-dangxuly', false, 'câu Claude ĐANG xử lý dở');
-  capNhatHangDoi(db, 'r-dangxuly', TRANG_THAI_HANG_DOI.DA_DAY);
+  updateQueueState(db, 'r-dangxuly', TRANG_THAI_HANG_DOI.DA_DAY);
   const day = [];
   const chay = (gom) => pushPendingQueue({
-    db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: gom,
+    db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: gom,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
   });
   await chay(false);
   assert.deepEqual(day, [], '🔴 vòng poll đẩy LẠI câu đang xử lý dở = anh nhận HAI câu trả lời');
   await chay(true);
   assert.deepEqual(day, ['r-dangxuly'], 'lúc khởi động thì PHẢI đẩy bù — dòng đó đã mồ côi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V2 vòng chạy LẶP LẠI, ⛔ không phải một lần', async () => {
@@ -200,13 +200,13 @@ test('★★★ K1 NGHIỆM THU: hai client cùng nhặt MỘT dòng -> ĐÚNG M
   phien(db, 'r-dua', false, 'anh hỏi một câu');
   const daDay = [];
   const chay = () => pushPendingQueue({
-    db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
+    db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: false,
     guiThongBao: async (p) => { daDay.push(p.requestId); return true; },
   });
   const [a, b] = await Promise.all([chay(), chay()]);
   assert.equal(daDay.length, 1, `🔴 đẩy ${daDay.length} lần cho một dòng`);
   assert.equal(a.day + b.day, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K2 CAS đi qua `dang_xu_ly`, ⛔ KHÔNG phải `da_day`', () => {
@@ -214,39 +214,39 @@ test('★★★ K2 CAS đi qua `dang_xu_ly`, ⛔ KHÔNG phải `da_day`', () => 
   // cùng "nhận được". `dang_xu_ly` không nằm trong tập quét nên chỉ thắng một lần.
   const db = dbTam();
   phien(db, 'r1', false);
-  capNhatHangDoi(db, 'r1', TRANG_THAI_HANG_DOI.DA_DAY);
+  updateQueueState(db, 'r1', TRANG_THAI_HANG_DOI.DA_DAY);
   // 🔴 NGUỒN == ĐÍCH phải bị TỪ CHỐI. SQLite đếm `changes = 1` cho
   // `SET x='A' WHERE x='A'`, nên nếu không chặn thì CAS này LUÔN thắng — và
   // một chốt giành việc luôn thắng thì không chốt gì cả.
-  assert.equal(nhanViec(db, 'r1', 'da_day', 'da_day'), false,
+  assert.equal(claimQuestion(db, 'r1', 'da_day', 'da_day'), false,
     '🔴 CAS nguồn==đích mà thắng = N tiến trình cùng nhận một việc');
-  assert.equal(nhanViec(db, 'r1', 'da_day', 'dang_xu_ly'), true);
-  assert.equal(nhanViec(db, 'r1', 'da_day', 'dang_xu_ly'), false, 'lần hai phải THUA');
-  assert.equal(nhanViec(db, 'r1', 'dang_xu_ly', 'dang_xu_ly'), false,
+  assert.equal(claimQuestion(db, 'r1', 'da_day', 'dang_xu_ly'), true);
+  assert.equal(claimQuestion(db, 'r1', 'da_day', 'dang_xu_ly'), false, 'lần hai phải THUA');
+  assert.equal(claimQuestion(db, 'r1', 'dang_xu_ly', 'dang_xu_ly'), false,
     'dòng đang bị bên khác cầm ⛔ không được cầm lại');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K3 đẩy HỎNG sau khi đã cầm -> TRẢ LẠI về `cho` (⛔ không bốc hơi)', async () => {
   const db = dbTam();
   phien(db, 'r-hong', false, 'câu hỏi thật của anh');
   await pushPendingQueue({
-    db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
+    db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: false,
     guiThongBao: async () => false,
   });
-  assert.equal(layHangDoi(db, 'r-hong').trang_thai, TRANG_THAI_HANG_DOI.CHO,
+  assert.equal(getQueueRow(db, 'r-hong').trang_thai, TRANG_THAI_HANG_DOI.CHO,
     'kẹt `dang_xu_ly` = câu hỏi bốc hơi tới lần khởi động sau');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K4 client chết giữa chừng -> `dang_xu_ly` mồ côi PHẢI được gom lại', () => {
   const db = dbTam();
   phien(db, 'r-mocoi', false);
-  capNhatHangDoi(db, 'r-mocoi', TRANG_THAI_HANG_DOI.DANG_XU_LY);
-  assert.equal(layHangDoiCho(db, 600_000, { gomDaDay: false }).length, 0, 'vòng poll KHÔNG được đụng');
-  assert.equal(layHangDoiCho(db, 600_000, { gomDaDay: true }).length, 1,
+  updateQueueState(db, 'r-mocoi', TRANG_THAI_HANG_DOI.DANG_XU_LY);
+  assert.equal(takePendingQueue(db, 600_000, { gomDaDay: false }).length, 0, 'vòng poll KHÔNG được đụng');
+  assert.equal(takePendingQueue(db, 600_000, { gomDaDay: true }).length, 1,
     'lúc khởi động thì PHẢI gom — bỏ sót là dựng lại đúng lỗi A7');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K5 hai client cùng KHỞI ĐỘNG trên một dòng `da_day` mồ côi -> ĐÚNG MỘT', async () => {
@@ -255,31 +255,31 @@ test('★★★ K5 hai client cùng KHỞI ĐỘNG trên một dòng `da_day` m�
   // `da_day -> da_day` luôn thắng ⇒ cả N cùng đẩy ⇒ N tin vào nhóm người thật.
   const db = dbTam();
   phien(db, 'r-mc', false, 'câu hỏi mồ côi');
-  capNhatHangDoi(db, 'r-mc', TRANG_THAI_HANG_DOI.DA_DAY);
+  updateQueueState(db, 'r-mc', TRANG_THAI_HANG_DOI.DA_DAY);
   const day = [];
   const chay = () => pushPendingQueue({
-    db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: true,
+    db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: true,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
   });
   await Promise.all([chay(), chay(), chay()]);
   assert.equal(day.length, 1, `🔴 đẩy ${day.length} lần cho một dòng mồ côi`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K6 THUA CAS -> ⛔ không đẩy, ⛔ không ghi độ trễ', async () => {
   // ⚠️ Hai bài K1/K5 ở trên KHÔNG bắt được ca này: `node:sqlite` đồng bộ nên
   // bên thứ hai đọc lại danh sách thì dòng đã rời khỏi tập quét, tức nó không
-  // bao giờ chạm tới nhánh "thua CAS". Phải TIÊM một `nhanViec` luôn thua.
+  // bao giờ chạm tới nhánh "thua CAS". Phải TIÊM một `claimQuestion` luôn thua.
   const doTre = [];
   const day = [];
   const kq = await pushPendingQueue({
     db: {}, queueTtlMs: 600_000,
-    layHangDoiCho: () => ([{
+    takePendingQueue: () => ([{
       request_id: 'r1', chat_id_hoi: NHOM, user_id: NGUOI_LA, noi_dung: 'x',
       ts_tao: '2026-08-21T00:00:00.000Z', trang_thai: 'cho', chi_nghe: 1,
     }]),
-    capNhatHangDoi: () => true,
-    nhanViec: () => false,                       // ★ luôn THUA
+    updateQueueState: () => true,
+    claimQuestion: () => false,                       // ★ luôn THUA
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
     ghiDoTre: (b) => doTre.push(b),
   });
@@ -297,7 +297,7 @@ test('★★★ Đ1 độ trễ ĐƯỢC GHI, và chỉ bên THẮNG CAS mới g
   phien(db, 'r-do', false);
   const ghi = [];
   const chay = () => pushPendingQueue({
-    db, queueTtlMs: 600_000, layHangDoiCho, capNhatHangDoi, nhanViec, gomDaDay: false,
+    db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: false,
     guiThongBao: async () => true,
     ghiDoTre: (b) => ghi.push(b),
   });
@@ -305,7 +305,7 @@ test('★★★ Đ1 độ trễ ĐƯỢC GHI, và chỉ bên THẮNG CAS mới g
   assert.equal(ghi.length, 1, 'bên thua CAS mà cũng ghi thì số bị pha loãng');
   assert.equal(ghi[0].requestId, 'r-do');
   assert.ok(Number.isFinite(ghi[0].treMs) && ghi[0].treMs >= 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ Đ2 sổ đo đọc ra được TRUNG VỊ + P95 (số thiết kế đang cần)', () => {
@@ -443,7 +443,7 @@ test('★★★ S1 NGHIỆM THU: 20 tin người khác LIÊN TIẾP -> 0 TIN ĐI
     assert.match(r.thongDiep, /KHÔNG do host mở/);
   }
   assert.deepEqual(daGui, [], `🔴 CÓ ${daGui.length} TIN ĐI RA trong 20 lượt chỉ nghe`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ S2 [ĐỔI v11] lượt chỉ-nghe: tool NGHIỆP VỤ chạy được KÈM NGUỒN · `nhan_rieng_host` VẪN chặn', async () => {
@@ -484,7 +484,7 @@ test('★★★ S2 [ĐỔI v11] lượt chỉ-nghe: tool NGHIỆP VỤ chạy đ
     const r2 = await goi(ten, { request_id: phien(db, `rd-${ten}`, true) });
     assert.equal(r2.ok, true, ten);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ S3 [ĐỔI v11] vẫn là danh sách TRẮNG — thêm tool mới ⇒ hỏng AN TOÀN', async () => {
@@ -515,7 +515,7 @@ test('★★★ S4 lượt ĐƯỢC NÓI vẫn gửi bình thường (⛔ không
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db, 'r-noi', false, 'anh hỏi'), text: 'Dạ em trả lời anh' });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(daGui.length, 1, 'chặn nhầm lượt host là trợ lý câm với chính chủ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ S5 `bo_qua` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG THẬT', async () => {
@@ -526,11 +526,11 @@ test('★★★ S5 `bo_qua` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG TH�
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.duLieu.chiNghe, true);
   assert.deepEqual(daGui, [], 'bo_qua mà gửi gì đó là phản bội đúng tên của nó');
-  assert.equal(layHangDoi(db, rid).trang_thai, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
+  assert.equal(getQueueRow(db, rid).trang_thai, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
     'không đóng thật thì lượt bị đẩy lại ở lần khởi động sau');
   const lai = await goi(TEN_TOOL_GHI.BO_QUA, { request_id: rid });
   assert.equal(lai.ok, false, 'đóng rồi thì lượt phải khoá — chống đẩy bù hai lần');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ S6 `bo_qua` KHÔNG có đường nào chạm mạng', () => {
@@ -627,7 +627,7 @@ test('★★★ P1 NGHIỆM THU: chỉ thị NGƯỜI LẠ, ⛔ KHÔNG khai ngu�
     '🔴 người lạ GHI ĐƯỢC vào bộ nhớ — injection đi vòng, lần sau trợ lý đọc lại như sự thật');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n, truocLich,
     '🔴 người lạ đặt/huỷ được lịch');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ P2 chốt chặn nằm ở SERVER, ⛔ không phải ở lời dặn model', () => {
@@ -654,7 +654,7 @@ test('★★★ P3 cờ chỉ-nghe lấy từ ĐĨA, ⛔ KHÔNG nhận từ tham
     assert.equal(r.ok, false, `model tự khai ${JSON.stringify(doi)} mà lọt`);
   }
   assert.deepEqual(daGui, []);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -663,19 +663,19 @@ test('★★★ P3 cờ chỉ-nghe lấy từ ĐĨA, ⛔ KHÔNG nhận từ tham
 
 test('★★★ H1 lượt CHỈ NGHE quá hạn -> ⛔ KHÔNG báo host (449 tin/ngày)', () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-nghe-cu', chatIdHoi: NHOM, msgId: 'x1', userId: NGUOI_LA,
     noiDung: 'chuyện phiếm', tsTao: '2020-01-01T00:00:00.000Z', chiNghe: true,
   });
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-hoi-cu', chatIdHoi: NHOM, msgId: 'x2', userId: HOST,
     noiDung: 'câu hỏi THẬT của anh', tsTao: '2020-01-01T00:00:00.000Z', chiNghe: false,
   });
   const bao = [];
-  layHangDoiCho(db, 60_000, { khiHetHan: (r) => bao.push(String(r.request_id)) });
+  takePendingQueue(db, 60_000, { khiHetHan: (r) => bao.push(String(r.request_id)) });
   assert.deepEqual(bao, ['r-hoi-cu'],
     '🔴 báo cả lượt nghe = ~449 tin cảnh báo/ngày, và câu hỏi THẬT chìm nghỉm trong đó');
-  assert.equal(layHangDoi(db, 'r-nghe-cu').trang_thai, TRANG_THAI_HANG_DOI.HET_HAN,
+  assert.equal(getQueueRow(db, 'r-nghe-cu').trang_thai, TRANG_THAI_HANG_DOI.HET_HAN,
     'vẫn phải đánh het_han — chỉ là không làm phiền');
-  dongDb(db);
+  closeDb(db);
 });

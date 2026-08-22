@@ -14,9 +14,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, upsertHoiThoai } from '../src/store/write.js';
-import { truyVanLichSu } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, upsertConversation } from '../src/store/write.js';
+import { queryHistory } from '../src/store/query.js';
 import {
   A0_BO_DO, BIEN_THE_THAM_SO, DO_TIN_CAY, KET_LUAN_A0, NGUON_THU_HOI, NHOM_LOI_A0,
 } from '../src/lib/hang_so.js';
@@ -36,7 +36,7 @@ const RAC = [];
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-scan-'));
   RAC.push(d);
-  return moDb(path.join(d, 'kho', 'lichsu.db'));
+  return openDb(path.join(d, 'kho', 'lichsu.db'));
 }
 process.on('exit', () => {
   for (const d of RAC) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* */ } }
@@ -46,10 +46,10 @@ const NHOM = '9990000000001';
 const GIO = 1_700_000_000_000;
 
 function moNghe(db, chatId = NHOM) {
-  upsertHoiThoai(db, { chatId, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  upsertConversation(db, { chatId, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
 }
 function them(db, msgId, tsZalo, v = {}) {
-  ghiTin(db, {
+  writeMessage(db, {
     chatId: NHOM, msgId, cliMsgId: null, userId: '555', tenLucGui: 'A',
     msgType: 'chat.text', noiDung: `tin ${msgId}`, contentRaw: null,
     tsZalo, tuToi: false, coTagHost: false, ...v,
@@ -185,7 +185,7 @@ test('D1 ★ vắng LẦN ĐẦU -> chỉ NGHI_NGO, CHƯA đánh dấu da_thu_ho
   assert.equal(kq.soXacNhan, 0);
   assert.equal(Number(r.da_thu_hoi), 0, 'một lần vắng CHƯA đủ để nói ra');
   assert.equal(r.thu_hoi_do_tin_cay, DO_TIN_CAY.NGHI_NGO);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('D2 ★ vắng LẦN HAI liên tiếp -> mới nâng lên SUY_RA + ghi sự kiện', () => {
@@ -204,7 +204,7 @@ test('D2 ★ vắng LẦN HAI liên tiếp -> mới nâng lên SUY_RA + ghi sự
   assert.equal(sk.event_id, `dc:${NHOM}:200`, 'khoá tự dựng phải có tiền tố dc:');
   assert.equal(Number(sk.khoang_tu_ms), GIO - 1000, 'phải lưu CẬN DƯỚI của khoảng');
   assert.equal(sk.nguoi_thu_hoi, '555', 'người thu hồi = người GỬI (Zalo chỉ cho thu hồi tin mình)');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('D3 ★ xuất hiện LẠI -> XOÁ dấu nghi ngờ, không cộng dồn qua nhiều ngày', () => {
@@ -223,7 +223,7 @@ test('D3 ★ xuất hiện LẠI -> XOÁ dấu nghi ngờ, không cộng dồn q
   assert.equal(kq.soXoaNghi, 1);
   assert.equal(Number(r.vang_mat_so_lan), 0);
   assert.equal(r.vang_mat_lan_dau, null);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì apKetQua không đụng, kể cả bị ép', () => {
@@ -235,7 +235,7 @@ test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì apKetQua không đụng, kể c�
   const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
   assert.equal(r.thu_hoi_nguon, NGUON_THU_HOI.SU_KIEN, 'KHÔNG được hạ cấp xuống DOI_CHIEU');
   assert.equal(r.thu_hoi_do_tin_cay, 'CHAC_CHAN');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -248,12 +248,12 @@ test('E1 ★ query trả kèm nguồn: DOI_CHIEU KHÔNG được nói một mố
   apKetQua(db, { ...chung, bayGioIso: 'a' });
   apKetQua(db, { ...chung, bayGioIso: 'b' });
 
-  const kq = truyVanLichSu(db, { chatId: NHOM });
+  const kq = queryHistory(db, { chatId: NHOM });
   const r = kq.rows.find((x) => String(x.msg_id) === '200');
   assert.equal(r._thu_hoi.nguon, NGUON_THU_HOI.DOI_CHIEU);
   assert.equal(r._thu_hoi.chacChanThoiDiem, false, 'DOI_CHIEU thì KHÔNG chắc thời điểm');
   assert.match(r._thu_hoi.moTaThoiDiem, /khoảng/, 'phải nói "khoảng", không nói một mốc');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E2 nguồn SU_KIEN thì được nói mốc chính xác', () => {
@@ -262,10 +262,10 @@ test('E2 nguồn SU_KIEN thì được nói mốc chính xác', () => {
     "UPDATE tin_nhan SET da_thu_hoi=1, thu_hoi_nguon='SU_KIEN', "
     + `thu_hoi_do_tin_cay='CHAC_CHAN', thu_hoi_luc=${GIO} WHERE msg_id='200'`,
   );
-  const r = truyVanLichSu(db, { chatId: NHOM }).rows.find((x) => String(x.msg_id) === '200');
+  const r = queryHistory(db, { chatId: NHOM }).rows.find((x) => String(x.msg_id) === '200');
   assert.equal(r._thu_hoi.chacChanThoiDiem, true);
   assert.match(r._thu_hoi.moTaThoiDiem, /thu hồi lúc/);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -278,15 +278,15 @@ test('F1 ★ nhóm KHÔNG có tin trong cửa sổ -> không nằm trong danh s�
   assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), []);
   them(db, '2', GIO - 1000);                    // vừa có tin
   assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), [NHOM]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('F1b nhóm KHÔNG được nghe thì không quét, dù có tin', () => {
   const db = dbTam();
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'lạ', duocNghe: false });
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'lạ', duocNghe: false });
   them(db, '2', GIO);
   assert.deepEqual(nhomCanQuet(db, GIO - 4_500_000), []);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('F2 giờ yên [0,6) chặn quét', () => {
@@ -314,7 +314,7 @@ test('F3 ★ chạm trần ngày -> KHÔNG quét và PHẢI báo host (không im
   });
   assert.equal(kq.boQua, 'TRAN_NGAY');
   assert.equal(baoDuoc.length, 1, 'chạm trần mà im lặng thì tính năng chết không ai biết');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('F4 ★ lỗi mạng -> ghi LOI_MANG, KHÔNG kết luận tin nào bị thu hồi', async () => {
@@ -330,7 +330,7 @@ test('F4 ★ lỗi mạng -> ghi LOI_MANG, KHÔNG kết luận tin nào bị thu
   assert.equal(nk.ket_qua, 'LOI_MANG');
   assert.equal(Number(db.prepare('SELECT count(*) c FROM tin_nhan WHERE da_thu_hoi=1').get().c), 0);
   assert.equal(kq.tong.soXacNhan, 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -349,7 +349,7 @@ test('G1 ★ hasMore mãi mãi + con trỏ LẶP LẠI -> dừng, không lặp v
   const kq = await layLichSuNhom(api, NHOM, { nghi: async () => {} });
   assert.ok(goi <= 3, `phải dừng sớm, đã gọi ${goi} lần`);
   assert.equal(kq.tin.length, 1, 'khử trùng theo msgId ngay trong vòng lặp');
-  dongDb;
+  closeDb;
 });
 
 test('G2 ★ trần request chạm -> cutTrang = true (để tầng trên thu hẹp biên)', async () => {
@@ -403,7 +403,7 @@ test('H3 tinTrongCuaSo trả kèm nguồn hiện tại (để thi hành chốt 4
   db.exec("UPDATE tin_nhan SET thu_hoi_nguon='SU_KIEN' WHERE msg_id='200'");
   const ds = tinTrongCuaSo(db, NHOM, GIO - 1000);
   assert.equal(ds[0].nguonHienTai, 'SU_KIEN');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -773,7 +773,7 @@ test('J21 ★★ ĐƯỜNG QUÉT THẬT cũng phải ghi mã lỗi, không chỉ
   assert.match(nk.ghi_chu, /ma=114/, 'mã lỗi Zalo là thứ DUY NHẤT phân biệt được nguyên nhân');
   assert.match(nk.ghi_chu, /http=200/);
   assert.match(nk.ghi_chu, /ENDPOINT_SONG_LOI_GIAO_THUC/, 'phải nói luôn nhóm, khỏi tra chỗ khác');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -861,7 +861,7 @@ test('K2 ★★ TRẦN 5 REQUEST CHO CẢ BỘ — tài khoản THẬT, không �
     `bắn ${dem.length} request — quá trần là rủi ro bị Zalo khoá 24-48h`,
   );
   assert.equal(ra.so_request_ca_bo, 5);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('K2b ★★ trần hạ xuống 3 -> 2 biến thể cuối bị BỎ và nói rõ vì sao', async () => {
@@ -878,7 +878,7 @@ test('K2b ★★ trần hạ xuống 3 -> 2 biến thể cuối bị BỎ và n�
   assert.equal(boQua.length, 2);
   assert.match(boQua[0].vi_sao_bo_qua, /chạm trần/);
   assert.match(ra.tong_ket, /CHƯA thử/, 'phải nói rõ cái nào chưa thử, đừng để tưởng đã loại hết');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('K3 ★★ mỗi biến thể đổi ĐÚNG MỘT thứ, và KHÔNG thử lại cái đã loại', async () => {
@@ -962,7 +962,7 @@ test('K7 ★★ GIÃN NHỊP ≥ 2 giây trước MỖI lần bắn biến thể
   });
   const dai = nguMs.filter((m) => m >= A0_BO_DO.NGHI_GIUA_BIEN_THE_MS);
   assert.equal(dai.length, 4, 'mỗi biến thể phải nghỉ một nhịp — bắn dồn là rủi ro gắn cờ spam');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('K8 ★★ CON_TRO_THAT: không có msg_id trong DB -> BỎ LƯỢT, CẤM bịa id', async () => {
@@ -990,7 +990,7 @@ test('K9 ★★ CON_TRO_THAT dùng ĐÚNG msg_id mới nhất trong DB, không p
   });
   const ct = dem.find((x) => x.bienThe === BIEN_THE_THAM_SO.CON_TRO_THAT);
   assert.equal(ct.conTro, '900', 'phải là id LỚN NHẤT theo SỐ, không phải theo chuỗi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('K10 ★★ mỗi biến thể ghi ĐỦ: đổi gì · vì sao nghi · BẰNG CHỨNG · loại được gì', async () => {
@@ -1028,5 +1028,5 @@ test('K12 ★ file kết quả KHÔNG lộ nội dung tin người thật dù ch
   await chayA0({ api: apiGia(), db, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   const raw = fs.readFileSync(f, 'utf8');
   assert.ok(!raw.includes('chuyen rieng tu'), 'file này Router đọc bằng mắt');
-  dongDb(db);
+  closeDb(db);
 });

@@ -12,8 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, upsertConversation } from '../src/store/write.js';
 import { GIOI_HAN_LICH, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH } from '../src/lib/hang_so.js';
 
 import {
@@ -28,7 +28,7 @@ const RAC = [];
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-lich-'));
   RAC.push(d);
-  return moDb(path.join(d, 'kho', 'lichsu.db'));
+  return openDb(path.join(d, 'kho', 'lichsu.db'));
 }
 process.on('exit', () => {
   for (const d of RAC) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* */ } }
@@ -125,28 +125,28 @@ test('C1 ★ taoLich LUÔN ở cho_xac_nhan — không tham số nào bỏ qua �
   const { id } = lichGia(db);
   const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
   assert.equal(d.trang_thai, TRANG_THAI_LICH.CHO_XAC_NHAN);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C2 ★ lịch CHƯA chốt thì KHÔNG BAO GIỜ tới hạn (dù đã quá giờ)', () => {
   const db = dbTam();
   lichGia(db, { guiLucMs: Date.now() - 10_000 });   // đã quá giờ
   assert.deepEqual(layLichDenHan(db, Date.now()), [], 'chưa xác nhận mà gửi là hỏng nặng nhất');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C3 chốt SAI MÃ -> từ chối', () => {
   const db = dbTam();
   const { ma } = lichGia(db);
   assert.equal(chotLich(db, { id: ma, ma: 'XXXX', nguoiDat: HOST }).ly, 'SAI_MA');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C4 chốt bởi NGƯỜI KHÁC -> từ chối', () => {
   const db = dbTam();
   const { ma } = lichGia(db);
   assert.equal(chotLich(db, { id: ma, ma, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C5 chốt đúng -> da_len_lich, và tới hạn thì mới ra', () => {
@@ -154,7 +154,7 @@ test('C5 chốt đúng -> da_len_lich, và tới hạn thì mới ra', () => {
   const { ma } = lichGia(db, { guiLucMs: Date.now() - 1000 });
   assert.equal(chotLich(db, { id: ma, ma, nguoiDat: HOST }).ok, true);
   assert.equal(layLichDenHan(db, Date.now()).length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C6 chốt HAI LẦN -> lần hai từ chối (SAI_TRANG_THAI)', () => {
@@ -162,7 +162,7 @@ test('C6 chốt HAI LẦN -> lần hai từ chối (SAI_TRANG_THAI)', () => {
   const { ma } = lichGia(db);
   chotLich(db, { id: ma, ma, nguoiDat: HOST });
   assert.equal(chotLich(db, { id: ma, ma, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C7 huỷ: chỉ người đặt, và không huỷ được cái đã gửi', () => {
@@ -171,7 +171,7 @@ test('C7 huỷ: chỉ người đặt, và không huỷ được cái đã gửi
   assert.equal(huyLich(db, { id: a.id, nguoiDat: 'nguoi_la' }).ly, 'KHONG_PHAI_NGUOI_DAT');
   assert.equal(huyLich(db, { id: a.id, nguoiDat: HOST }).ok, true);
   assert.equal(huyLich(db, { id: a.id, nguoiDat: HOST }).ly, 'SAI_TRANG_THAI');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C8 demDangCho đếm cả cho_xac_nhan lẫn da_len_lich', () => {
@@ -182,7 +182,7 @@ test('C8 demDangCho đếm cả cho_xac_nhan lẫn da_len_lich', () => {
   assert.equal(demDangCho(db), 2);
   huyLich(db, { id: b.id, nguoiDat: HOST });
   assert.equal(demDangCho(db), 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -213,7 +213,7 @@ test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () 
     db, api: {},
     guiVaoNhom: async (...a) => { guiNhom.push(a); return { msgId: '1' }; },
     guiDmHost: async (...a) => { guiDm.push(a); return { msgId: '2' }; },
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     dmHostChatId: 'dm-host',
   });
   assert.equal(kq.quaHan, 1);
@@ -224,7 +224,7 @@ test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () 
     db.prepare('SELECT trang_thai t FROM lich_hen WHERE id=$id').get({ id }).t,
     TRANG_THAI_LICH.QUA_HAN,
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -237,7 +237,7 @@ test('E1 ★ nhanDangGui chỉ thành công MỘT lần (dành chỗ trước kh
   chotLich(db, { id: ma, ma, nguoiDat: HOST });
   assert.equal(nhanDangGui(db, id), true);
   assert.equal(nhanDangGui(db, id), false, 'lần hai phải THẤT BẠI, nếu không là gửi 2 tin');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
@@ -249,11 +249,11 @@ test('E2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
     db, api: {},
     guiVaoNhom: async () => { await new Promise((r) => setTimeout(r, 5)); gui.push(1); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   };
   await Promise.all([chayMotNhip(p), chayMotNhip(p)]);
   assert.equal(gui.length, 1, 'daemon restart / timer chồng nhau không được gửi hai lần');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', async () => {
@@ -266,14 +266,14 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
     db, api: {},
     guiVaoNhom: async () => { throw new Error('mạng hỏng'); },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
   assert.equal(kq.loi, 1);
   const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
   assert.equal(d.trang_thai, TRANG_THAI_LICH.LOI);
   assert.equal(Number(d.so_lan_thu), 1);
   assert.deepEqual(layLichDenHan(db, Date.now()), [], 'KHÔNG được quay lại hàng chờ');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -322,10 +322,10 @@ test('F5 gửi vào nhóm có truyền dsNguoi xuống tầng gửi', async () =
     db, api: {},
     guiVaoNhom: async (_a, _c, _t, tc) => { tuyChon = tc; return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [{ uid: '111', ten: 'Anh A' }],
+    groupMembers: () => [{ uid: '111', ten: 'Anh A' }],
   });
   assert.deepEqual(tuyChon.dsNguoi, [{ uid: '111', ten: 'Anh A' }]);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -376,7 +376,7 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
     ['./scan/doi_chieu.js', ['batQuet', 'quetMotLuot']],
     ['./lich/bo_chay.js', ['batLich', 'chayMotNhip', 'NHIP_MS']],
     ['./lib/hang_so.js', ['GIOI_HAN_QUET']],
-    ['./store/query.js', ['dsNguoiTrongNhom']],
+    ['./store/query.js', ['groupMembers']],
     ['./zalo/send.js', ['guiVaoNhom', 'guiDmHost']],
     ['./ops/notify_host.js', ['primaryHostDm']],
   ];
@@ -410,15 +410,15 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
   // `cau.replace('____', ma)`. `String.replace` với mẫu CHUỖI chỉ thay LẦN ĐẦU
   // -> tiêu đề có mã thật nhưng dòng cuối vẫn là: Anh nhắn "ok ____" để chốt.
   // Anh đọc xong KHÔNG BIẾT gõ mã gì, mà tool thì báo ok:true.
-  const { moDb: mo, dongDb: dong } = await import('../src/store/db.js');
-  const { taoHangDoi, upsertHoiThoai: upsert } = await import('../src/store/write.js');
+  const { openDb: mo, closeDb: dong } = await import('../src/store/db.js');
+  const { enqueueQuestion, upsertConversation: upsert } = await import('../src/store/write.js');
   const { registerTools } = await import('../src/mcp/tools.js');
 
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-i1-'));
   RAC.push(d);
   const db = mo(path.join(d, 'lichsu.db'));
   upsert(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm Sao Mai', duocNghe: true });
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'R1', chatIdHoi: NHOM, msgId: '1', userId: HOST,
     noiDung: 'x', tsTao: new Date().toISOString(),
   });
@@ -454,5 +454,5 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
   // Câu trong DB và câu trả cho anh phải là MỘT.
   const trongDb = db.prepare('SELECT dien_giai_xac_nhan c FROM lich_hen LIMIT 1').get().c;
   assert.equal(trongDb, cau, 'câu anh đọc và câu lưu DB phải giống hệt');
-  dongDb(db);
+  closeDb(db);
 });

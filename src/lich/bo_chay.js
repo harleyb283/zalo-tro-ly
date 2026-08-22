@@ -11,7 +11,7 @@
  * 🔴 KHÔNG dùng `createReminder` của Zalo. Anh đã cắt phương án đó.
  *
  * ✅ TAG NGƯỜI: dùng lại nguyên tầng mention có sẵn ở `zalo/send.js`
- *    (`dungMentions` — NFC, `len` GỒM ký tự '@', tra uid qua `dsNguoiTrongNhom`).
+ *    (`dungMentions` — NFC, `len` GỒM ký tự '@', tra uid qua `groupMembers`).
  *    KHÔNG viết lại. Ở đây chỉ làm phần ngược: uid -> tên, để ghép chuỗi `@Tên`
  *    vào đầu tin cho tầng kia nhận ra.
  *    🔴 Uid không tra ra tên ⇒ BỎ tag đó, ghi cảnh báo. CẤM bịa tên, vì tên bịa
@@ -122,7 +122,7 @@ export function laCheDoTach(p = {}, env = process.env, argv = process.argv) {
  *
  * ⚠️ Ở `cheDo:"mot-tien-trinh"` outbox LUÔN RỖNG ⇒ lưới chạy không tải, vô hại.
  * Cơ chế (đọc lại 21/08 SAU khi pane `coding` nối xong bước 4 — chú thích bản
- * đầu của em nói "chưa ai gọi `xepHangGui`" và nay đã SAI, giữ lại đây để không
+ * đầu của em nói "chưa ai gọi `enqueueOutbound`" và nay đã SAI, giữ lại đây để không
  * ai tin nhầm lần nữa): `mcp/tools.js` chọn cửa gửi bằng
  *     const xepHang = typeof kho?.xepHangGuiRa === 'function' ? ... : null;
  * mà `kho.xepHangGuiRa` CHỈ được truyền ở MỘT trong hai chỗ gọi `registerTools` —
@@ -303,7 +303,7 @@ async function _baoHetLuot(p, d, cho) {
  * @param {{
  *   db: any, api: any, bayGioMs?: number,
  *   guiVaoNhom: Function, guiDmHost: Function,
- *   dsNguoiTrongNhom: (db: any, chatId: string) => Array<{uid: string, ten: string}>,
+ *   groupMembers: (db: any, chatId: string) => Array<{uid: string, ten: string}>,
  *   ghiLai?: (tin: any) => void,
  *   uidTroLy?: string|null,
  *   dmHostChatId?: string|null,
@@ -361,7 +361,7 @@ export async function chayMotNhip(p) {
 
     try {
       const laDm = String(l.loai_dich) === 'DM';
-      const dsNguoi = laDm ? [] : p.dsNguoiTrongNhom(p.db, String(l.chat_id_dich));
+      const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(l.chat_id_dich));
       /** @type {string[]} */
       let tagUserIds = [];
       try {
@@ -423,9 +423,9 @@ export async function chayMotNhip(p) {
  *
  * @param {{db: any, api: any, bayGioMs?: number,
  *          guiVaoNhom: Function, guiDmHost: Function,
- *          dsNguoiTrongNhom: Function, truyVanLichSu?: Function,
+ *          groupMembers: Function, queryHistory?: Function,
  *          guiThongBao?: ((p: any) => Promise<boolean>)|null,
- *          taoHangDoi?: Function, ghiLai?: Function, uidTroLy?: string|null}} p
+ *          enqueueQuestion?: Function, ghiLai?: Function, uidTroLy?: string|null}} p
  */
 export async function chayNhipTheoDuoi(p) {
   const bayGio = p.bayGioMs ?? Date.now();
@@ -501,14 +501,14 @@ export async function chayNhipTheoDuoi(p) {
     // thấy nguồn = ∅ ⊆ {chat_id_hoi} và CHO GỬI THẲNG vào nhóm. Lá chắn thất bại
     // IM LẶNG, đúng ca nó sinh ra để chặn.
     //
-    // ✅ Cách làm: BỌC `truyVanLichSu` để hứng `nguonChatIds` do CHÍNH TẦNG TRUY VẤN
+    // ✅ Cách làm: BỌC `queryHistory` để hứng `nguonChatIds` do CHÍNH TẦNG TRUY VẤN
     // khai ra. Nhờ vậy nó đúng bất kể `layBoiCanhNhac` sau này đọc thêm những gì —
     // không phụ thuộc người sửa có nhớ cập nhật chỗ này hay không.
     // (Đúng nguyên tắc đã chốt ở `leak_guard.js`: *cờ do TẦNG TRUY VẤN đặt*.)
     const nguonDaCham = new Set();
-    const truyVanCoVet = typeof p.truyVanLichSu === 'function'
+    const truyVanCoVet = typeof p.queryHistory === 'function'
       ? (dbIn, tv) => {
-        const kq = p.truyVanLichSu(dbIn, tv);
+        const kq = p.queryHistory(dbIn, tv);
         for (const c of kq?.nguonChatIds ?? []) nguonDaCham.add(String(c));
         return kq;
       }
@@ -535,7 +535,7 @@ export async function chayNhipTheoDuoi(p) {
     // phòng ⇒ MỌI lời nhắc thành máy móc — đúng thứ chặn việc bật chế độ tách.
     //
     // Thứ model thật sự cần KHÔNG phải cái notification, mà là **dòng
-    // `hang_doi_hoi`**. `taoHangDoi` đã ghi nó ở trạng thái `'cho'`; client (pane
+    // `hang_doi_hoi`**. `enqueueQuestion` đã ghi nó ở trạng thái `'cho'`; client (pane
     // Claude) nhặt bằng `pushPendingQueue` rồi tự bơm vào phiên của nó.
     // ⇒ Ở chế độ tách ta vẫn đi nhánh (a), chỉ BỎ lời gọi notify.
     //
@@ -544,7 +544,7 @@ export async function chayNhipTheoDuoi(p) {
     // câu dự phòng khi quá `tranChoModelMs()`. Không client nào nhặt ⇒ vẫn có
     // tin đi ra. ⛔ Không đổi giọng văn lấy sự im lặng.
     const coClient = laCheDoTach(p);
-    const giaoDuocChoModel = p.taoHangDoi
+    const giaoDuocChoModel = p.enqueueQuestion
       && (typeof p.guiThongBao === 'function' || coClient)
       && (nguonLa.length === 0 || typeof p.recordSources === 'function');
     if (nguonLa.length && typeof p.recordSources !== 'function') {
@@ -573,7 +573,7 @@ export async function chayNhipTheoDuoi(p) {
         // im lặng bỏ rơi một việc thật.
         p.db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
           .run({ t: Math.floor(bayGio), id: d.id });
-        p.taoHangDoi(p.db, {
+        p.enqueueQuestion(p.db, {
           requestId,
           // chat_id_hoi = nhóm ĐÍCH: `tra_loi` gửi vào đúng đây, và luật chống
           // rò chéo vẫn tính nguồn trên chính nhóm đó.
@@ -632,7 +632,7 @@ function _tenPhuTrach(p, d) {
   const uid = d?.nguoi_phu_trach ? String(d.nguoi_phu_trach) : null;
   if (!uid || String(d.loai_dich) === 'DM') return null;
   try {
-    const ds = p.dsNguoiTrongNhom(p.db, String(d.chat_id_dich)) ?? [];
+    const ds = p.groupMembers(p.db, String(d.chat_id_dich)) ?? [];
     const ten = ds.find((n) => String(n.uid) === uid)?.ten ?? null;
     return ten ? { uid, ten: String(ten) } : { uid, ten: null };
   } catch (e) {
@@ -710,7 +710,7 @@ async function _guiNhac(p, d, bayGioMs) {
       return false;
     }
     const laDm = String(d.loai_dich) === 'DM';
-    const dsNguoi = laDm ? [] : p.dsNguoiTrongNhom(p.db, String(d.chat_id_dich));
+    const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(d.chat_id_dich));
     let tagUserIds = [];
     try {
       tagUserIds = d.tag_user_ids ? JSON.parse(d.tag_user_ids) : [];
@@ -719,7 +719,7 @@ async function _guiNhac(p, d, bayGioMs) {
       tagUserIds.push(String(d.nguoi_phu_trach));
     }
 
-    const bc = layBoiCanhNhac(p.db, d, { bayGioMs, truyVan: p.truyVanLichSu });
+    const bc = layBoiCanhNhac(p.db, d, { bayGioMs, truyVan: p.queryHistory });
     const nd = dungNoiDung({
       noiDung: cauNhacDuPhong(d, bc),
       dsNguoi,

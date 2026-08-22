@@ -30,8 +30,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai, xemVetHanhDong, ghiVetHanhDong } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation, readActionTrail, writeActionTrail } from '../src/store/write.js';
 import { _xoaPhamViChoTest } from '../src/store/query.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -79,10 +79,10 @@ const tin = (p) => ({
 /** DB có MỘT lời nhắc đang theo đuổi, giao cho `PHU_TRACH` ở `NHOM`. */
 function dbCoNhac() {
   const duongDan = path.join(tam(), 'kho', 'lichsu.db');
-  const db = moDb(duongDan);
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
-  ghiTin(db, tin({ msgId: 'cu1' }));
-  ghiTin(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh' }));
+  const db = openDb(duongDan);
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
+  writeMessage(db, tin({ msgId: 'cu1' }));
+  writeMessage(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh' }));
   const id = 'NHAC1';
   taoNhacTheoDuoi(db, {
     id, ma: id, chatIdDich: NHOM, loaiDich: 'GROUP',
@@ -128,7 +128,7 @@ function dungTool(db, doiCauHinh = {}) {
 
 /** Lượt CHỈ NGHE (người thường nói trong nhóm). `idViec` mở cửa 2. */
 function phienNghe(db, rid, idViec = null, noiDung = 'xong rồi anh') {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: NHOM, msgId: rid, userId: PHU_TRACH,
     noiDung, tsTao: new Date().toISOString(), chiNghe: true, idViecMoCua: idViec,
   });
@@ -137,7 +137,7 @@ function phienNghe(db, rid, idViec = null, noiDung = 'xong rồi anh') {
 
 /** Lượt của HOST (được nói, toàn quyền) — dùng cho vai zalo-router. */
 function phienHost(db, rid, noiDung = 'anh hỏi') {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: DM_HOST, msgId: rid, userId: HOST,
     noiDung, tsTao: new Date().toISOString(), chiNghe: false,
   });
@@ -171,15 +171,15 @@ test('★★★ V1 NGHIỆM THU①: yêu cầu duyệt nằm TRÊN ĐĨA, ⛔ kh
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.duLieu.trangThai, TRANG_THAI_DUYET.CHO_DUYET);
 
-  const db2 = moDb(duongDan, { migrate: false });
+  const db2 = openDb(duongDan, { migrate: false });
   const dong = db2.prepare('SELECT * FROM yeu_cau_duyet WHERE id = $i').get({ i: r.duLieu.id });
   assert.ok(dong, '🔴 YÊU CẦU ⛔ KHÔNG XUỐNG ĐĨA — tiến trình zalo-router sẽ không bao giờ thấy');
   assert.equal(String(dong.chat_id_xin), NHOM, 'phải biết NHÓM NÀO xin');
   assert.equal(String(dong.nguoi_noi), PHU_TRACH, 'phải biết AI nói');
   assert.equal(dong.nguyen_van, NGUON.nguonNguyenVan, '🔴 phải là NGUYÊN VĂN, ⛔ không phải bản model tóm lại');
   assert.equal(dong.trang_thai, TRANG_THAI_DUYET.CHO_DUYET);
-  dongDb(db2);
-  dongDb(db);
+  closeDb(db2);
+  closeDb(db);
 });
 
 test('★★★ V2 NGHIỆM THU①: xin xong PHẢI nói lại với nhóm là đang chờ', async () => {
@@ -195,7 +195,7 @@ test('★★★ V2 NGHIỆM THU①: xin xong PHẢI nói lại với nhóm là �
   assert.match(r.duLieu.nhac, /CHƯA được duyệt|⛔ KHÔNG tự chạy/i, 'phải nói rõ CHƯA được duyệt');
   assert.equal(daBao.length, 1, '🔴 host ⛔ không được báo là có việc chờ duyệt');
   assert.match(daBao[0], /xin duyệt/i);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V3 NGHIỆM THU②: router LIỆT KÊ + DUYỆT; agent nhóm ⛔ KHÔNG', async () => {
@@ -234,7 +234,7 @@ test('★★★ V3 NGHIỆM THU②: router LIỆT KÊ + DUYỆT; agent nhóm ⛔
     request_id: phienHost(db, 'r-router3'), id: xin.duLieu.id, dongY: false,
   });
   assert.equal(lai.ok, false, '🔴 duyệt hai lần ghi đè lên nhau — quyết định cũ biến mất');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V4 NGHIỆM THU③: DUYỆT ⛔ KHÔNG TỰ CHẠY VIỆC', async () => {
@@ -265,7 +265,7 @@ test('★★★ V4 NGHIỆM THU③: DUYỆT ⛔ KHÔNG TỰ CHẠY VIỆC', asyn
 
   // ③ Lời dặn trả về phải NÓI THẲNG rằng chưa ai làm gì cả.
   assert.match(d.duLieu.nhac, /CHO PHÉP|chưa/i);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V5 NGHIỆM THU③ (mã nguồn): `_duyetYeuCau` ⛔ KHÔNG CÓ đường chạy việc', () => {
@@ -300,7 +300,7 @@ test('★★★ V6 NGHIỆM THU④: người KHÔNG PHẢI HOST đóng được 
   });
   assert.equal(r.ok, true, `🔴 CHẶN LẠI RỒI — anh đã gỡ lớp này: ${JSON.stringify(r)}`);
 
-  const vet = xemVetHanhDong(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
+  const vet = readActionTrail(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
   assert.equal(vet.length, 1, '🔴 ĐÓNG VIỆC MÀ ⛔ KHÔNG LƯU AI NÓI — vết là thứ duy nhất thay lớp chặn');
   assert.equal(String(vet[0].nguon_nguoi), PHU_TRACH, '🔴 vết ⛔ không nói được AI bảo đóng');
   assert.equal(vet[0].nguon_nguyen_van, NGUON.nguonNguyenVan,
@@ -311,7 +311,7 @@ test('★★★ V6 NGHIỆM THU④: người KHÔNG PHẢI HOST đóng được 
   assert.equal(daBao.length, 1, '🔴 ⛔ KHÔNG BÁO HOST — anh chỉ biết việc bị đóng khi tự đi soi DB');
   assert.match(daBao[0], new RegExp(PHU_TRACH), 'dòng báo phải nêu AI nói');
   assert.match(daBao[0], /xong rồi anh/, 'dòng báo phải mang nguyên văn');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V7 NGHIỆM THU⑥: ĐÓNG = ĐỔI TRẠNG THÁI, ⛔ KHÔNG PHẢI XOÁ (mở lại được)', async () => {
@@ -337,7 +337,7 @@ test('★★★ V7 NGHIỆM THU⑥: ĐÓNG = ĐỔI TRẠNG THÁI, ⛔ KHÔNG PH
     db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id }).trang_thai_td,
     'dang_theo_duoi',
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V8 NGHIỆM THU⑤: ghi nhớ mang NGUỒN — "X nói rằng…" ⛔ KHÁC "…là sự thật"', async () => {
@@ -365,7 +365,7 @@ test('★★★ V8 NGHIỆM THU⑤: ghi nhớ mang NGUỒN — "X nói rằng…
   const gh = db.prepare('SELECT * FROM ghi_nho WHERE id = $i').get({ i: rh.duLieu.id });
   assert.equal(gh.nguon_nguoi, null, 'host tự nói ⇒ nguồn NULL');
   assert.equal(daBao.length, 1, '🔴 báo host về chính lời host vừa gõ — nhiễu vô ích');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V9 MỌI tool đổi trạng thái đều ĐI QUA tầng ghi vết (⛔ không sót cái nào)', () => {
@@ -417,10 +417,10 @@ test('★★★ V10 NGHIỆM THU⑧a: chỉ thị NGƯỜI LẠ CÓ khai nguồn
     request_id: phienNghe(db, 'r-inj-dong', id, CAU), id, ...nguon,
   });
   assert.equal(r.ok, true, '🔴 lén chặn tiếp quyền nghiệp vụ — anh đã gỡ lớp này');
-  const vet = xemVetHanhDong(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
+  const vet = readActionTrail(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
   assert.equal(vet.length, 1, '🔴 chạy mà ⛔ không để lại vết — đúng thứ GĐ5 đánh đổi để có');
   assert.equal(vet[0].nguon_nguyen_van, CAU, 'nguyên văn câu tiêm phải được lưu NGUYÊN');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách nghiệp vụ (im trong nhóm ⛔ KHÔNG ĐỔI)', async () => {
@@ -437,7 +437,7 @@ test('★★★ V11 NGHIỆM THU⑧b: `tra_loi` KHÔNG lọt vào danh sách ngh
   assert.deepEqual(daGui, [], '🔴 có tin đi ra ở lượt lẽ ra phải im');
   assert.ok(!STATE_CHANGING_TOOLS.includes(TEN_TOOL.TRA_LOI),
     "🔴 'tra_loi' lọt vào danh sách nghiệp vụ — xem lại chú thích ⛔ ĐỪNG THÊM trong tools.js");
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V12 vết HỎNG ⛔ KHÔNG được kéo đổ việc ĐÃ LÀM XONG', async () => {
@@ -455,10 +455,10 @@ test('★★★ V12 vết HỎNG ⛔ KHÔNG được kéo đổ việc ĐÃ LÀM
     db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id }).trang_thai_td,
     'dang_theo_duoi', 'việc thật sự đã xong',
   );
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ V13 `ghiVetHanhDong` NÉM khi thiếu bằng chứng (⛔ không ghi dòng rỗng)', () => {
+test('★★★ V13 `writeActionTrail` NÉM khi thiếu bằng chứng (⛔ không ghi dòng rỗng)', () => {
   const { db } = dbCoNhac();
   for (const xau of [
     { chatId: NHOM, tenTool: 'x', nguonNguyenVan: 'có câu' },
@@ -466,11 +466,11 @@ test('★★★ V13 `ghiVetHanhDong` NÉM khi thiếu bằng chứng (⛔ không
     { chatId: NHOM, tenTool: 'x', nguonNguoi: '  ', nguonNguyenVan: '  ' },
     { chatId: NHOM, nguonNguoi: PHU_TRACH, nguonNguyenVan: 'c' },
   ]) {
-    assert.throws(() => ghiVetHanhDong(db, xau), /rỗng/,
+    assert.throws(() => writeActionTrail(db, xau), /rỗng/,
       `⛔ ghi được vết thiếu bằng chứng: ${JSON.stringify(xau)}`);
   }
   assert.equal(db.prepare('SELECT COUNT(*) n FROM nhat_ky_hanh_dong').get().n, 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ V14 `_cat_ma` NÉM khi mất neo — ⛔ không trả chuỗi rỗng cho bài test tự khen', () => {
@@ -514,5 +514,5 @@ test('★★★ V15 lời gọi HỎNG ⛔ KHÔNG được để lại vết (s�
   assert.equal(db.prepare('SELECT COUNT(*) n FROM nhat_ky_hanh_dong').get().n, 0,
     '🔴 GHI VẾT CHO LỜI GỌI HỎNG — sổ khai việc đã xảy ra trong khi nó chưa');
   assert.deepEqual(daBao, [], '🔴 báo host về một việc ⛔ chưa từng chạy');
-  dongDb(db);
+  closeDb(db);
 });

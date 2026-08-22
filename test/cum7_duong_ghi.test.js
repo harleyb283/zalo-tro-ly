@@ -23,9 +23,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai, taoGhiNho } from '../src/store/write.js';
-import { layGhiNho } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation, writeMemo } from '../src/store/write.js';
+import { readMemos } from '../src/store/query.js';
 import {
   HUONG_TRA_LOI, MA_LOI, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC,
   TRANG_THAI_TD, PHIEN_BAN_SCHEMA,
@@ -49,13 +49,13 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum7-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return db;
 }
 
 function phien(db, { requestId = 'r1', noiDung = 'xin chào', userId = HOST, msgId = 'm1' } = {}) {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId, chatIdHoi: NHOM, msgId, userId, noiDung, tsTao: new Date().toISOString(),
   });
   return requestId;
@@ -142,7 +142,7 @@ test('★★★ T7-NGHIEM-THU: diễn lại NGUYÊN VĂN ca 08:03 — nói mà k
   assert.equal(rows[0].nguyen_van, CAU_0803, 'nguyên văn phải đúng TỪNG CHỮ');
   assert.equal(rows[0].chat_id, NHOM);
   assert.equal(rows[0].request_id, req);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ T7-NGHIEM-THU-3: dong_nhac -> mo_lai_nhac -> xem_nhac thấy lại dang_theo_duoi', async () => {
@@ -167,7 +167,7 @@ test('★★★ T7-NGHIEM-THU-3: dong_nhac -> mo_lai_nhac -> xem_nhac thấy l�
   assert.equal(x.ok, true, JSON.stringify(x));
   assert.equal(x.duLieu.soLuong, 1, 'mở lại rồi mà xem_nhac không thấy = mở hụt');
   assert.equal(x.duLieu.danhSach[0].maXacNhan, 'DIADIEM');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -183,7 +183,7 @@ test('★★★ A1 CHẠM DB THẬT: kiểu của TỪNG CỘT đúng như schem
   // trong một cột khai là INTEGER — cũng không báo gì.
   const db = dbTam();
   const khi = Date.UTC(2026, 7, 22, 0, 30);
-  const { dong } = taoGhiNho(db, {
+  const { dong } = writeMemo(db, {
     chatId: NHOM, requestId: 'r1', nguoiGhi: HOST, loai: 'su_kien',
     noiDung: 'T7 07:30 đi ăn lòng', nguyenVan: CAU_0803,
     khiNaoMs: khi, aiLienQuan: [NGUOI_LA],
@@ -200,43 +200,43 @@ test('★★★ A1 CHẠM DB THẬT: kiểu của TỪNG CỘT đúng như schem
   assert.equal(typeof dong.ai_lien_quan, 'string', 'ai_lien_quan là JSON dạng TEXT');
   assert.deepEqual(JSON.parse(dong.ai_lien_quan), [NGUOI_LA]);
   assert.equal(typeof dong.ts_tao, 'string');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ A2 CHẠM DB THẬT: khiNaoMs là CHỮ -> NỔ, không âm thầm ghi rác', () => {
   const db = dbTam();
   assert.throws(
-    () => taoGhiNho(db, {
+    () => writeMemo(db, {
       chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: 'y', khiNaoMs: 'thứ bảy 7h30',
     }),
     /epoch ms/,
     'nhận chữ thì cột INTEGER giữ nguyên TEXT và mọi so sánh thời gian sau đó sai câm',
   );
   assert.equal(db.prepare('SELECT count(*) c FROM ghi_nho').get().c, 0, 'nổ rồi thì không được ghi gì');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ A3 không có mốc thời gian -> khi_nao_ms là NULL, ⛔ không bịa số', () => {
   const db = dbTam();
-  const { dong } = taoGhiNho(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: 'y' });
+  const { dong } = writeMemo(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: 'y' });
   assert.equal(dong.khi_nao_ms, null, 'bịa một mốc để điền cho đủ là tệ hơn bỏ trống');
   assert.equal(dong.loai, 'khac');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ A4 loai lạ -> NỔ (CHECK của schema phải có người canh trước khi tới DB)', () => {
   const db = dbTam();
-  assert.throws(() => taoGhiNho(db, {
+  assert.throws(() => writeMemo(db, {
     chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: 'y', loai: 'linh_tinh',
   }), /không hợp lệ/);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ A5 nguyenVan rỗng -> NỔ (mất nguyên văn là mất đường đối chiếu)', () => {
   const db = dbTam();
-  assert.throws(() => taoGhiNho(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: '  ' }),
+  assert.throws(() => writeMemo(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'x', nguyenVan: '  ' }),
     /NGUYÊN VĂN/);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ A6 CHỈ HOST ghi nhớ được — người khác trong nhóm thì KHÔNG', async () => {
@@ -248,19 +248,19 @@ test('★★★ A6 CHỈ HOST ghi nhớ được — người khác trong nhóm 
   const r = await goi(TEN_TOOL_GHI.GHI_NHO, { request_id: req, noiDung: 'x', nguyenVan: 'y' });
   assert.equal(r.ok, false);
   assert.equal(db.prepare('SELECT count(*) c FROM ghi_nho').get().c, 0);
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★ A7 layGhiNho chỉ trả ghi nhớ của ĐÚNG nhóm đó và KHAI NGUỒN', () => {
+test('★★ A7 readMemos chỉ trả ghi nhớ của ĐÚNG nhóm đó và KHAI NGUỒN', () => {
   const db = dbTam();
-  upsertHoiThoai(db, { chatId: '999', loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
-  taoGhiNho(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'của nhóm A', nguyenVan: 'a' });
-  taoGhiNho(db, { chatId: '999', nguoiGhi: HOST, noiDung: 'của nhóm B', nguyenVan: 'b' });
-  const kq = layGhiNho(db, { chatId: NHOM });
+  upsertConversation(db, { chatId: '999', loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
+  writeMemo(db, { chatId: NHOM, nguoiGhi: HOST, noiDung: 'của nhóm A', nguyenVan: 'a' });
+  writeMemo(db, { chatId: '999', nguoiGhi: HOST, noiDung: 'của nhóm B', nguyenVan: 'b' });
+  const kq = readMemos(db, { chatId: NHOM });
   assert.equal(kq.rows.length, 1);
   assert.equal(kq.rows[0].noi_dung, 'của nhóm A', 'ghi nhớ nhóm B lọt sang nhóm A = rò chéo nhóm');
   assert.deepEqual(kq.nguonChatIds, [NHOM]);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -275,7 +275,7 @@ test('★★★ B1 KHÔNG có cue -> tra_loi chạy bình thường (chống vá
   assert.equal(r.ok, true, 'cổng nổ với câu hỏi thường = khoá mồm trợ lý trong mọi hội thoại');
   assert.equal(daGui.length, 1);
   assert.equal(demCongGhi(db, 'chan'), 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B2 ĐƯỜNG THOÁT khongCanGhi cho qua VÀ được ghi vào sổ đo', async () => {
@@ -301,7 +301,7 @@ test('★★★ B2 ĐƯỜNG THOÁT khongCanGhi cho qua VÀ được ghi vào s�
   const v = db.prepare("SELECT * FROM nhat_ky_cong_ghi WHERE su_kien = 'vuot'").get();
   assert.match(v.ly_do, /dán lại/);
   assert.deepEqual(JSON.parse(v.cue_trung), ['lưu lại']);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B3 tool ghi KHÁC cũng mở được cổng (dat_nhac_theo_duoi)', async () => {
@@ -315,7 +315,7 @@ test('★★★ B3 tool ghi KHÁC cũng mở được cổng (dat_nhac_theo_duoi
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: req, text: 'dạ em đặt rồi ạ' });
   assert.equal(r.ok, true, 'cổng chỉ chấp nhận ghi_nho là ép model dùng sai tool');
   assert.equal(demCongGhi(db, 'da_ghi'), 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B4 tool ghi gọi HỎNG thì KHÔNG mở được cổng', async () => {
@@ -329,7 +329,7 @@ test('★★★ B4 tool ghi gọi HỎNG thì KHÔNG mở được cổng', asyn
   assert.equal(hong.ok, false, 'bài này chỉ có nghĩa khi lời gọi kia THẬT SỰ hỏng');
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: req, text: 'dạ xong rồi ạ' });
   assert.equal(r.ok, false, 'một lời gọi tool HỎNG vừa mở được cổng ghi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B5 cue lấy từ CONFIG, không phải hằng số trong code', async () => {
@@ -339,7 +339,7 @@ test('★★★ B5 cue lấy từ CONFIG, không phải hằng số trong code',
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: req, text: 'dạ vâng' });
   assert.equal(r.ok, false, 'cue trong config không có tác dụng = host phải sửa code mới đổi được cue');
   assert.deepEqual(JSON.parse(db.prepare("SELECT cue_trung c FROM nhat_ky_cong_ghi").get().c), ['ghi sổ']);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B6 lượt NHẮC không bị cổng chặn (nội dung do CODE dựng, không phải host gõ)', async () => {
@@ -362,7 +362,7 @@ test('★★★ B6 lượt NHẮC không bị cổng chặn (nội dung do CODE 
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(daGui.length, 1);
   assert.equal(demCongGhi(db, 'chan'), 0);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B7 người KHÔNG phải host thì cổng không áp (chỉ host mới ra lệnh được)', async () => {
@@ -371,7 +371,7 @@ test('★★★ B7 người KHÔNG phải host thì cổng không áp (chỉ hos
   const { goi } = dungTool(db);
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: req, text: 'dạ' });
   assert.equal(r.ok, true, 'người lạ gõ "lưu lại" mà chặn được trợ lý = họ điều khiển được nó');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ B8 lượt SAU không bị dính dấu ghi của lượt TRƯỚC', async () => {
@@ -384,12 +384,12 @@ test('★★ B8 lượt SAU không bị dính dấu ghi của lượt TRƯỚC',
   const r2 = phien(db, { requestId: 'rb', noiDung: 'lưu lại vụ B', msgId: 'm2' });
   const l2 = await goi(TEN_TOOL.TRA_LOI, { request_id: r2, text: 'ok' });
   assert.equal(l2.ok, false, 'dấu ghi rò từ lượt trước sang lượt sau = cổng vô hiệu từ lượt thứ hai');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng chứng -> vẫn cho qua', async () => {
   // 🔴 Bài này tách riêng LỚP THỨ HAI. Ca thường thì dấu trong bộ nhớ luôn thắng
-  // trước, nên nó CHE hoàn toàn lớp bền — gỡ `demGhiNhoCuaPhien` đi mà mọi bài
+  // trước, nên nó CHE hoàn toàn lớp bền — gỡ `countTurnMemos` đi mà mọi bài
   // khác vẫn xanh (đo thật: đột biến M10 sống sót vòng đầu).
   // Cách tách: nạp một BẢN MODULE MỚI (đổi query string để phá cache) — bản mới
   // có Map RỖNG, đúng như ca daemon nạp lại module giữa lượt, trong khi dòng
@@ -432,7 +432,7 @@ test('★★★ B9 LỚP BỀN: mất dấu trong bộ nhớ mà DB còn bằng 
   assert.equal(r.ok, true,
     'DB đã có bằng chứng ghi mà vẫn chặn -> model bị bắt ghi LẦN HAI, sinh dòng trùng');
   assert.equal(daGui.length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -461,7 +461,7 @@ test('★★★ C1 mở lại GIỮ số lượt đã nhắc — ⛔ không rese
   const m = await goi(TEN_TOOL_GHI.MO_LAI_NHAC, { request_id: req, id: 'N1' });
   assert.equal(m.ok, true, JSON.stringify(m));
   assert.equal(m.duLieu.soLanDaNhac, 4);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C2 mốc kế tiếp tính lại từ BÂY GIỜ, không dùng lại mốc quá khứ', async () => {
@@ -476,7 +476,7 @@ test('★★★ C2 mốc kế tiếp tính lại từ BÂY GIỜ, không dùng l
   await goi(TEN_TOOL_GHI.MO_LAI_NHAC, { request_id: req, id: 'N1' });
   const sau = db.prepare('SELECT gui_luc_ms FROM lich_hen WHERE id = ?').get(d.id);
   assert.ok(Number(sau.gui_luc_ms) > Date.now(), 'mốc kế tiếp nằm trong quá khứ -> bắn ngay lập tức');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C3 CHỈ HOST mở lại được', async () => {
@@ -488,7 +488,7 @@ test('★★★ C3 CHỈ HOST mở lại được', async () => {
   const rLa = phien(db, { requestId: 'rl', userId: NGUOI_LA, noiDung: 'mở lại đi', msgId: 'm9' });
   const m = await goi(TEN_TOOL_GHI.MO_LAI_NHAC, { request_id: rLa, id: 'N1' });
   assert.equal(m.ok, false, 'người bị nhắc có động cơ lớn nhất để tự mở/đóng — nghe họ là mất cả cơ chế');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C4 HẾT LƯỢT mà mở lại không nới trần -> BÁO RÕ, không mở hụt trong im lặng', async () => {
@@ -507,12 +507,12 @@ test('★★★ C4 HẾT LƯỢT mà mở lại không nới trần -> BÁO RÕ,
   assert.equal(m2.ok, true, JSON.stringify(m2));
   assert.equal(m2.duLieu.daNoiTran, true);
   assert.ok(m2.duLieu.tranSoLan > 10);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C5 bỏ trống id -> lấy lời nhắc VỪA ĐÓNG của ĐÚNG nhóm này', async () => {
   const db = dbTam();
-  upsertHoiThoai(db, { chatId: '999', loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
+  upsertConversation(db, { chatId: '999', loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
   nhacDaDong(db, 'N-A');
   // Một lời nhắc đã đóng của nhóm KHÁC, đóng SAU -> nếu thiếu bộ lọc nhóm thì
   // nó sẽ bị chọn, tức đứng ở nhóm A mở được lời nhắc của nhóm B.
@@ -530,7 +530,7 @@ test('★★★ C5 bỏ trống id -> lấy lời nhắc VỪA ĐÓNG của ĐÚ
   const m = await goi(TEN_TOOL_GHI.MO_LAI_NHAC, { request_id: req });
   assert.equal(m.ok, true, JSON.stringify(m));
   assert.equal(m.duLieu.noiDung, 'việc N-A', 'mở nhầm lời nhắc của nhóm khác = rò chéo nhóm');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ C6 lời nhắc đang chạy sẵn -> nói rõ, không im lặng làm gì đó', async () => {
@@ -541,7 +541,7 @@ test('★★ C6 lời nhắc đang chạy sẵn -> nói rõ, không im lặng l�
   const m = await goi(TEN_TOOL_GHI.MO_LAI_NHAC, { request_id: req, id: 'N1' });
   assert.equal(m.ok, false);
   assert.match(m.thongDiep, /đang chạy/);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════

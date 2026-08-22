@@ -8,7 +8,7 @@
  * Hậu quả: mỗi lần host bảo "tóm tắt nhóm" / "tìm tin về X", trợ lý bỏ sót
  * gần 1/5 hội thoại mà KHÔNG báo lỗi gì — trông y như đã trả lời đủ.
  *
- * 🔴 VÌ SAO LÀ SCRIPT RỜI, KHÔNG PHẢI BƯỚC `BUOC_MIGRATE`:
+ * 🔴 VÌ SAO LÀ SCRIPT RỜI, KHÔNG PHẢI BƯỚC `MIGRATION_STEPS`:
  *   Việc này KHÔNG đổi cấu trúc — chỉ ghi vào 3 cột ĐÃ CÓ (`noi_dung`,
  *   `msg_type`, `ten_luc_gui`). Thêm một bước migrate thì phải tăng
  *   `PHIEN_BAN_SCHEMA` trong `src/lib/hang_so.js`, mà file đó đang do pane

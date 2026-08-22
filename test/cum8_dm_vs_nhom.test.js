@@ -29,9 +29,9 @@ import test from 'node:test';
 
 import { ThreadType } from 'zca-js';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
-import { dsNguoiTrongNhom, layLoaiHoiThoai, layUidCanTagCuaNhac } from '../src/store/query.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
+import { groupMembers, conversationKind, reminderTagUids } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC } from '../src/lib/hang_so.js';
 import { decideReplyRoute } from '../src/policy/leak_guard.js';
 import { quyetDinh } from '../src/policy/gate.js';
@@ -64,14 +64,14 @@ test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum8-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: DM, loai: 'DM', ten: 'Chủ máy', duocNghe: true });
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: DM, loai: 'DM', ten: 'Chủ máy', duocNghe: true });
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return db;
 }
 
 function tin(db, chatId, msgId) {
-  ghiTin(db, {
+  writeMessage(db, {
     chatId, msgId, cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'nội dung cũ', contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -120,7 +120,7 @@ function dungTool(db, api, { hosts, cauTrungTinh = 'Em nhắn riêng anh rồi �
 }
 
 function phien(db, { requestId = 'r1', chatIdHoi = DM, msgId = 'd1', userId = HOST, noiDung = 'anh hỏi cái này' } = {}) {
-  taoHangDoi(db, { requestId, chatIdHoi, msgId, userId, noiDung, tsTao: new Date().toISOString() });
+  enqueueQuestion(db, { requestId, chatIdHoi, msgId, userId, noiDung, tsTao: new Date().toISOString() });
   return requestId;
 }
 
@@ -140,7 +140,7 @@ test('★★★ A1 NGHIỆM THU①: câu hỏi đến từ DM -> gửi bằng Th
   assert.equal(ra[0].loaiThread, ThreadType.User,
     `🔴 ĐÚNG CA 21/08 — gửi bằng ${ten(ra[0].loaiThread)} tới một id DM, Zalo trả "Nhóm này không tồn tại"`);
   assert.equal(ra[0].id, DM);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ A2 NGHIỆM THU②: câu hỏi đến từ NHÓM -> vẫn ThreadType.Group (chống hồi quy)', async () => {
@@ -155,7 +155,7 @@ test('★★★ A2 NGHIỆM THU②: câu hỏi đến từ NHÓM -> vẫn Thread
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(ra[0].loaiThread, ThreadType.Group,
     'vá quá tay: mọi tin thành DM thì trợ lý câm trong MỌI nhóm');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ A3 tin DÀI trong DM -> MỌI phần đều ThreadType.User', async () => {
@@ -173,7 +173,7 @@ test('★★★ A3 tin DÀI trong DM -> MỌI phần đều ThreadType.User', as
   for (const [i, t] of ra.entries()) {
     assert.equal(t.loaiThread, ThreadType.User, `phần ${i + 1} gửi bằng ${ten(t.loaiThread)}`);
   }
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -194,7 +194,7 @@ test('★★★ B1 nơi hỏi CHÍNH LÀ DM host -> BỎ câu trung tính (đáp
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(ra.length, 1, `gửi ${ra.length} tin vào cùng một DM — tin thứ hai là câu xã giao vô nghĩa`);
   assert.equal(ra[0].loaiThread, ThreadType.User);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ B2 `dmChatId` trong config LỆCH nơi hỏi -> câu trung tính vẫn phải đi bằng User', async () => {
@@ -205,7 +205,7 @@ test('★★★ B2 `dmChatId` trong config LỆCH nơi hỏi -> câu trung tính
   // khi hai id khác nhau, câu trung tính vẫn không được gửi bằng kiểu NHÓM.
   // Không có bài này thì nhánh đó KHÔNG có ai canh.
   const db = dbTam();
-  upsertHoiThoai(db, { chatId: DM_KHAC, loai: 'DM', ten: 'Host 2', duocNghe: true });
+  upsertConversation(db, { chatId: DM_KHAC, loai: 'DM', ten: 'Host 2', duocNghe: true });
   tin(db, DM_KHAC, 'd2');
   const { tin: ra, api } = banGui();
   const goi = dungTool(db, api, {
@@ -223,7 +223,7 @@ test('★★★ B2 `dmChatId` trong config LỆCH nơi hỏi -> câu trung tính
   assert.equal(ra[1].id, DM_KHAC);
   assert.equal(ra[1].loaiThread, ThreadType.User,
     `câu trung tính gửi bằng ${ten(ra[1].loaiThread)} vào một DM -> Zalo từ chối`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ B3 hỏi trong NHÓM, đáp án chéo -> câu trung tính vào nhóm bằng Group (giữ nguyên)', async () => {
@@ -241,31 +241,31 @@ test('★★ B3 hỏi trong NHÓM, đáp án chéo -> câu trung tính vào nhó
   assert.equal(ra.length, 2);
   assert.equal(ra[0].loaiThread, ThreadType.User, 'đáp án đi DM host');
   assert.equal(ra[1].loaiThread, ThreadType.Group, 'câu trung tính đi vào NHÓM');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 // C — TAG trong DM: DM KHÔNG CÓ cơ chế mention
 // ═══════════════════════════════════════════════════════════════════════
 
-test('★★★ C1 `dsNguoiTrongNhom` với một chat DM KHÔNG rỗng — nó trả về chính host', () => {
+test('★★★ C1 `groupMembers` với một chat DM KHÔNG rỗng — nó trả về chính host', () => {
   // Đây là cái bẫy: ai cũng tưởng DM thì danh sách rỗng nên `baoDamTag` vô hại.
   // Đo thật thì nó trả `[{uid: host, ten: 'Chủ máy'}]`.
   const db = dbTam();
   tin(db, DM, 'd1');
-  const ds = dsNguoiTrongNhom(db, DM);
+  const ds = groupMembers(db, DM);
   assert.equal(ds.length, 1, 'nếu ca này thành rỗng thì bài C2 mất lý do tồn tại — đọc lại trước khi sửa');
   assert.equal(ds[0].uid, HOST);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C2 `baoDamTag` CHÈN "@Tên" dạng chữ trần — nên KHÔNG được chạy cho DM', () => {
   const db = dbTam();
   tin(db, DM, 'd1');
-  const kq = baoDamTag('Dạ em trả lời anh', dsNguoiTrongNhom(db, DM), [HOST], null);
+  const kq = baoDamTag('Dạ em trả lời anh', groupMembers(db, DM), [HOST], null);
   assert.match(kq.text, /^@Chủ máy /,
     'bài này ghi lại HÀNH VI THẬT của baoDamTag — nó chèn chữ, không tự biết DM');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm mentions', async () => {
@@ -298,7 +298,7 @@ test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm men
     'chèn "@Tên" vào DM = chữ trần vô nghĩa, không tag được ai, trông như trợ lý hỏng');
   assert.equal(ra[0].mentions, undefined, 'DM không có cơ chế mention');
   assert.equal(ra[0].loaiThread, ThreadType.User);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ C4 trả lời trong NHÓM vẫn cưỡng chế tag như cũ (chống hồi quy)', async () => {
@@ -325,10 +325,10 @@ test('★★ C4 trả lời trong NHÓM vẫn cưỡng chế tag như cũ (chố
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.match(ra[0].msg, /@Chủ máy/, 'bỏ cưỡng chế tag trong nhóm = lời nhắc không tag được ai');
   assert.ok(Array.isArray(ra[0].mentions) && ra[0].mentions.length === 1);
-  dongDb(db);
+  closeDb(db);
 });
 
-test('★★★ C5 LỚP 1/3 — `layUidCanTagCuaNhac` đã tự trả rỗng cho DM', () => {
+test('★★★ C5 LỚP 1/3 — `reminderTagUids` đã tự trả rỗng cho DM', () => {
   // 🔴 BA LỚP CHE NHAU. Chống tag-trong-DM hiện có BA lớp độc lập, và gỡ MỘT
   // lớp thì hai lớp kia vẫn chặn ⇒ đột biến sống sót, trông như thiếu test.
   // Ba bài C5/C6/C7 tách từng lớp ra canh riêng.
@@ -341,9 +341,9 @@ test('★★★ C5 LỚP 1/3 — `layUidCanTagCuaNhac` đã tự trả rỗng ch
     nguoiDat: HOST, chatIdDat: DM, ma: 'N9', nguoiPhuTrach: HOST, tagUserIds: [HOST2],
   });
   const id = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N9'").get().id;
-  assert.deepEqual(layUidCanTagCuaNhac(db, id).uids, [],
+  assert.deepEqual(reminderTagUids(db, id).uids, [],
     'trả uid cho một lời nhắc DM thì tầng trên sẽ dựng chữ "@Tên" thừa');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C6 LỚP 2/3 — trong DM KHÔNG chạy cưỡng chế tag, nên KHÔNG có cảnh báo tag', async () => {
@@ -361,7 +361,7 @@ test('★★★ C6 LỚP 2/3 — trong DM KHÔNG chạy cưỡng chế tag, nên
   assert.equal(r.duLieu.canhBao, undefined, `cảnh báo tag vô nghĩa trong DM: ${JSON.stringify(r.duLieu.canhBao)}`);
   assert.deepEqual(r.duLieu.tag.khongKhop, []);
   assert.equal(ra[0].loaiThread, ThreadType.User);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ C6b đối chiếu: trong NHÓM thì "@Ai Đó" VẪN phải sinh cảnh báo', async () => {
@@ -375,7 +375,7 @@ test('★★ C6b đối chiếu: trong NHÓM thì "@Ai Đó" VẪN phải sinh c
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.ok(Array.isArray(r.duLieu.canhBao) && r.duLieu.canhBao.length,
     'mất cảnh báo trong nhóm = model tưởng đã tag được người ta, mà thật ra chỉ là chữ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ C7 LỚP 3/3 — `guiDmHost` KHÔNG dựng mentions dù có ĐỦ danh sách người', async () => {
@@ -428,7 +428,7 @@ test('★★★ C8 khi đích là DM, `_traLoi` KHÔNG truyền dsNguoi xuống 
   assert.equal(bat[0].tc.laDm, true);
   assert.equal(bat[0].tc.dsNguoi, undefined,
     'truyền danh sách người xuống một tin DM là dựa hoàn toàn vào lớp cuối của send.js');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -444,11 +444,11 @@ test('★★★ D1 lịch MỘT LẦN vào DM -> bộ chạy gửi bằng Thread
   chotLich(db, { id: 'L1', ma: 'L1', nguoiDat: HOST });
   const { tin: ra, api } = banGui();
   await chayMotNhip({
-    db, api, guiVaoNhom, guiDmHost, dsNguoiTrongNhom: () => [], bayGioMs: Date.now(),
+    db, api, guiVaoNhom, guiDmHost, groupMembers: () => [], bayGioMs: Date.now(),
   });
   assert.equal(ra.length, 1, 'lịch tới hạn mà không gửi gì = hỏng CÂM');
   assert.equal(ra[0].loaiThread, ThreadType.User, `gửi bằng ${ten(ra[0].loaiThread)}`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User', async () => {
@@ -462,11 +462,11 @@ test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User',
 
   const { tin: ra, api } = banGui();
   await chayNhipTheoDuoi({
-    db, api, guiVaoNhom, guiDmHost, dsNguoiTrongNhom: () => [], bayGioMs: Date.now(), taoHangDoi,
+    db, api, guiVaoNhom, guiDmHost, groupMembers: () => [], bayGioMs: Date.now(), enqueueQuestion,
   });
   assert.equal(ra.length, 1);
   assert.equal(ra[0].loaiThread, ThreadType.User, `gửi bằng ${ten(ra[0].loaiThread)}`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ D3 đặt lịch TỪ DM qua tool thật -> DB ghi loai_dich = DM', async () => {
@@ -483,7 +483,7 @@ test('★★★ D3 đặt lịch TỪ DM qua tool thật -> DB ghi loai_dich = D
   });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(db.prepare('SELECT loai_dich l FROM lich_hen ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ D4 đặt nhắc THEO ĐUỔI từ DM -> loai_dich = DM', async () => {
@@ -496,20 +496,20 @@ test('★★★ D4 đặt nhắc THEO ĐUỔI từ DM -> loai_dich = DM', async 
   });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(db.prepare('SELECT loai_dich l FROM lich_hen ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
 // E — nguồn nhận dạng DM, và các lớp KHÁC không được đụng
 // ═══════════════════════════════════════════════════════════════════════
 
-test('★★★ E1 `layLoaiHoiThoai` — có dòng thì trả loại, không có dòng thì null', () => {
+test('★★★ E1 `conversationKind` — có dòng thì trả loại, không có dòng thì null', () => {
   const db = dbTam();
-  assert.equal(layLoaiHoiThoai(db, DM), 'DM');
-  assert.equal(layLoaiHoiThoai(db, NHOM), 'GROUP');
-  assert.equal(layLoaiHoiThoai(db, '404404404'), null,
+  assert.equal(conversationKind(db, DM), 'DM');
+  assert.equal(conversationKind(db, NHOM), 'GROUP');
+  assert.equal(conversationKind(db, '404404404'), null,
     'null (không có dòng) phải KHÁC "UNKNOWN" (có dòng mà chưa biết) — người gọi cần phân biệt');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ E2 chưa có dòng `hoi_thoai` -> LÙI VỀ CONFIG, vẫn gửi đúng DM', async () => {
@@ -517,19 +517,19 @@ test('★★★ E2 chưa có dòng `hoi_thoai` -> LÙI VỀ CONFIG, vẫn gửi 
   // Không có đường lùi thì lượt đầu tiên sau mỗi lần dựng DB lại hỏng y như cũ.
   const db = dbTam();
   db.prepare('DELETE FROM hoi_thoai WHERE chat_id = ?').run(DM);
-  assert.equal(layLoaiHoiThoai(db, DM), null, 'dựng sai tiền đề thì bài này vô nghĩa');
+  assert.equal(conversationKind(db, DM), null, 'dựng sai tiền đề thì bài này vô nghĩa');
 
   const { tin: ra, api } = banGui();
   const goi = dungTool(db, api);
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db), text: 'Dạ em trả lời anh' });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(ra[0].loaiThread, ThreadType.User, 'config có `hosts[].dmChatId` mà vẫn gửi kiểu nhóm');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ E3 không tra ra loại ở CẢ HAI nguồn -> giữ hành vi cũ (NHÓM), không nổ', async () => {
   const db = dbTam();
-  upsertHoiThoai(db, { chatId: '404404404', loai: 'UNKNOWN', ten: null, duocNghe: true });
+  upsertConversation(db, { chatId: '404404404', loai: 'UNKNOWN', ten: null, duocNghe: true });
   tin(db, '404404404', 'u1');
   const { tin: ra, api } = banGui();
   const goi = dungTool(db, api, {
@@ -541,7 +541,7 @@ test('★★ E3 không tra ra loại ở CẢ HAI nguồn -> giữ hành vi cũ 
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(ra[0].loaiThread, ThreadType.Group,
     'mặc định phải giữ nguyên hành vi cũ — đổi sang DM là làm hỏng mọi nhóm chưa kịp có dòng hoi_thoai');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ E4 gate: DM KHÔNG cần tag mới kích hoạt, NHÓM thì CẦN', () => {

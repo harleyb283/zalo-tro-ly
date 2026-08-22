@@ -26,8 +26,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, layHangDoiCho, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, takePendingQueue, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
 import { chotLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -55,9 +55,9 @@ test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum6-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
-  ghiTin(db, {
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ để em xem', contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -121,13 +121,13 @@ function dungTool(db, api, { guiHong = false } = {}) {
   return async (name, args) => JSON.parse((await xuLy({ params: { name, arguments: args } })).content[0].text);
 }
 
-/** Chạy một nhịp bộ chạy. `taoHangDoi` thật ⇒ phiên model dựng đúng như production. */
+/** Chạy một nhịp bộ chạy. `enqueueQuestion` thật ⇒ phiên model dựng đúng như production. */
 async function motNhip(db, api, bayGioMs, { coModel = true } = {}) {
   return chayNhipTheoDuoi({
-    db, api, bayGioMs, taoHangDoi,
+    db, api, bayGioMs, enqueueQuestion,
     guiVaoNhom: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
     guiDmHost: async (a, c, t) => a.sendMessage(t, c).then((r) => ({ msgId: r.message.msgId })),
-    dsNguoiTrongNhom: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
+    groupMembers: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
     ...(coModel ? { guiThongBao: async () => true } : {}),
   });
 }
@@ -163,7 +163,7 @@ test('T6a ★★★ model trả lời TRONG HẠN -> ĐÚNG MỘT tin, lưới K
   assert.equal(tin.length, 1,
     `một lượt nhắc đi ${tin.length} tin — đúng sự cố 21/08/2026 anh nhìn thấy`);
   assert.equal(dong(db, d.id).cho_model_tu_ms, null, 'token phải đã bị tiêu');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -182,7 +182,7 @@ test('T6b ★★★ model IM quá hạn -> lưới VẪN bắn câu dự phòng'
   const ra = await motNhip(db, api, t0 + TRAN_MS + 1000);   // model im
   assert.equal(ra.duPhong, 1, 'model chết mà không ai gửi bù -> lời nhắc biến mất âm thầm');
   assert.equal(tin.length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6b-2 ★★ CHƯA tới trần thì lưới CHƯA được bắn (nếu không thì nhắc đôi ngay lập tức)', async () => {
@@ -193,7 +193,7 @@ test('T6b-2 ★★ CHƯA tới trần thì lưới CHƯA được bắn (nếu k
   await motNhip(db, api, t0);
   await motNhip(db, api, t0 + TRAN_MS - 5_000);     // còn 5 giây nữa mới tới trần
   assert.equal(tin.length, 0, 'bắn sớm là cướp lượt của model, và model vẫn gửi -> hai tin');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -219,7 +219,7 @@ test('T6c ★★★ lưới đã bắn rồi -> model tỉnh muộn bị TỪ CH
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: r0, text: 'Anh Trọng ơi, chốt giúp em' });
   assert.equal(r.ok, false, 'model tỉnh muộn mà vẫn gửi -> nhóm nhận HAI lời nhắc');
   assert.equal(tin.length, 1, `đã đi ${tin.length} tin cho MỘT lượt nhắc`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6c-2 ★★★ CHỈ RIÊNG token cũng chặn được (tách khỏi lớp A7)', async () => {
@@ -247,7 +247,7 @@ test('T6c-2 ★★★ CHỈ RIÊNG token cũng chặn được (tách khỏi l�
   assert.equal(r.ok, false, 'chỉ còn lớp token mà không chặn được -> hai tin');
   assert.match(r.thongDiep, /KHÔNG gửi thêm tin thứ hai/);
   assert.equal(tin.length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -278,7 +278,7 @@ test('T6d ★★★ model gửi HỎNG -> token trả lại, lưới vẫn bắn
   const ra = await motNhip(db, api, t0 + TRAN_MS + 1000);
   assert.equal(ra.duPhong, 1, 'lưới phải bắn bù được sau khi model gửi hỏng');
   assert.equal(tin.length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6d-2 ★★ token trả về MỐC CŨ, không phải mốc hiện tại', () => {
@@ -297,7 +297,7 @@ test('T6d-2 ★★ token trả về MỐC CŨ, không phải mốc hiện tại'
 
   traVeQuyenGuiNhac(db, d.id, giu.mocCu);
   assert.equal(dong(db, d.id).cho_model_tu_ms, moc, 'phải là mốc CŨ');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6d-3 ★★★ hai bên cùng giành token -> ĐÚNG MỘT bên thắng', () => {
@@ -307,7 +307,7 @@ test('T6d-3 ★★★ hai bên cùng giành token -> ĐÚNG MỘT bên thắng',
   const a = tvd.giuQuyenGuiNhac(db, d.id);
   const b = tvd.giuQuyenGuiNhac(db, d.id);
   assert.deepEqual([a.ok, b.ok], [true, false], 'cả hai cùng thắng = cả hai cùng gửi');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6d-4 ★★★ ẢNH CHỤP LỖI THỜI: SELECT thấy token cũ mà UPDATE phải THUA', () => {
@@ -339,7 +339,7 @@ test('T6d-4 ★★★ ẢNH CHỤP LỖI THỜI: SELECT thấy token cũ mà UPD
   const giu = tvd.giuQuyenGuiNhac(dbLoiThoi, d.id);
   assert.equal(giu.ok, false,
     'hai bên cùng tin mình cầm token -> cùng gửi -> một lượt đi hai tin');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6d-5 ★★★ trả token KHÔNG được đè lên token của LƯỢT MỚI', () => {
@@ -359,7 +359,7 @@ test('T6d-5 ★★★ trả token KHÔNG được đè lên token của LƯỢT 
   assert.equal(tvd.traVeQuyenGuiNhac(db, d.id, giu.mocCu), false, 'phải từ chối trả');
   assert.equal(Number(dong(db, d.id).cho_model_tu_ms), moi,
     'token của lượt MỚI bị đè bằng mốc cũ -> lưới bắn sớm -> nhắc đôi lần nữa');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -382,7 +382,7 @@ test('T6e ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG MODEL', async (
   assert.equal(Number(sau.so_lan_da_nhac), 1, `đếm ${sau.so_lan_da_nhac} mà gửi ${tin.length} tin -> trần là con số dối`);
   assert.ok(sau.msg_id_da_gui,
     'đường model KHÔNG ghi bằng chứng gửi -> câu báo hết lượt kêu oan "không có bằng chứng tin nào đã gửi"');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6e-2 ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG DỰ PHÒNG', async () => {
@@ -395,7 +395,7 @@ test('T6e-2 ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG DỰ PHÒNG',
   const sau = dong(db, d.id);
   assert.equal(Number(sau.so_lan_da_nhac), 1);
   assert.ok(sau.msg_id_da_gui);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứng gửi (cấm ghi khống)', async () => {
@@ -406,14 +406,14 @@ test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứ
     async sendMessage() { throw new Error('bot bị kick khỏi nhóm'); },
   };
   await chayNhipTheoDuoi({
-    db, api, bayGioMs: Date.now(), taoHangDoi,
+    db, api, bayGioMs: Date.now(), enqueueQuestion,
     guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     guiDmHost: async () => ({ msgId: 'x' }),
-    dsNguoiTrongNhom: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
+    groupMembers: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
   });
   assert.equal(dong(db, d.id).msg_id_da_gui, null,
     'ghi bằng chứng khi gửi hỏng = sổ sách nói dối, host tưởng người ta đã được nhắc');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -421,7 +421,7 @@ test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứ
 // ═══════════════════════════════════════════════════════════════════════
 
 test('T6f ★★★ token có mặt NGAY khi hàng đợi vừa sinh ra', async () => {
-  // Đặt token SAU `taoHangDoi` thì có một khe: chết giữa hai lệnh ⇒ tồn tại một
+  // Đặt token SAU `enqueueQuestion` thì có một khe: chết giữa hai lệnh ⇒ tồn tại một
   // phiên nhắc KHÔNG có token ⇒ model trả lời bị từ chối, mà lưới cũng không bắn
   // (nó chỉ nhặt dòng CÓ token) ⇒ lượt nhắc mất ÂM THẦM.
   const db = dbTam();
@@ -429,18 +429,18 @@ test('T6f ★★★ token có mặt NGAY khi hàng đợi vừa sinh ra', async 
   let mocLucTaoHangDoi;
   await chayNhipTheoDuoi({
     db, api: {}, bayGioMs: Date.now(),
-    taoHangDoi: (dbIn, x) => {
+    enqueueQuestion: (dbIn, x) => {
       mocLucTaoHangDoi = dong(dbIn, d.id).cho_model_tu_ms;
-      return taoHangDoi(dbIn, x);
+      return enqueueQuestion(dbIn, x);
     },
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => true,
   });
   assert.ok(mocLucTaoHangDoi,
     'hàng đợi sinh ra khi chưa có token -> chết giữa hai lệnh là mất lượt nhắc trong im lặng');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -472,9 +472,9 @@ test('T6h ★★★ lưới gửi bù xong -> phiên model phải ĐÓNG, không
   db.prepare('UPDATE hang_doi_hoi SET ts_tao = ?')
     .run(new Date(Date.now() - 1_860_000).toISOString());
   const hetHan = [];
-  layHangDoiCho(db, 1_800_000, { gomDaDay: true, khiHetHan: (r) => hetHan.push(r.request_id) });
+  takePendingQueue(db, 1_800_000, { gomDaDay: true, khiHetHan: (r) => hetHan.push(r.request_id) });
   assert.deepEqual(hetHan, [], 'vẫn còn đường sinh báo động giả');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6h-3 ★★★ đóng phiên phải ĐÚNG lời nhắc đó, KHÔNG giết phiên của lời nhắc KHÁC', async () => {
@@ -500,7 +500,7 @@ test('T6h-3 ★★★ đóng phiên phải ĐÚNG lời nhắc đó, KHÔNG gi�
   const ttB = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(cuaB);
   assert.equal(ttB.trang_thai, TRANG_THAI_HANG_DOI.CHO,
     'phiên model của lời nhắc B bị giết oan -> B mất giọng model trong im lặng');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội cuối cho model)', async () => {
@@ -509,10 +509,10 @@ test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội 
   const api = { getOwnId: () => 'uid-bot', async sendMessage() { throw new Error('rớt mạng'); } };
   const t0 = Date.now();
   const p = {
-    db, api, taoHangDoi,
+    db, api, enqueueQuestion,
     guiVaoNhom: async () => { throw new Error('rớt mạng'); },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => true,
   };
   await chayNhipTheoDuoi({ ...p, bayGioMs: t0 });
@@ -521,7 +521,7 @@ test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội 
   const q = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(r0);
   assert.equal(q.trang_thai, TRANG_THAI_HANG_DOI.CHO,
     'đóng phiên khi gửi hỏng = vứt nốt cơ hội cuối, lượt nhắc mất hẳn');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -534,14 +534,14 @@ test('T6g ★★★ câu hỏi thường (không phải lượt nhắc) vẫn tr
   const db = dbTam();
   const { tin, api } = banGui();
   const goi = dungTool(db, api);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-thuong', chatIdHoi: NHOM, msgId: 'm-thuong', userId: HOST,
     noiDung: 'mấy giờ họp?', tsTao: new Date().toISOString(),
   });
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: 'r-thuong', text: '2 giờ chiều ạ' });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(tin.length, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 const tvd = await import('../src/lich/theo_duoi.js');

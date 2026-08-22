@@ -90,7 +90,7 @@ VALUES
  * @param {{doTroLyTao?: boolean}} [tuyChon]
  * @returns {boolean} false = đã có sẵn (trùng), không ghi đè
  */
-export function ghiTin(db, tin, tuyChon) {
+export function writeMessage(db, tin, tuyChon) {
   const msgType = String(tin.msgType ?? '');
   let noiDung = _hoac(tin.noiDung);
   if (noiDung !== null && !MSG_TYPE_CO_NOI_DUNG.includes(msgType)) {
@@ -130,7 +130,7 @@ export function ghiTin(db, tin, tuyChon) {
   //    user_id = <uid bot>:  do_tro_ly_tao = 1 -> 33 dòng
   //                          do_tro_ly_tao = 0 -> 18 dòng   (35,3 % THUA CUỘC ĐUA)
   //    Kéo theo: dòng do listener ghi mang `ten_luc_gui` của bot, mà
-  //    `dsNguoiTrongNhom()` suy danh sách thành viên từ đúng cột đó ⇒ BOT TỰ LỌT
+  //    `groupMembers()` suy danh sách thành viên từ đúng cột đó ⇒ BOT TỰ LỌT
   //    VÀO danh sách người trong nhóm và có thể TỰ TAG CHÍNH NÓ.
   //
   // ✅ Cách đúng: ghi trước bằng `INSERT OR IGNORE`, rồi ÉP cờ bằng `UPDATE`.
@@ -198,7 +198,7 @@ VALUES
  * @param {SuKienThuHoi & {tenNguoiThuHoi?: string|null}} sk
  * @returns {{khopDuoc: boolean, ghepBang: 'msg_id'|'cli_msg_id'|null}}
  */
-export function danhDauThuHoi(db, sk) {
+export function markRecalled(db, sk) {
   const chatId = toIdRequired(sk.chatId, 'thuHoi.chatId');
   const msgIdDich = toIdRequired(sk.msgIdDich, 'thuHoi.msgIdDich');
   const cliDich = toId(sk.cliMsgIdDich, 'thuHoi.cliMsgIdDich');
@@ -273,7 +273,7 @@ export function danhDauThuHoi(db, sk) {
  * @param {SuKienNhomChuanHoa} sk
  * @returns {void}
  */
-export function ghiSuKienNhom(db, sk) {
+export function writeGroupEvent(db, sk) {
   db.prepare(
     `INSERT INTO su_kien_nhom (chat_id, loai, du_lieu, ts_zalo, ts_ghi)
      VALUES ($chat_id, $loai, $du_lieu, $ts_zalo, $ts_ghi)`,
@@ -299,7 +299,7 @@ export function ghiSuKienNhom(db, sk) {
  * @param {ReactionChuanHoa} r
  * @returns {void}
  */
-export function ghiReaction(db, r) {
+export function writeReaction(db, r) {
   const dich = toId(r.msgIdDich, 'reaction.msgIdDich');
   db.prepare(
     `INSERT INTO reaction (chat_id, msg_id_dich, user_id, bieu_tuong, ts_zalo, ts_ghi, khop_duoc)
@@ -332,7 +332,7 @@ export function ghiReaction(db, r) {
  * @param {{chatId: string, loai: string, ten: string|null, duocNghe: boolean}} ht
  * @returns {void}
  */
-export function upsertHoiThoai(db, ht) {
+export function upsertConversation(db, ht) {
   const now = _bayGio();
   db.prepare(
     `INSERT INTO hoi_thoai (chat_id, loai, ten, duoc_nghe, lan_dau_thay, lan_cuoi_thay)
@@ -356,7 +356,7 @@ export function upsertHoiThoai(db, ht) {
  * @param {{userId: string, tenHienThi: string|null, isHost: boolean}} ng
  * @returns {void}
  */
-export function upsertNguoi(db, ng) {
+export function upsertPerson(db, ng) {
   db.prepare(
     `INSERT INTO nguoi (user_id, ten_hien_thi, la_host, cap_nhat)
      VALUES ($user_id, $ten_hien_thi, $la_host, $cap_nhat)
@@ -383,7 +383,7 @@ const _TRANG_THAI_HOP_LE = new Set(Object.values(TRANG_THAI_HANG_DOI));
  * @param {MucHangDoi} muc
  * @returns {void}
  */
-export function taoHangDoi(db, muc) {
+export function enqueueQuestion(db, muc) {
   db.prepare(
     `INSERT INTO hang_doi_hoi
        (request_id, chat_id_hoi, msg_id, user_id, noi_dung, ts_tao, trang_thai, chi_nghe,
@@ -421,7 +421,7 @@ export function taoHangDoi(db, muc) {
  * @param {'cho'|'da_day'|'da_tra_loi'|'het_han'|'bo'} trangThai
  * @returns {boolean} false = không tìm thấy request_id
  */
-export function capNhatHangDoi(db, requestId, trangThai) {
+export function updateQueueState(db, requestId, trangThai) {
   // Chặn ở JS thay vì để CHECK constraint nổ: thông điệp của SQLite
   // ("CHECK constraint failed") không nói được sai ở đâu, sai giá trị gì.
   if (!_TRANG_THAI_HOP_LE.has(trangThai)) {
@@ -440,7 +440,7 @@ export function capNhatHangDoi(db, requestId, trangThai) {
  * @param {string} requestId
  * @returns {DongHangDoi|null}
  */
-export function layHangDoi(db, requestId) {
+export function getQueueRow(db, requestId) {
   const r = db
     .prepare('SELECT * FROM hang_doi_hoi WHERE request_id = ?')
     .get(String(requestId));
@@ -462,7 +462,7 @@ export function layHangDoi(db, requestId) {
  * @param {number} queueTtlMs
  * @returns {DongHangDoi[]}
  */
-export function layHangDoiCho(db, queueTtlMs, tuyChon = {}) {
+export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   // ═══ 🔴 A7 — `da_day` KHÔNG PHẢI LÀ "XONG", NÓ LÀ "ĐÃ ĐẨY, CHƯA AI TRẢ LỜI" ═══
   // Bản cũ chỉ lấy `cho`. Một câu đã đẩy sang phiên Claude rồi phiên đó chết /
   // restart / compact thì dòng nằm lại `da_day` VĨNH VIỄN: không đẩy bù, không
@@ -499,7 +499,7 @@ export function layHangDoiCho(db, queueTtlMs, tuyChon = {}) {
   // cũng là hành vi của client DỰ PHÒNG (nó cố ý đọc nhiều nhóm).
   // ═══════════════════════════════════════════════════════════════════
   let dieuKienChat = '';
-  const _chat = toId(tuyChon.chatIdHoi ?? null, 'layHangDoiCho.chatIdHoi');
+  const _chat = toId(tuyChon.chatIdHoi ?? null, 'takePendingQueue.chatIdHoi');
   if (_chat !== null) {
     dieuKienChat = ' AND chat_id_hoi = $chat';
     bien.chat = _chat;
@@ -558,7 +558,7 @@ export function layHangDoiCho(db, queueTtlMs, tuyChon = {}) {
   }
 
   for (const r of hetHan) {
-    capNhatHangDoi(db, String(r.request_id), TRANG_THAI_HANG_DOI.HET_HAN);
+    updateQueueState(db, String(r.request_id), TRANG_THAI_HANG_DOI.HET_HAN);
     _canhBao(
       `hàng đợi ${r.request_id} quá ${ttl}ms -> het_han, KHÔNG trả lời muộn.`,
     );
@@ -590,7 +590,7 @@ export function layHangDoiCho(db, queueTtlMs, tuyChon = {}) {
  * @param {{requestId: string, chatIdHoi: string, nguonChatIds: string[], coCheo: boolean, huongTraLoi: string|null}} banGhi
  * @returns {void}
  */
-export function ghiNhatKyTruyVan(db, banGhi) {
+export function writeQueryLog(db, banGhi) {
   const nguon = Array.isArray(banGhi.nguonChatIds) ? banGhi.nguonChatIds.map(String) : [];
   db.prepare(
     `INSERT INTO nhat_ky_truy_van
@@ -628,7 +628,7 @@ const _LOAI_HOP_LE = new Set(Object.values(LOAI_GHI_NHO));
  *
  * @returns {{id: string, dong: any}}
  */
-export function taoGhiNho(db, p) {
+export function writeMemo(db, p) {
   const noiDung = String(p?.noiDung ?? '').trim();
   if (!noiDung) throw new Error('ghiNho.noiDung rỗng — không lưu một ghi nhớ trống.');
   // ⚠️ NGUYÊN VĂN không được suy ra từ `noiDung`. Nó là câu host GÕ; `noiDung`
@@ -699,9 +699,9 @@ export function taoGhiNho(db, p) {
  * **ai** đẩy việc này lên và **họ gõ đúng chữ gì** — model diễn giải thì lệch,
  * và người trong nhóm ⛔ không có quyền ra lệnh, chỉ *gợi ý* được.
  */
-export function xinDuyet(db, p) {
+export function requestApproval(db, p) {
   const viec = String(p?.viec ?? '').trim();
-  if (!viec) throw new Error('xinDuyet.viec rỗng — không xin một việc trống.');
+  if (!viec) throw new Error('requestApproval.viec rỗng — không xin một việc trống.');
   const id = p?.id ? String(p.id) : randomUUID();
   db.prepare(
     `INSERT INTO yeu_cau_duyet
@@ -710,9 +710,9 @@ export function xinDuyet(db, p) {
      VALUES ($id, $chat, $rid, $nguoi, $nv, $viec, $ly, $tt, $ts)`,
   ).run({
     id,
-    chat: toIdRequired(p?.chatIdXin, 'xinDuyet.chatIdXin'),
+    chat: toIdRequired(p?.chatIdXin, 'requestApproval.chatIdXin'),
     rid: p?.requestId ? String(p.requestId) : null,
-    nguoi: toId(p?.nguoiNoi ?? null, 'xinDuyet.nguoiNoi'),
+    nguoi: toId(p?.nguoiNoi ?? null, 'requestApproval.nguoiNoi'),
     nv: String(p?.nguyenVan ?? '').trim() || null,
     viec,
     ly: String(p?.lyDo ?? '').trim() || null,
@@ -733,20 +733,20 @@ export function xinDuyet(db, p) {
  * người nói thì lần sau ⛔ không biết hỏi lại ai — tức là vết đó vô dụng đúng
  * lúc cần nó nhất. Thà nổ ở đây còn hơn có một sổ ghi chép đầy dòng rỗng.
  */
-export function ghiVetHanhDong(db, p) {
+export function writeActionTrail(db, p) {
   const ai = String(p?.nguonNguoi ?? '').trim();
   const cau = String(p?.nguonNguyenVan ?? '').trim();
-  if (!ai) throw new Error('ghiVetHanhDong.nguonNguoi rỗng — vết không nói được AI nói thì vô dụng.');
-  if (!cau) throw new Error('ghiVetHanhDong.nguonNguyenVan rỗng — vết không có nguyên văn thì không đối chiếu được.');
+  if (!ai) throw new Error('writeActionTrail.nguonNguoi rỗng — vết không nói được AI nói thì vô dụng.');
+  if (!cau) throw new Error('writeActionTrail.nguonNguyenVan rỗng — vết không có nguyên văn thì không đối chiếu được.');
   const ten = String(p?.tenTool ?? '').trim();
-  if (!ten) throw new Error('ghiVetHanhDong.tenTool rỗng.');
+  if (!ten) throw new Error('writeActionTrail.tenTool rỗng.');
   const r = db.prepare(
     `INSERT INTO nhat_ky_hanh_dong
        (ts, chat_id, request_id, ten_tool, doi_tuong, nguon_nguoi, nguon_nguyen_van, da_bao_host)
      VALUES ($ts, $chat, $rid, $ten, $dt, $ai, $cau, $bao)`,
   ).run({
     ts: _bayGio(),
-    chat: toIdRequired(p?.chatId, 'ghiVetHanhDong.chatId'),
+    chat: toIdRequired(p?.chatId, 'writeActionTrail.chatId'),
     rid: p?.requestId ? String(p.requestId) : null,
     ten,
     dt: p?.doiTuong == null ? null : String(p.doiTuong),
@@ -758,7 +758,7 @@ export function ghiVetHanhDong(db, p) {
 }
 
 /** ★ Đọc vết hành động. Dùng cho zalo-router và cho bài đo. */
-export function xemVetHanhDong(db, tuyChon = {}) {
+export function readActionTrail(db, tuyChon = {}) {
   const dk = [];
   const th = { n: Number(tuyChon.soLuong) > 0 ? Math.trunc(Number(tuyChon.soLuong)) : 50 };
   if (tuyChon.chatId != null) { dk.push('chat_id = $chat'); th.chat = String(tuyChon.chatId); }
@@ -775,7 +775,7 @@ export function xemVetHanhDong(db, tuyChon = {}) {
  * ⚠️ ⛔ KHÔNG lọc theo phạm vi đọc: `zalo-router` là bên duy nhất gọi hàm này,
  * và nó vốn có toàn quyền. Agent nhóm ⛔ không có tool này (xem `tools.js`).
  */
-export function xemYeuCauDuyet(db, tuyChon = {}) {
+export function listApprovalRequests(db, tuyChon = {}) {
   const tt = tuyChon.trangThai ?? TRANG_THAI_DUYET.CHO_DUYET;
   const n = Number(tuyChon.soLuong) > 0 ? Math.trunc(Number(tuyChon.soLuong)) : 50;
   return db.prepare(
@@ -795,7 +795,7 @@ export function xemYeuCauDuyet(db, tuyChon = {}) {
  * người duyệt bấm "ok" rồi một việc chạy ngay — mà họ chưa kịp đọc kỹ. Nó cũng
  * ⛔ không nhận `db.exec`, ⛔ không nhận callback, ⛔ không import gì để chạy được.
  */
-export function duyetYeuCau(db, id, quyetDinh, phuThuoc = {}) {
+export function resolveApproval(db, id, quyetDinh, phuThuoc = {}) {
   const den = quyetDinh === true || quyetDinh === TRANG_THAI_DUYET.DA_DUYET
     ? TRANG_THAI_DUYET.DA_DUYET : TRANG_THAI_DUYET.TU_CHOI;
   const kq = db.prepare(
@@ -804,7 +804,7 @@ export function duyetYeuCau(db, id, quyetDinh, phuThuoc = {}) {
       WHERE id = $id AND trang_thai = $cho`,
   ).run({
     den,
-    ai: toId(phuThuoc.nguoiDuyet ?? null, 'duyetYeuCau.nguoiDuyet'),
+    ai: toId(phuThuoc.nguoiDuyet ?? null, 'resolveApproval.nguoiDuyet'),
     gc: String(phuThuoc.ghiChu ?? '').trim() || null,
     ts: _bayGio(),
     id: String(id ?? ''),
@@ -824,7 +824,7 @@ export function duyetYeuCau(db, id, quyetDinh, phuThuoc = {}) {
  * ⚠️ Hàm này KHÔNG được ném ra ngoài. Sổ đo hỏng thì mất số liệu; sổ đo làm
  * chết một câu trả lời thật thì mất câu trả lời. Caller bọc try/catch.
  */
-export function ghiNhatKyCongGhi(db, banGhi) {
+export function writeWriteGateLog(db, banGhi) {
   const sk = String(banGhi?.suKien ?? '');
   if (!Object.values(SU_KIEN_CONG_GHI).includes(sk)) {
     throw new Error(`nhatKyCongGhi.suKien '${sk}' không hợp lệ.`);
@@ -873,7 +873,7 @@ export function ghiNhatKyCongGhi(db, banGhi) {
  *
  * @returns {{ok: true, dong: any, canNoiTran?: boolean}|{ok: false, ly: string}}
  */
-export function moLaiNhac(db, { id, chatId, nguoiMo, isHost, noiTran, bayGioMs } = {}) {
+export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGioMs } = {}) {
   if (!isHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
   const now = Math.floor(Number(bayGioMs ?? Date.now()));
 
@@ -886,7 +886,7 @@ export function moLaiNhac(db, { id, chatId, nguoiMo, isHost, noiTran, bayGioMs }
     // Bỏ trống ⇒ lời nhắc VỪA ĐÓNG GẦN ĐÂY NHẤT của chính hội thoại này.
     // ⚠️ Lọc theo `chat_id_dich`: thiếu nó thì đứng ở nhóm A mở được lời nhắc
     // của nhóm B — một đường rò chéo nhóm KHÔNG đi qua `lich_su`.
-    const c = toId(chatId ?? null, 'moLaiNhac.chatId');
+    const c = toId(chatId ?? null, 'reopenReminder.chatId');
     if (!c) return { ok: false, ly: 'KHONG_TIM_THAY' };
     dong = db.prepare(
       `SELECT * FROM lich_hen
@@ -961,7 +961,7 @@ function _khoangNhipMs(dong) {
 /**
  * ★ NHẬN MỘT VIỆC bằng so-sánh-rồi-đổi (CAS). Trả `true` cho ĐÚNG MỘT người gọi.
  *
- * 🔴 VÌ SAO KHÔNG DÙNG `capNhatHangDoi`: hàm đó là
+ * 🔴 VÌ SAO KHÔNG DÙNG `updateQueueState`: hàm đó là
  * `UPDATE … WHERE request_id = ?` **không điều kiện** ⇒ ai gọi cũng "thành
  * công". Dùng nó làm chốt nhận việc thì hai tiến trình cùng thấy một dòng sẽ
  * **cùng tin là mình nhận được**, rồi cùng gửi — tức hai tin vào nhóm người
@@ -981,11 +981,11 @@ function _khoangNhipMs(dong) {
  * @param {string} denTrangThai
  * @returns {boolean} true = CHÍNH BẠN nhận được việc này
  */
-export function nhanViec(db, requestId, tuTrangThai, denTrangThai) {
+export function claimQuestion(db, requestId, tuTrangThai, denTrangThai) {
   for (const [ten, v] of [['tuTrangThai', tuTrangThai], ['denTrangThai', denTrangThai]]) {
     if (!_TRANG_THAI_HOP_LE.has(v)) {
       throw new Error(
-        `nhanViec.${ten} lạ: '${v}'. Hợp lệ: ${[..._TRANG_THAI_HOP_LE].join(', ')}`,
+        `claimQuestion.${ten} lạ: '${v}'. Hợp lệ: ${[..._TRANG_THAI_HOP_LE].join(', ')}`,
       );
     }
   }
@@ -1030,12 +1030,12 @@ const _TRANG_THAI_GUI_HOP_LE = new Set(Object.values(TRANG_THAI_GUI));
  *
  * @returns {{id: string, dong: any}}
  */
-export function xepHangGui(db, p) {
+export function enqueueOutbound(db, p) {
   const text = String(p?.text ?? '');
-  if (!text.trim()) throw new Error('xepHangGui.text rỗng — Zalo cũng từ chối tin trống.');
+  if (!text.trim()) throw new Error('enqueueOutbound.text rỗng — Zalo cũng từ chối tin trống.');
 
   const tag = Array.isArray(p?.tagUserIds)
-    ? p.tagUserIds.map((v) => toIdRequired(v, 'xepHangGui.tagUserIds[]')) : [];
+    ? p.tagUserIds.map((v) => toIdRequired(v, 'enqueueOutbound.tagUserIds[]')) : [];
   const id = p?.id ? String(p.id) : randomUUID();
   const ts = _bayGio();
 
@@ -1047,7 +1047,7 @@ export function xepHangGui(db, p) {
   ).run({
     id,
     rid: String(p?.requestId ?? ''),
-    chat: toIdRequired(p?.chatIdDich, 'xepHangGui.chatIdDich'),
+    chat: toIdRequired(p?.chatIdDich, 'enqueueOutbound.chatIdDich'),
     text,
     tag: tag.length ? JSON.stringify(tag) : null,
     tt: TRANG_THAI_GUI.CHO,
@@ -1057,7 +1057,7 @@ export function xepHangGui(db, p) {
 }
 
 /**
- * ★ NHẬN một tin trong outbox bằng CAS — cùng nguyên tắc với `nhanViec`.
+ * ★ NHẬN một tin trong outbox bằng CAS — cùng nguyên tắc với `claimQuestion`.
  *
  * 🔴 Đây là chốt duy nhất ngăn hai bộ chạy chồng nhau cùng gửi MỘT tin.
  * `so_lan_thu` cộng ngay lúc nhận, ⛔ không phải lúc gửi xong: gửi rồi mới đếm
@@ -1066,11 +1066,11 @@ export function xepHangGui(db, p) {
  *
  * @returns {boolean} true = CHÍNH BẠN được gửi tin này
  */
-export function nhanViecGui(db, id, tuTrangThai, denTrangThai) {
+export function claimOutbound(db, id, tuTrangThai, denTrangThai) {
   for (const [ten, v] of [['tuTrangThai', tuTrangThai], ['denTrangThai', denTrangThai]]) {
     if (!_TRANG_THAI_GUI_HOP_LE.has(v)) {
       throw new Error(
-        `nhanViecGui.${ten} lạ: '${v}'. Hợp lệ: ${[..._TRANG_THAI_GUI_HOP_LE].join(', ')}`,
+        `claimOutbound.${ten} lạ: '${v}'. Hợp lệ: ${[..._TRANG_THAI_GUI_HOP_LE].join(', ')}`,
       );
     }
   }
@@ -1090,7 +1090,7 @@ export function nhanViecGui(db, id, tuTrangThai, denTrangThai) {
 }
 
 /** Ghi kết quả gửi. `msgId` có ⇒ 'da_gui'; không ⇒ 'loi' kèm lý do. */
-export function ghiKetQuaGuiRa(db, id, { msgId, lyDo } = {}) {
+export function writeSendResult(db, id, { msgId, lyDo } = {}) {
   const ok = Boolean(msgId);
   const kq = db.prepare(
     `UPDATE hang_doi_gui SET trang_thai = $tt, msg_id = $m, ly_do = $ly, ts_cap_nhat = $ts
@@ -1111,7 +1111,7 @@ export function ghiKetQuaGuiRa(db, id, { msgId, lyDo } = {}) {
  * Các tin ĐANG CHỜ gửi, cũ nhất trước.
  * ⚠️ CHỈ trả `'cho'` — `'dang_gui'` là việc người khác đang cầm.
  */
-export function layHangDoiGuiCho(db, soLuong = 20) {
+export function takePendingOutbound(db, soLuong = 20) {
   const n = Number.isFinite(Number(soLuong)) && Number(soLuong) > 0
     ? Math.min(Math.floor(Number(soLuong)), 200) : 20;
   return db.prepare(
@@ -1123,7 +1123,7 @@ export function layHangDoiGuiCho(db, soLuong = 20) {
  * Tin KẸT — ở `'cho'` hoặc `'dang_gui'` quá lâu. Dành cho lưới canh outbox.
  * ⚠️ `'dang_gui'` quá lâu nghĩa là tiến trình cầm nó đã chết giữa chừng.
  */
-export function layHangDoiGuiKet(db, quaMs, bayGioMs = Date.now()) {
+export function takeStuckOutbound(db, quaMs, bayGioMs = Date.now()) {
   const moc = new Date(Math.floor(bayGioMs) - Number(quaMs)).toISOString();
   return db.prepare(
     `SELECT * FROM hang_doi_gui

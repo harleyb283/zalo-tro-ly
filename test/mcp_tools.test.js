@@ -71,14 +71,14 @@ function dungTool(ghiDe = {}) {
   };
 
   const kho = {
-    layHangDoi: () => (ghiDe.dong === null ? null : (ghiDe.dong ?? mac.dong)),
-    capNhatHangDoi: (_db, rid, tt) => { hangDoi.push([rid, tt]); return true; },
-    truyVanLichSu: ghiDe.truyVanLichSu ?? (() => ({
+    getQueueRow: () => (ghiDe.dong === null ? null : (ghiDe.dong ?? mac.dong)),
+    updateQueueState: (_db, rid, tt) => { hangDoi.push([rid, tt]); return true; },
+    queryHistory: ghiDe.queryHistory ?? (() => ({
       rows: ghiDe.rows ?? mac.rows,
       nguonChatIds: ghiDe.nguonTruyVan ?? [CHAT_HOI],
     })),
-    ghiNhatKyTruyVan: ghiDe.ghiNhatKyTruyVan ?? ((_db, b) => { nhatKy.push(b); }),
-    thongKe: ghiDe.thongKe ?? (() => ({
+    writeQueryLog: ghiDe.writeQueryLog ?? ((_db, b) => { nhatKy.push(b); }),
+    storeStats: ghiDe.storeStats ?? (() => ({
       soTinDaLuu: 12, soThuHoiMoCoi: 1, soHangDoiCho: 2, soNhomDangNghe: 3,
     })),
   };
@@ -149,7 +149,7 @@ function dungTool(ghiDe = {}) {
 // ═══ A. Cửa request_id — FAIL-CLOSED ═══
 test('A1 thiếu request_id -> từ chối, KHÔNG truy vấn DB', async () => {
   let daTruyVan = 0;
-  const t = dungTool({ truyVanLichSu: () => { daTruyVan += 1; return { rows: [], nguonChatIds: [] }; } });
+  const t = dungTool({ queryHistory: () => { daTruyVan += 1; return { rows: [], nguonChatIds: [] }; } });
   const { kq } = await t.goi(TEN_TOOL.LICH_SU, {});
   assert.equal(kq.ok, false);
   assert.equal(kq.ma, MA_LOI.THIEU_REQUEST_ID);
@@ -196,7 +196,7 @@ test('B1 trả tin đã rút gọn + nguonChatIds, KHÔNG trả nguyên dòng DB
   const tin = kq.duLieu.tin[0];
   // Danh sách ĐÓNG, cố ý: đây là hàng rào chặn cột nội bộ lọt vào prompt.
   // `thuHoi` thêm ở v3 — nó KHÔNG phải cột DB thô mà là mô tả độ tin cậy do
-  // query.moTaThuHoi() dựng (SU_KIEN = biết chắc giờ / DOI_CHIEU = chỉ biết khoảng).
+  // query.describeRecall() dựng (SU_KIEN = biết chắc giờ / DOI_CHIEU = chỉ biết khoảng).
   assert.deepEqual(Object.keys(tin).sort(),
     ['chatId', 'daThuHoi', 'msgType', 'nguoiGui', 'noiDung', 'tenHoiThoai', 'thoiGian', 'thuHoi']);
   assert.equal(tin.content_raw, undefined, 'cột nội bộ KHÔNG được lọt ra prompt');
@@ -224,7 +224,7 @@ test('B3 KHÔNG ghi nhận được nguồn -> TỪ CHỐI trả dữ liệu (đ
 });
 
 test('B4 truy vấn hỏng -> DB_LOI, không ném stack ra client', async () => {
-  const t = dungTool({ truyVanLichSu: () => { throw new Error('SQL vỡ'); } });
+  const t = dungTool({ queryHistory: () => { throw new Error('SQL vỡ'); } });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.LICH_SU, { request_id: REQ }));
   assert.equal(kq.ma, MA_LOI.DB_LOI);
   assert.ok(!/at Object|\.js:\d+/.test(kq.thongDiep ?? ''), 'không được rò stack');
@@ -425,9 +425,9 @@ test('E3 tool lạ -> KHONG_RO, không ném', async () => {
 });
 
 test('E4 lỗi ngoài dự kiến -> KetQuaTool sạch, KHÔNG ném ra client, KHÔNG rò stack', async () => {
-  // Gọi bằng HOST: chỉ nhánh host mới chạm `thongKe()`.
+  // Gọi bằng HOST: chỉ nhánh host mới chạm `storeStats()`.
   const t = dungTool({
-    thongKe: () => { throw new Error('/Users/nguoidung/bí-mật.js:12 vỡ'); },
+    storeStats: () => { throw new Error('/Users/nguoidung/bí-mật.js:12 vỡ'); },
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: 'u-host', dmChatId: 'dm1' }], groups: [] },
     dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'u-host', trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
   });
@@ -807,7 +807,7 @@ test('K2 🔴 toàn bộ đầu ra cho người ngoài KHÔNG chứa con số th
   const t = toolTrangThai('nguoi-la');
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ });
   const ca = JSON.stringify(kq);
-  // thongKe() giả trả 12 / 1 / 2 / 3 và soLanThuLai = 7.
+  // storeStats() giả trả 12 / 1 / 2 / 3 và soLanThuLai = 7.
   for (const so of ['12', '"1"', '"2"', '"3"', '7']) {
     assert.ok(!ca.includes(so), `đầu ra rò con số ${so}: ${ca}`);
   }

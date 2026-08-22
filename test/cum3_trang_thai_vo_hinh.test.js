@@ -20,11 +20,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
+import { closeDb, openDb } from '../src/store/db.js';
 import {
-  capNhatHangDoi, ghiTin, layHangDoiCho, taoHangDoi, upsertHoiThoai,
+  updateQueueState, writeMessage, takePendingQueue, enqueueQuestion, upsertConversation,
 } from '../src/store/write.js';
-import { dsNguoiTrongNhom, truyVanLichSu } from '../src/store/query.js';
+import { groupMembers, queryHistory } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
 import { chotLich, nhanDangGui, taoLich } from '../src/lich/lich_hen.js';
 import {
@@ -49,8 +49,8 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum3-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return { db, thuMuc: d };
 }
 
@@ -114,30 +114,30 @@ test.after(() => { datThrottle(throttleCu); datLaiThrottle(); });
 
 test('T3a ★★★ dòng `da_day` mồ côi PHẢI được đẩy bù (đây là 2 câu anh hỏi đã bốc hơi)', async () => {
   const { db } = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-mo-coi', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'Trọng đang nói về vấn đề gì thế', tsTao: new Date().toISOString(),
   });
-  capNhatHangDoi(db, 'r-mo-coi', TRANG_THAI_HANG_DOI.DA_DAY);   // đã đẩy, phiên Claude rồi chết
+  updateQueueState(db, 'r-mo-coi', TRANG_THAI_HANG_DOI.DA_DAY);   // đã đẩy, phiên Claude rồi chết
 
   // Đường CŨ (không gom da_day) KHÔNG thấy nó — đây là tiền đề của bài.
-  assert.equal(layHangDoiCho(db, 60_000).length, 0,
+  assert.equal(takePendingQueue(db, 60_000).length, 0,
     'tiền đề: đường cũ không thấy dòng da_day');
 
   const day = [];
   const kq = await pushPendingQueue({
     db, queueTtlMs: 30 * 60_000,
-    layHangDoiCho, capNhatHangDoi,
+    takePendingQueue, updateQueueState,
     guiThongBao: async (p) => { day.push(p.requestId); return true; },
   });
   assert.equal(kq.day, 1, 'câu hỏi mồ côi KHÔNG được đẩy bù -> nó bốc hơi im lặng');
   assert.deepEqual(day, ['r-mo-coi']);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3a-2 ★★★ quá TTL -> het_han VÀ CÓ DM host (đánh dấu rồi im lặng vẫn là nuốt câu hỏi)', async () => {
   const { db } = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-cu', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'còn sống ko', tsTao: new Date(Date.now() - 3 * 3600_000).toISOString(),
   });
@@ -145,7 +145,7 @@ test('T3a-2 ★★★ quá TTL -> het_han VÀ CÓ DM host (đánh dấu rồi im
   const notifyHost = [];
   await pushPendingQueue({
     db, queueTtlMs: 30 * 60_000,
-    layHangDoiCho, capNhatHangDoi,
+    takePendingQueue, updateQueueState,
     guiThongBao: async () => true,
     baoHetHan: async (s) => { notifyHost.push(s); },
   });
@@ -156,7 +156,7 @@ test('T3a-2 ★★★ quá TTL -> het_han VÀ CÓ DM host (đánh dấu rồi im
   );
   assert.equal(notifyHost.length, 1, 'quá hạn mà KHÔNG báo -> anh không bao giờ biết câu hỏi đã rơi');
   assert.match(notifyHost[0], /còn sống ko/, 'phải nói RÕ câu nào bị rơi, không nói chung chung');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', async () => {
@@ -168,11 +168,11 @@ test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', as
   // Token quyền gửi — production đặt trước khi tạo hàng đợi (xem `bo_chay.js`).
   db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
     .run({ t: Date.now(), id: String(nhac.id) });
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-doi', chatIdHoi: NHOM, msgId: `nhac:${nhac.id}:0`, userId: HOST,
     noiDung: 'câu hỏi', tsTao: new Date().toISOString(),
   });
-  ghiTin(db, tinGia({ msgId: 'm-trong', userId: TRONG, tenLucGui: 'Trọng Nguyễn' }));
+  writeMessage(db, tinGia({ msgId: 'm-trong', userId: TRONG, tenLucGui: 'Trọng Nguyễn' }));
 
   const { goi, daGui } = dungTool(db);
   const l1 = await goi(TEN_TOOL.TRA_LOI, { request_id: 'r-doi', text: 'Dạ đây ạ' });
@@ -183,7 +183,7 @@ test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', as
   assert.equal(l2.ok, false, 'trả lời lần thứ hai cho cùng một câu hỏi -> anh nhận HAI tin');
   assert.match(l2.thongDiep, /ĐÃ được trả lời rồi/);
   assert.equal(daGui.length, 1, `đã gửi ${daGui.length} tin vào nhóm cho MỘT câu hỏi`);
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -196,12 +196,12 @@ test('T3b ★★★ echo của listener ghi TRƯỚC -> cờ do_tro_ly_tao VẪN
   const { db } = dbTam();
 
   // 1) Echo từ websocket tới TRƯỚC — mang tên hiển thị của bot, không có cờ.
-  ghiTin(db, tinGia({
+  writeMessage(db, tinGia({
     msgId: 'm-bot', userId: BOT, tenLucGui: 'Hảis Assistant',
     noiDung: 'Dạ em đây ạ', tuToi: true,
   }));
   // 2) Rồi `ghiLai` của tầng gửi mới chạy.
-  ghiTin(db, tinGia({
+  writeMessage(db, tinGia({
     msgId: 'm-bot', userId: BOT, tenLucGui: null, noiDung: 'Dạ em đây ạ', tuToi: true,
   }), { doTroLyTao: true });
 
@@ -210,19 +210,19 @@ test('T3b ★★★ echo của listener ghi TRƯỚC -> cờ do_tro_ly_tao VẪN
     'cờ phụ thuộc vào AI GHI TRƯỚC -> 35,3 % tin của bot mất cờ (đo thật trên DB 21/08 00:28)');
 
   // Hệ quả phải hết theo: bot không được coi là thành viên nhóm.
-  const uids = dsNguoiTrongNhom(db, NHOM).map((n) => String(n.uid));
+  const uids = groupMembers(db, NHOM).map((n) => String(n.uid));
   assert.equal(uids.includes(BOT), false,
     'bot lọt vào danh sách người trong nhóm -> nó tự tag được chính nó');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3b-2 ★★ thứ tự THẮNG vẫn phải đúng (đối chứng — nếu không bài trên vô nghĩa)', () => {
   const { db } = dbTam();
-  ghiTin(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: null, tuToi: true }), { doTroLyTao: true });
-  ghiTin(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: 'Hảis Assistant', tuToi: true }));
+  writeMessage(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: null, tuToi: true }), { doTroLyTao: true });
+  writeMessage(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: 'Hảis Assistant', tuToi: true }));
   const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m-b2');
   assert.equal(Number(r.do_tro_ly_tao), 1, 'echo tới sau KHÔNG được xoá cờ');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -247,7 +247,7 @@ test('T3c ★★★ nhanDangGui rồi CHẾT trước ghiKetQuaGui -> trang_thai
 
   // ★ Phải TỚI ĐƯỢC MẮT ANH — không chỉ tồn tại trong DB.
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-tt', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'trạng thái', tsTao: new Date().toISOString(),
   });
@@ -260,7 +260,7 @@ test('T3c ★★★ nhanDangGui rồi CHẾT trước ghiKetQuaGui -> trang_thai
     const f = path.join(thuMuc, 'so_nhac.md');
     sinhSoNhac(db, f);
     assert.match(fs.readFileSync(f, 'utf8'), /KHÔNG RÕ đã gửi hay chưa/, 'sổ nhắc cũng phải hiện');
-    dongDb(db);
+    closeDb(db);
   });
 });
 
@@ -276,13 +276,13 @@ test('T3d ★★★ bộ chạy trả về `loi` -> phải có đường ra tớ
   // Bộ đếm `loi` phải THẬT SỰ nhích khi gửi hỏng — không có nó thì index.js
   // không có gì để tiêu thụ.
   const ra = await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), truyVanLichSu, taoHangDoi,
+    db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
   assert.equal(ra.loi, 1, 'gửi hỏng mà bộ đếm không nhích -> index.js không thể báo host');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lần" khi chưa có bằng chứng gửi', async () => {
@@ -295,11 +295,11 @@ test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lầ
 
   const dm = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), truyVanLichSu, taoHangDoi,
+    db, api: {}, bayGioMs: Date.now(), queryHistory, enqueueQuestion,
     guiVaoNhom: async () => { throw new Error('bot bị kick khỏi nhóm'); },
     guiDmHost: async (_a, _c, text) => { dm.push(text); return { msgId: 'y' }; },
     dmHostChatId: 'dm-host',
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
   });
   await new Promise((r) => setTimeout(r, 20));   // _baoHetLuot là fire-and-forget
 
@@ -309,7 +309,7 @@ test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lầ
   assert.match(dm[0], /KHÔNG có bằng chứng/,
     'phải khai thẳng chỗ mình không biết, đúng mức đó chứ không hơn');
   assert.match(dm[0], /HẾT LƯỢT/, 'vẫn phải giữ: dừng vì hết lượt, KHÔNG phải vì xong việc');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -334,7 +334,7 @@ test('T3e ★★★ so_nhac.md in ĐÚNG nhịp phút + trần, và cảnh báo 
   txt = fs.readFileSync(f, 'utf8');
   assert.match(txt, /BẤT THƯỜNG/, 'sổ vẫn liệt kê nó như đang chạy -> anh tưởng việc vẫn được đuổi');
   assert.match(txt, /SẼ KHÔNG BAO GIỜ NHẮC NỮA/);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3e-2 ★★ nhịp NGÀY vẫn in đúng kiểu ngày (đối chứng, chống vá quá tay)', () => {
@@ -345,7 +345,7 @@ test('T3e-2 ★★ nhịp NGÀY vẫn in đúng kiểu ngày (đối chứng, ch
   const txt = fs.readFileSync(f, 'utf8');
   assert.match(txt, /nhịp \*\*1 ngày\*\* lúc \*\*08:00\*\*/);
   assert.match(txt, /không trần/, 'nhịp ngày KHÔNG có trần — phải nói rõ, đừng để trống');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -357,7 +357,7 @@ test('T3f ★★ dat_lich_nhap PHẢI trả `tagKhongTraRa` (lỗ phủ có sẵ
   // báo "không tag được ai" của tool lịch MỘT LẦN chưa từng có ai canh.
   const { db } = dbTam();
   const { goi } = dungTool(db);
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'đặt lịch', tsTao: new Date().toISOString(),
   });
@@ -372,7 +372,7 @@ test('T3f ★★ dat_lich_nhap PHẢI trả `tagKhongTraRa` (lỗ phủ có sẵ
   assert.equal(kq.ok, true, JSON.stringify(kq));
   assert.deepEqual(kq.duLieu.tagKhongTraRa, ['9999999999999'],
     'không trả trường này thì anh gõ "ok" cho một lịch không tag được ai mà không hay');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('T3d-3 ★★★ bộ đếm lỗi: 2 nhịp liên tiếp -> BÁO host; báo ĐÚNG MỘT LẦN; hồi phục cũng báo', async () => {

@@ -9,7 +9,7 @@
  *
  * 🔴 `nguonChatIds` tính TỪ DÒNG TRẢ VỀ: `[...new Set(rows.map(r => r.chat_id))]`
  *    ⛔ KHÔNG tính từ THAM SỐ truy vấn.
- *    Vì sao đây là chỗ chết người: `truyVanLichSu({tuKhoa:'báo giá'})` KHÔNG
+ *    Vì sao đây là chỗ chết người: `queryHistory({tuKhoa:'báo giá'})` KHÔNG
  *    truyền chatId nào cả, nhưng đọc dữ liệu của 5 nhóm. Tính nguồn theo
  *    tham số ⇒ khai nguồn RỖNG ⇒ leak_guard tưởng "không có nhóm khác" ⇒
  *    chuyện của 5 nhóm được nói thẳng vào nhóm đang hỏi. Không exception,
@@ -30,7 +30,7 @@ import {
   DO_TIN_CAY, GIOI_HAN, NGUON_THU_HOI, TRANG_THAI_LICH, TRANG_THAI_TD,
 } from '../lib/hang_so.js';
 import { toId, toIdRequired } from '../lib/ids.js';
-import { dangKyHamSql } from './db.js';
+import { registerSqlFunctions } from './db.js';
 
 /** @typedef {import('node:sqlite').DatabaseSync} TDb */
 /** @typedef {import('../types.d.ts').KetQuaTruyVan} KetQuaTruyVan */
@@ -41,14 +41,14 @@ import { dangKyHamSql } from './db.js';
 const _daDangKy = new WeakSet();
 
 /**
- * `chu_thuong_vn` do db.js đăng ký lúc `moDb()`. Nhưng test/gói khác có thể
+ * `chu_thuong_vn` do db.js đăng ký lúc `openDb()`. Nhưng test/gói khác có thể
  * tự `new DatabaseSync(...)` rồi gọi thẳng vào đây ⇒ đăng ký bù, nếu không
  * truy vấn theo từ khoá sẽ nổ "no such function" giữa đường.
  * @param {TDb} db
  */
 function _baoDamHam(db) {
   if (_daDangKy.has(db)) return;
-  dangKyHamSql(db);
+  registerSqlFunctions(db);
   _daDangKy.add(db);
 }
 
@@ -170,7 +170,7 @@ const CHON_TIN_GOC = `,
  * @param {any} r
  * @returns {object|null} null = tin này không phải reply
  */
-export function moTaTraLoi(r) {
+export function describeReplyRoute(r) {
   if (!r || (r.tra_loi_msg_id === null && r.tra_loi_cli_msg_id === null)) return null;
 
   const trich = r.tra_loi_trich ?? null;
@@ -211,16 +211,16 @@ export function moTaTraLoi(r) {
  * @param {ThamSoLichSu} thamSo
  * @returns {KetQuaTruyVan}
  */
-export function truyVanLichSu(db, thamSo) {
+export function queryHistory(db, thamSo) {
   _baoDamHam(db);
   const ts = thamSo ?? {};
   const dieuKien = [];
   /** @type {Record<string, any>} */
   const bien = {};
 
-  // 🔴 `chotChatId` chứ KHÔNG `toId(ts.chatId)`: đang khoá phạm vi thì phạm vi
+  // 🔴 `enforceChatId` chứ KHÔNG `toId(ts.chatId)`: đang khoá phạm vi thì phạm vi
   // THẮNG mọi thứ model truyền — kể cả khi model bỏ trống (ca rò nguy hiểm nhất).
-  const chatId = chotChatId(ts.chatId);
+  const chatId = enforceChatId(ts.chatId);
   if (chatId !== null) {
     dieuKien.push('t.chat_id = $chat_id');
     bien.chat_id = chatId;
@@ -263,8 +263,8 @@ export function truyVanLichSu(db, thamSo) {
 
   const kq = _ketQua(db.prepare(sql).all(bien));
   for (const r of kq.rows) {
-    r._thu_hoi = moTaThuHoi(r);
-    r._tra_loi = moTaTraLoi(r);
+    r._thu_hoi = describeRecall(r);
+    r._tra_loi = describeReplyRoute(r);
   }
   return kq;
 }
@@ -288,7 +288,7 @@ export function truyVanLichSu(db, thamSo) {
  * @returns {{biThuHoi: boolean, nguon: string|null, doTinCay: string|null,
  *            chacChanThoiDiem: boolean, moTaThoiDiem: string|null}}
  */
-export function moTaThuHoi(r) {
+export function describeRecall(r) {
   const biThuHoi = Number(r?.da_thu_hoi ?? 0) === 1;
   const nguon = r?.thu_hoi_nguon ?? null;
   const doTinCay = r?.thu_hoi_do_tin_cay ?? null;
@@ -322,7 +322,7 @@ export function moTaThuHoi(r) {
 
 /**
  * Lối tắt cho "n tin gần nhất của một hội thoại".
- * Cố ý gọi lại `truyVanLichSu` chứ không viết truy vấn thứ hai: hai truy vấn
+ * Cố ý gọi lại `queryHistory` chứ không viết truy vấn thứ hai: hai truy vấn
  * là hai chỗ có thể quên `duoc_nghe = 1` hoặc quên dựng nguồn.
  *
  * @param {TDb} db
@@ -330,8 +330,8 @@ export function moTaThuHoi(r) {
  * @param {number} soLuong
  * @returns {KetQuaTruyVan}
  */
-export function layTinGanNhat(db, chatId, soLuong) {
-  return truyVanLichSu(db, { chatId, soLuong });
+export function latestMessages(db, chatId, soLuong) {
+  return queryHistory(db, { chatId, soLuong });
 }
 
 /**
@@ -350,9 +350,9 @@ export function layTinGanNhat(db, chatId, soLuong) {
  * @param {TDb} db
  * @returns {{soTinDaLuu: number, soThuHoiMoCoi: number, soHangDoiCho: number, soNhomDangNghe: number}}
  */
-export function thongKe(db) {
+export function storeStats(db) {
   const dem = (sql, thamSo) => Number(db.prepare(sql).get(thamSo ?? {})?.c ?? 0);
-  const pv = layPhamVi();
+  const pv = getReadScope();
   // ⚠️ CON SỐ CŨNG LÀ DỮ LIỆU. "Kho có 4.812 tin, đang nghe 7 nhóm" nói cho
   // pane nhóm biết có bao nhiêu nhóm khác tồn tại và chúng ồn tới đâu — đó là
   // rò, chỉ là rò ở dạng gọn hơn. Khoá phạm vi thì đếm TRONG phạm vi.
@@ -482,7 +482,7 @@ export function timViecMoCua2(db, chatId, userId) {
  * @param {unknown} idViec
  * @returns {string|null}
  */
-export function layHostDatViec(db, idViec) {
+export function taskOwnerHost(db, idViec) {
   const id = String(idViec ?? '').trim();
   if (!id) return null;
   const d = db.prepare('SELECT nguoi_dat FROM lich_hen WHERE id = $id').get({ id });
@@ -504,7 +504,7 @@ export function layHostDatViec(db, idViec) {
  * @param {string} idNhac  `lich_hen.id`
  * @returns {{uids: string[], chatIdDich: string|null}|null} null nếu không có dòng đó
  */
-export function layUidCanTagCuaNhac(db, idNhac) {
+export function reminderTagUids(db, idNhac) {
   const id = String(idNhac ?? '').trim();
   if (!id) return null;
   const d = db
@@ -517,7 +517,7 @@ export function layUidCanTagCuaNhac(db, idNhac) {
   // ⚠️ Lời nhắc của nhóm KHÁC ⇒ coi như không thấy. `idNhac` ở đây suy từ
   // `hang_doi_hoi.msg_id` nên model không tự chọn được, nhưng dữ liệu cũ / lỗi
   // ghi vẫn có thể trỏ sang nhóm khác — và uid là dữ liệu riêng.
-  const pv = layPhamVi();
+  const pv = getReadScope();
   if (pv !== null && String(d.chat_id_dich) !== pv) return null;
 
   const uids = [];
@@ -541,7 +541,7 @@ export function layUidCanTagCuaNhac(db, idNhac) {
 // 🔴 UID CỦA CHÍNH TRỢ LÝ — để KHÔNG BAO GIỜ tự coi mình là thành viên nhóm
 //
 // VÌ SAO PHẢI NHỚ Ở TẦNG NÀY, không truyền tham số cho xong:
-//   `dsNguoiTrongNhom` bị gọi từ `src/lich/bo_chay.js` (3 chỗ) và `src/index.js`
+//   `groupMembers` bị gọi từ `src/lich/bo_chay.js` (3 chỗ) và `src/index.js`
 //   — những đường KHÔNG cầm `api` trong tay. Chỉ thêm tham số thì mấy đường đó
 //   vẫn trả về bot, và lỗ hổng còn nguyên ở đúng chỗ nguy hiểm nhất (lời nhắc
 //   theo đuổi tự chạy, không có người ngồi xem).
@@ -573,21 +573,21 @@ export function layUidCanTagCuaNhac(db, idNhac) {
 // chính nó thì hàng rào chỉ còn là một lời đề nghị. Phạm vi chốt MỘT LẦN lúc
 // khởi động (từ biến môi trường), và không có hàm nào nhận nó từ tham số.
 //
-// ⚠️ Cùng lối với `datUidTroLy` ngay bên dưới: biến cấp module, đặt một lần,
+// ⚠️ Cùng lối với `setAssistantUid` ngay bên dưới: biến cấp module, đặt một lần,
 // mọi đường đọc đều đi qua — không phụ thuộc ai đó có nhớ truyền tham số không.
 // ═══════════════════════════════════════════════════════════════════════
 
 /** @type {string|null} */
 let _phamViChatId = null;
-/** Đã CHỐT phạm vi chưa — khác hẳn "phạm vi là null". Xem `datPhamVi`. */
+/** Đã CHỐT phạm vi chưa — khác hẳn "phạm vi là null". Xem `setReadScope`. */
 let _daChotPhamVi = false;
 
 /**
  * ★ Chốt phạm vi đọc cho tiến trình này. Gọi MỘT LẦN lúc khởi động.
  *
  * 🔴 HAI TRẠNG THÁI KHÁC NHAU, ⛔ đừng gộp:
- *   · `datPhamVi('<chatId>')`  ⇒ khoá vào đúng một hội thoại.
- *   · `datPhamVi(null)`        ⇒ TOÀN BỘ — chỉ dành cho pane DM host, và
+ *   · `setReadScope('<chatId>')`  ⇒ khoá vào đúng một hội thoại.
+ *   · `setReadScope(null)`        ⇒ TOÀN BỘ — chỉ dành cho pane DM host, và
  *                                người gọi phải khai TƯỜNG MINH.
  *   · **không gọi gì cả**      ⇒ cũng là toàn bộ, nhưng đó là trạng thái của
  *                                daemon / chế độ một-tiến-trình (hôm nay).
@@ -599,20 +599,20 @@ let _daChotPhamVi = false;
  * @param {unknown} chatId
  * @returns {string|null} phạm vi đang giữ sau lời gọi này
  */
-export function datPhamVi(chatId) {
+export function setReadScope(chatId) {
   const s = chatId === undefined || chatId === null ? '' : String(chatId).trim();
-  _phamViChatId = s === '' ? null : toIdRequired(s, 'datPhamVi.chatId');
+  _phamViChatId = s === '' ? null : toIdRequired(s, 'setReadScope.chatId');
   _daChotPhamVi = true;
   return _phamViChatId;
 }
 
 /** Phạm vi đang khoá, hoặc `null` = không khoá (đọc cả kho). */
-export function layPhamVi() {
+export function getReadScope() {
   return _phamViChatId;
 }
 
 /** Đã có ai chốt phạm vi chưa. Dùng để đo/nghiệm thu, ⛔ không dùng để quyết định. */
-export function daChotPhamVi() {
+export function isScopeLocked() {
   return _daChotPhamVi;
 }
 
@@ -629,14 +629,14 @@ let _clientId = null;
  * ⚠️ `null` = chế độ một tiến trình (không có pane nào cả). Đó là một CÂU TRẢ
  * LỜI, ⛔ không phải "không rõ".
  */
-export function datClientId(id) {
+export function setClientId(id) {
   const t = id === undefined || id === null ? '' : String(id).trim();
   _clientId = t === '' ? null : t;
   return _clientId;
 }
 
 /** Danh tính pane đang giữ, hoặc null nếu không chạy trong pane nào. */
-export function layClientId() {
+export function getClientId() {
   return _clientId;
 }
 
@@ -661,9 +661,9 @@ export function _xoaPhamViChoTest() {
  * @param {unknown} chatIdModelTruyen
  * @returns {string|null}
  */
-export function chotChatId(chatIdModelTruyen) {
+export function enforceChatId(chatIdModelTruyen) {
   if (_phamViChatId !== null) return _phamViChatId;
-  return toId(chatIdModelTruyen ?? null, 'chotChatId.chatId');
+  return toId(chatIdModelTruyen ?? null, 'enforceChatId.chatId');
 }
 
 /** @type {string|null} */
@@ -679,14 +679,14 @@ let _uidTroLy = null;
  * @param {unknown} uid
  * @returns {string|null} giá trị đang nhớ sau lời gọi này
  */
-export function datUidTroLy(uid) {
+export function setAssistantUid(uid) {
   const s = uid === undefined || uid === null ? '' : String(uid).trim();
   _uidTroLy = s === '' || s === '0' ? null : s;
   return _uidTroLy;
 }
 
 /** Uid trợ lý đang nhớ, hoặc null nếu chưa biết. */
-export function layUidTroLy() {
+export function getAssistantUid() {
   return _uidTroLy;
 }
 
@@ -707,10 +707,10 @@ function _uidTroLyHieuLuc(uid) {
  * @param {string} chatId
  * @param {string|null} [uidTroLy] uid bot; bỏ trống thì dùng giá trị đã nhớ
  */
-export function dsNguoiTrongNhom(db, chatId, uidTroLy) {
+export function groupMembers(db, chatId, uidTroLy) {
   // 🔴 TÊN NGƯỜI LÀ DỮ LIỆU RIÊNG. Danh sách thành viên một nhóm khác nói cho
   // pane này biết ai có mặt ở đó — rò y như nội dung tin. Phạm vi THẮNG.
-  const id = toIdRequired(chotChatId(chatId) ?? chatId, 'dsNguoiTrongNhom.chatId');
+  const id = toIdRequired(enforceChatId(chatId) ?? chatId, 'groupMembers.chatId');
   const boQua = _uidTroLyHieuLuc(uidTroLy);
   const rows = db.prepare(
     `SELECT t.user_id AS uid, t.ten_luc_gui AS ten
@@ -762,7 +762,7 @@ export function dsNguoiTrongNhom(db, chatId, uidTroLy) {
  * @param {string} requestId
  * @returns {object|null} null = không phải reply, hoặc không tra được
  */
-export function layBoiCanhTraLoi(db, requestId) {
+export function replyContext(db, requestId) {
   const rid = requestId === undefined || requestId === null ? '' : String(requestId).trim();
   if (rid === '') return null;
 
@@ -777,14 +777,14 @@ export function layBoiCanhTraLoi(db, requestId) {
   try {
     r = db.prepare(sql).get({ rid });
   } catch (e) {
-    process.stderr.write(`[store/query] layBoiCanhTraLoi(${rid}) lỗi: ${e.message}\n`);
+    process.stderr.write(`[store/query] replyContext(${rid}) lỗi: ${e.message}\n`);
     return null;
   }
   if (!r) return null;
 
   // Khai nguồn y hệt mọi đường đọc khác — không mở cửa sau.
   _ketQua([r]);
-  return moTaTraLoi(r);
+  return describeReplyRoute(r);
 }
 
 /**
@@ -802,14 +802,14 @@ export function layBoiCanhTraLoi(db, requestId) {
  * ⛔ KHÔNG khai nguồn ở hàm này: nó chỉ đọc SIÊU DỮ LIỆU (loại hội thoại), không
  * đọc một dòng tin nào, nên không có gì để rò.
  */
-export function layLoaiHoiThoai(db, chatId) {
-  const c = toId(chatId ?? null, 'layLoaiHoiThoai.chatId');
+export function conversationKind(db, chatId) {
+  const c = toId(chatId ?? null, 'conversationKind.chatId');
   if (!c) return null;
   try {
     const r = db.prepare('SELECT loai FROM hoi_thoai WHERE chat_id = $c').get({ c });
     return r?.loai ?? null;
   } catch (e) {
-    process.stderr.write(`[store/query] layLoaiHoiThoai(${c}) lỗi: ${e.message}\n`);
+    process.stderr.write(`[store/query] conversationKind(${c}) lỗi: ${e.message}\n`);
     return null;
   }
 }
@@ -826,9 +826,9 @@ export function layLoaiHoiThoai(db, chatId) {
  * chống rò chéo nhóm sinh ra để đóng. Cần đọc nhiều nhóm thì gọi nhiều lần và
  * KHAI NGUỒN từng nhóm.
  */
-export function layGhiNho(db, { chatId, soLuong } = {}) {
+export function readMemos(db, { chatId, soLuong } = {}) {
   // Phạm vi THẮNG — ghi nhớ của nhóm khác là dữ liệu của nhóm khác.
-  const c = toIdRequired(chotChatId(chatId) ?? chatId, 'layGhiNho.chatId');
+  const c = toIdRequired(enforceChatId(chatId) ?? chatId, 'readMemos.chatId');
   const n = Number.isFinite(Number(soLuong)) && Number(soLuong) > 0
     ? Math.min(Math.floor(Number(soLuong)), 200) : 20;
   const rows = db.prepare(
@@ -845,7 +845,7 @@ export function layGhiNho(db, { chatId, soLuong } = {}) {
  * nên chúng được theo dõi bằng dấu trong bộ nhớ ở `tools.js`. Hàm này là lớp
  * bền thứ hai, không phải lớp duy nhất — xem `_daGhiTrongPhien`.
  */
-export function demGhiNhoCuaPhien(db, requestId) {
+export function countTurnMemos(db, requestId) {
   const r = db.prepare('SELECT count(*) AS c FROM ghi_nho WHERE request_id = $r')
     .get({ r: String(requestId ?? '') });
   return Number(r?.c ?? 0);

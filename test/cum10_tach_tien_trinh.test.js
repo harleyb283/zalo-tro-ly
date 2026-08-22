@@ -19,10 +19,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
+import { closeDb, openDb } from '../src/store/db.js';
 import {
-  ghiKetQuaGuiRa, ghiTin, layHangDoiGuiCho, nhanViecGui, taoHangDoi,
-  upsertHoiThoai, xepHangGui,
+  writeSendResult, writeMessage, takePendingOutbound, claimOutbound, enqueueQuestion,
+  upsertConversation, enqueueOutbound,
 } from '../src/store/write.js';
 import {
   CHE_DO, chotCheDo, HUONG_TRA_LOI, PHIEN_BAN_SCHEMA, TEN_TOOL, TRANG_THAI_GUI, VAI,
@@ -48,9 +48,9 @@ function thuMucTam() {
 }
 
 function dbTam() {
-  const db = moDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
-  ghiTin(db, {
+  const db = openDb(path.join(thuMucTam(), 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  writeMessage(db, {
     chatId: NHOM, msgId: 'g1', cliMsgId: null, userId: HOST, tenLucGui: 'Chủ máy',
     msgType: 'chat.text', noiDung: 'hỏi', contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -80,7 +80,7 @@ function dungClient(db) {
       guiVaoNhom: async (...a) => { daGuiThang.push(a); return { msgId: 'x' }; },
       guiDmHost: async (...a) => { daGuiThang.push(a); return { msgId: 'y' }; },
     },
-    kho: { xepHangGuiRa: xepHangGui },   // ★ cửa gửi của client
+    kho: { xepHangGuiRa: enqueueOutbound },   // ★ cửa gửi của client
   });
   return {
     daGuiThang,
@@ -89,7 +89,7 @@ function dungClient(db) {
 }
 
 function phien(db, rid = 'r1') {
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: rid, chatIdHoi: NHOM, msgId: 'g1', userId: HOST,
     noiDung: 'anh hỏi cái này', tsTao: new Date().toISOString(),
   });
@@ -150,7 +150,7 @@ test('★★★ D6 KHÔNG có `xepHangGuiRa` -> `tra_loi` gửi THẲNG như hô
     'cửa outbox phải là tuỳ chọn, vắng thì về đường cũ');
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8');
   const khoiClient = khoiGiua(idx, 'async function chayClient', 'export async function rutOutbox');
-  assert.match(khoiClient, /xepHangGuiRa: xepHangGui/, 'client phải nối cửa outbox');
+  assert.match(khoiClient, /xepHangGuiRa: enqueueOutbound/, 'client phải nối cửa outbox');
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -189,7 +189,7 @@ test('★★★ C1 NGHIỆM THU③: HAI client cùng lúc -> CẢ HAI đều s�
   // nguyên khối khởi động sang vai client là N pane chết lúc khởi động — pane
   // thứ hai thấy khoá của pane thứ nhất rồi thoát.
   const pDb = path.join(thuMucTam(), 'kho', 'lichsu.db');
-  dongDb(moDb(pDb));                       // daemon dựng cấu trúc trước
+  closeDb(openDb(pDb));                       // daemon dựng cấu trúc trước
   const cfg = fileCauHinh(pDb);
   // ⚠️ Từ bước 6, client PHẢI khai phạm vi đọc — thiếu là không khởi động.
   const env = { ZTL_CHE_DO: CHE_DO.TACH, ZTL_VAI: VAI.CLIENT, ZTL_CHAT_ID: NHOM };
@@ -208,9 +208,9 @@ test('★★★ C1 NGHIỆM THU③: HAI client cùng lúc -> CẢ HAI đều s�
 
 test('★★★ C2 NGHIỆM THU⑤: client mở DB CŨ HƠN -> thoát mã ≠0 kèm thông điệp', () => {
   const pDb = path.join(thuMucTam(), 'kho', 'cu.db');
-  const db = moDb(pDb);
+  const db = openDb(pDb);
   db.prepare("UPDATE meta SET gia_tri = '6' WHERE khoa = 'schema_version'").run();
-  dongDb(db);
+  closeDb(db);
   const r = chayTienTrinh(['--config', fileCauHinh(pDb), '--kiem-khoi-dong'],
     { ZTL_CHE_DO: CHE_DO.TACH, ZTL_VAI: VAI.CLIENT, ZTL_CHAT_ID: NHOM });
   assert.notEqual(r.ma, 0, 'client chạy tiếp trên cấu trúc cũ = hỏng CÂM');
@@ -253,12 +253,12 @@ test('★★★ X1 NGHIỆM THU①: tra_loi XẾP HÀNG, ⛔ không chạm mạn
     .then((r) => {
       assert.equal(r.ok, true, JSON.stringify(r));
       assert.equal(daGuiThang.length, 0, '🔴 client tự gửi = N bộ đếm throttle độc lập = nguy cơ gắn cờ spam');
-      const ds = layHangDoiGuiCho(db);
+      const ds = takePendingOutbound(db);
       assert.equal(ds.length, 1, 'không xếp hàng thì tin BIẾN MẤT — không ai gửi cả');
       assert.equal(ds[0].text, 'Dạ em trả lời anh');
       assert.equal(ds[0].chat_id_dich, NHOM);
       assert.equal(ds[0].trang_thai, TRANG_THAI_GUI.CHO);
-      dongDb(db);
+      closeDb(db);
     });
 });
 
@@ -277,7 +277,7 @@ test('★★★ X2 🔴 thông điệp trả model nói "ĐÃ XẾP HÀNG", ⛔ 
   assert.match(r.duLieu.nhac, /chưa gửi/i, 'phải nói THẲNG là chưa gửi');
   assert.doesNotMatch(r.duLieu.nhac.replace(/ĐỪNG nói[^.]*\./g, ''), /\bđã gửi\b/i,
     'thông điệp khẳng định "đã gửi" khi mới xếp hàng = nói dối host');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ X3 chế độ MỘT TIẾN TRÌNH: gửi THẲNG, ⛔ không xếp hàng, ⛔ không có chữ "xếp hàng"', async () => {
@@ -311,8 +311,8 @@ test('★★★ X3 chế độ MỘT TIẾN TRÌNH: gửi THẲNG, ⛔ không x�
   assert.equal(r.duLieu.msgId, '9996000000001', 'đường cũ phải trả msgId THẬT');
   assert.equal(r.duLieu.daXepHang, false);
   assert.equal(r.duLieu.nhac, undefined, 'đường cũ không được mọc thêm câu "đã xếp hàng"');
-  assert.equal(layHangDoiGuiCho(db).length, 0, 'đường cũ ⛔ không được đụng outbox');
-  dongDb(db);
+  assert.equal(takePendingOutbound(db).length, 0, 'đường cũ ⛔ không được đụng outbox');
+  closeDb(db);
 });
 
 test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách (⛔ không nới)', async () => {
@@ -336,7 +336,7 @@ test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách 
       groups: [{ chatId: NHOM, ten: 'Nhóm thử', ghiLichSu: true, traLoiKhiTag: true }],
     },
     boTichLuy: bo,
-    kho: { xepHangGuiRa: xepHangGui },
+    kho: { xepHangGuiRa: enqueueOutbound },
   });
   const r = JSON.parse((await xuLy({
     params: { name: TEN_TOOL.TRA_LOI, arguments: { request_id: rid, text: 'đáp án có dữ liệu nhóm khác' } },
@@ -345,14 +345,14 @@ test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách 
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.duLieu.huong, HUONG_TRA_LOI.DM_HOST, 'lá chắn bị nới ở chế độ tách');
   assert.equal(r.duLieu.coCheo, true);
-  const ds = layHangDoiGuiCho(db);
+  const ds = takePendingOutbound(db);
   assert.equal(ds.length, 2, 'phải xếp hàng CẢ đáp án (DM host) lẫn câu trung tính (nhóm)');
   assert.deepEqual(ds.map((x) => x.chat_id_dich).sort(), ['9993000000000000003', NHOM].sort());
   const dm = ds.find((x) => x.chat_id_dich === '9993000000000000003');
   const nhom = ds.find((x) => x.chat_id_dich === NHOM);
   assert.match(dm.text, /dữ liệu nhóm khác/, 'đáp án thật phải vào DM host');
   assert.doesNotMatch(nhom.text, /dữ liệu nhóm khác/, 'một chữ của đáp án lọt vào nhóm là RÒ');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -365,33 +365,33 @@ test('★★★ K1 NGHIỆM THU②: KILL daemon GIỮA CHỪNG -> tin CÒN, lên
   // rồi CHẾT TRƯỚC KHI GỬI. Tin phải còn nguyên, và lượt sau ⛔ KHÔNG được gửi
   // thành hai tin.
   const db = dbTam();
-  const { id } = xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin quan trọng' });
+  const { id } = enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin quan trọng' });
 
   // ── daemon lần 1: nhận việc rồi "chết" (không gửi, không ghi kết quả) ──
-  assert.equal(nhanViecGui(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
+  assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
   const sauChet = db.prepare('SELECT * FROM hang_doi_gui WHERE id = ?').get(id);
   assert.equal(sauChet.trang_thai, TRANG_THAI_GUI.DANG_GUI, 'tin phải CÒN trong outbox');
   assert.equal(sauChet.text, 'tin quan trọng', 'nội dung phải nguyên vẹn');
   assert.equal(sauChet.msg_id, null, 'chưa gửi thì ⛔ không được có msgId');
 
   // ── daemon lần 2 (vừa lên lại): dòng đang 'dang_gui' của tiến trình đã chết ──
-  // ⚠️ `layHangDoiGuiCho` CỐ Ý không trả nó: bốc lại việc người khác đang cầm
+  // ⚠️ `takePendingOutbound` CỐ Ý không trả nó: bốc lại việc người khác đang cầm
   // là đúng công thức GỬI HAI TIN. Việc quyết định có thử lại hay không thuộc
   // về lưới canh outbox (bước 5) — ⛔ ⛔ KHÔNG phải vòng rút này.
-  assert.deepEqual(layHangDoiGuiCho(db).map((x) => x.id), [],
+  assert.deepEqual(takePendingOutbound(db).map((x) => x.id), [],
     'vòng rút mà bốc lại dòng "dang_gui" là gửi hai tin vào nhóm người thật');
 
   // Lưới canh (mô phỏng bước 5) đưa nó về 'cho' -> daemon gửi tiếp ĐÚNG MỘT lần.
-  assert.equal(nhanViecGui(db, id, TRANG_THAI_GUI.DANG_GUI, TRANG_THAI_GUI.CHO), true);
-  assert.deepEqual(layHangDoiGuiCho(db).map((x) => x.id), [id], 'daemon lên lại phải thấy tin');
-  dongDb(db);
+  assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.DANG_GUI, TRANG_THAI_GUI.CHO), true);
+  assert.deepEqual(takePendingOutbound(db).map((x) => x.id), [id], 'daemon lên lại phải thấy tin');
+  closeDb(db);
 });
 
 test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `rutOutbox` thật)', async () => {
   const db = dbTam();
-  xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
+  enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
   const daGui = [];
-  const kho = { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa };
+  const kho = { takePendingOutbound, claimOutbound, writeSendResult };
   const gui = async (chatId, text) => { daGui.push({ chatId, text }); return { msgId: '9996000000001' }; };
 
   const r1 = await rutOutbox({ db, log: () => {}, kho, gui });
@@ -407,13 +407,13 @@ test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `ru
   assert.equal(d.trang_thai, TRANG_THAI_GUI.DA_GUI);
   assert.equal(d.msg_id, '9996000000001');
   assert.equal(d.so_lan_thu, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K3 HAI vòng rút chồng nhau -> ĐÚNG MỘT bên gửi', async () => {
   const db = dbTam();
-  xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
-  const kho = { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa };
+  enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
+  const kho = { takePendingOutbound, claimOutbound, writeSendResult };
   const daGui = [];
   // Hàm gửi CHẬM: hai vòng cùng vào, mô phỏng nhịp trước chưa xong nhịp sau đã tới.
   const gui = async (chatId, text) => {
@@ -427,15 +427,15 @@ test('★★★ K3 HAI vòng rút chồng nhau -> ĐÚNG MỘT bên gửi', asyn
   ]);
   assert.equal(daGui.length, 1, `hai vòng cùng gửi -> ${daGui.length} tin vào nhóm người thật`);
   assert.equal(a.daGui + b.daGui, 1);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử lại vô hạn', async () => {
   // Zalo có thể ĐÃ NHẬN mà mình không biết (ca "không rõ đã gửi hay chưa").
   // Thử lại mù là rủi ro hai tin — quyết định thử lại thuộc về lưới canh.
   const db = dbTam();
-  xepHangGui(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
-  const kho = { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa };
+  enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
+  const kho = { takePendingOutbound, claimOutbound, writeSendResult };
   const gui = async () => { throw new Error('mạng rớt'); };
 
   const r1 = await rutOutbox({ db, log: () => {}, kho, gui });
@@ -447,7 +447,7 @@ test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử l�
 
   const r2 = await rutOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r2, { daGui: 0, loi: 0 }, "dòng 'loi' ⛔ không được tự quay lại hàng chờ");
-  dongDb(db);
+  closeDb(db);
 });
 
 test('★★ K5 đọc hàng đợi HỎNG -> nuốt và báo, ⛔ không làm chết vòng chạy daemon', async () => {
@@ -455,10 +455,10 @@ test('★★ K5 đọc hàng đợi HỎNG -> nuốt và báo, ⛔ không làm c
   const noi = [];
   const ra = await rutOutbox({
     db, log: (m) => noi.push(m),
-    kho: { layHangDoiGuiCho: () => { throw new Error('DB khoá'); }, nhanViecGui, ghiKetQuaGuiRa },
+    kho: { takePendingOutbound: () => { throw new Error('DB khoá'); }, claimOutbound, writeSendResult },
     gui: async () => ({ msgId: 'x' }),
   });
   assert.deepEqual(ra, { daGui: 0, loi: 0 });
   assert.match(noi.join(' '), /DB khoá|hàng đợi gửi/);
-  dongDb(db);
+  closeDb(db);
 });

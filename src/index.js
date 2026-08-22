@@ -48,18 +48,18 @@ import { quyetDinh } from './policy/gate.js';
 import { timViecMoCua2 } from './store/query.js';
 import { sweepStale, recordSources, createSourceLedger } from './policy/leak_guard.js';
 
-import { dongDb, moDb } from './store/db.js';
+import { closeDb, openDb } from './store/db.js';
 import {
-  capNhatHangDoi,
-  danhDauThuHoi,
-  ghiReaction,
-  ghiSuKienNhom,
-  ghiTin,
-  layHangDoiCho,
-  nhanViec,
-  taoHangDoi,
-  upsertHoiThoai,
-  upsertNguoi,
+  updateQueueState,
+  markRecalled,
+  writeReaction,
+  writeGroupEvent,
+  writeMessage,
+  takePendingQueue,
+  claimQuestion,
+  enqueueQuestion,
+  upsertConversation,
+  upsertPerson,
 } from './store/write.js';
 
 import { batDauNghe, dungNghe } from './zalo/listener.js';
@@ -198,7 +198,7 @@ export function ganXuLyTin(p) {
 
   boPhat.on(SU_KIEN.THU_HOI, (sk) => {
     try {
-      const kq = danhDauThuHoi(db, sk);
+      const kq = markRecalled(db, sk);
       if (!kq.khopDuoc) {
         // Ghi log to: đây là thước đo nghiệm thu M2 (`khop_duoc = 0` = mồ côi).
         log(`⚠️ thu hồi ${sk?.eventId} KHÔNG ghép được vào tin nào (mồ côi)`);
@@ -212,7 +212,7 @@ export function ganXuLyTin(p) {
 
   boPhat.on(SU_KIEN.REACTION, (r) => {
     try {
-      ghiReaction(db, r);
+      writeReaction(db, r);
     } catch (e) {
       log(`ghi reaction thất bại (đã nuốt): ${safeLogText(e)}`);
     }
@@ -220,7 +220,7 @@ export function ganXuLyTin(p) {
 
   boPhat.on(SU_KIEN.SU_KIEN_NHOM, (sk) => {
     try {
-      ghiSuKienNhom(db, sk);
+      writeGroupEvent(db, sk);
     } catch (e) {
       log(`ghi sự kiện nhóm thất bại (đã nuốt): ${safeLogText(e)}`);
     }
@@ -266,14 +266,14 @@ export function xuLyMotTin(p, tin) {
   // lịch sử chat của các nhóm nó được add vào") nhưng `duoc_nghe = 0` nên
   // tầng đọc không trả ra — fail-closed, đúng hướng.
   try {
-    upsertHoiThoai(db, {
+    upsertConversation(db, {
       chatId,
       loai: hostDm ? LOAI_HOI_THOAI.DM : nhom ? LOAI_HOI_THOAI.GROUP : LOAI_HOI_THOAI.UNKNOWN,
       ten: nhom?.ten ?? hostDm?.ten ?? null,
       duocNghe: Boolean(nhom || hostDm),
     });
     if (tin.userId) {
-      upsertNguoi(db, {
+      upsertPerson(db, {
         userId: tin.userId,
         tenHienThi: tin.tenLucGui ?? null,
         isHost: (cauHinh.hosts ?? []).some((h) => h.userId === tin.userId),
@@ -284,7 +284,7 @@ export function xuLyMotTin(p, tin) {
     if (nhom?.ghiLichSu === false) {
       log(`nhóm ${chatId} có ghiLichSu=false -> nghe nhưng KHÔNG ghi DB`);
     } else {
-      ghiTin(db, tin);
+      writeMessage(db, tin);
     }
   } catch (e) {
     // Ghi hỏng thì vẫn phải chạy tiếp xuống gate: mất một dòng lịch sử còn
@@ -321,7 +321,7 @@ export function xuLyMotTin(p, tin) {
   // ── ③ Mở phiên + NOTIFY (best-effort, KHÔNG BAO GIỜ raise) ────────
   const requestId = randomUUID();
   try {
-    taoHangDoi(db, {
+    enqueueQuestion(db, {
       requestId,
       chatIdHoi: chatId,
       msgId: tin.msgId,
@@ -348,7 +348,7 @@ export function xuLyMotTin(p, tin) {
   // HÀNH viết, pack ⛔ không biết nó làm gì và nó có thể treo. `await` ở đây là
   // giữ luôn callback của websocket ⇒ **mọi nhóm câm**, không riêng nhóm đang
   // mở pane. Trần thời gian nằm trong `runNotifyCommand` (đã có sẵn).
-  // ⚠️ Đặt SAU khi `taoHangDoi` thành công: mở pane cho một dòng chưa tồn tại
+  // ⚠️ Đặt SAU khi `enqueueQuestion` thành công: mở pane cho một dòng chưa tồn tại
   // là mở cho một câu hỏi đã mất.
   // ⚠️ `soMoPhien` vắng ⇒ ⛔ không làm gì — đúng đường một-tiến-trình hôm nay.
   // ═══ 🔴 v11 — CHỈ MỞ PANE CHO **NHÓM**, ⛔ KHÔNG cho DM của host ═══
@@ -397,7 +397,7 @@ export function xuLyMotTin(p, tin) {
       // 🔴 `ok === true` chỉ có nghĩa ĐÃ ĐẨY ĐI, KHÔNG có nghĩa ĐÃ TỚI.
       // Bằng chứng đã tới duy nhất là Claude gọi ngược lại tool. Vì vậy chỉ
       // được chuyển sang 'da_day', TUYỆT ĐỐI không 'da_tra_loi'.
-      if (ok) capNhatHangDoi(db, requestId, TRANG_THAI_HANG_DOI.DA_DAY);
+      if (ok) updateQueueState(db, requestId, TRANG_THAI_HANG_DOI.DA_DAY);
       else log(`notify ${requestId} chưa đẩy được -> giữ 'cho', đẩy bù sau`);
     })
     .catch((e) => log(`notify ${requestId} ném lỗi (đã nuốt): ${safeLogText(e)}`));
@@ -633,7 +633,7 @@ export function docDoTre(duongDan) {
  *     trình ⇒ N client tự gửi = N bộ đếm độc lập ⇒ bot bắn N tin trong 1,2
  *     giây ⇒ nguy cơ gắn cờ spam, mất tài khoản. Client XẾP HÀNG, daemon gửi.
  *  4. ⛔ KHÔNG `migrate`. Nhiều tiến trình cùng migrate là cuộc đua ALTER TABLE
- *     trùng cột (xem `moDb(..., {migrate:false})`).
+ *     trùng cột (xem `openDb(..., {migrate:false})`).
  *
  * ✅ Client CÓ: sổ nguồn trên ĐĨA (`createSourceLedger({ db })`) — bắt buộc, vì
  *    `bo_chay` chạy ở daemon và ghi nguồn vào cùng bảng đó. Dùng sổ RAM ở đây
@@ -643,10 +643,10 @@ export function docDoTre(duongDan) {
 async function chayClient(co, log, cauHinh) {
 
   // ⛔ KHÔNG pid-lock. ⛔ KHÔNG migrate — lệch phiên bản thì NÉM (mã thoát ≠ 0).
-  const db = moDb(cauHinh.duongDan.db, { migrate: false });
+  const db = openDb(cauHinh.duongDan.db, { migrate: false });
   log(`[client] mở DB ${cauHinh.duongDan.db} (KHÔNG migrate, KHÔNG pid-lock)`);
 
-  const { datPhamVi, datClientId, chotChatId, layPhamVi } = await import('./store/query.js');
+  const { setReadScope, setClientId, enforceChatId, getReadScope } = await import('./store/query.js');
   // ═══ 🔴 KHOÁ PHẠM VI ĐỌC — LUẬT ANH CHỐT 21/08/2026 ═══
   //   "Quyền đi theo CHỖ HỎI, không theo NGƯỜI HỎI."
   // Pane của nhóm X chỉ thấy nhóm X, **kể cả khi người hỏi chính là host**.
@@ -673,14 +673,14 @@ async function chayClient(co, log, cauHinh) {
   // Trước v10.3 vai đó KHÔNG KHAI ĐƯỢC: khai cả hai biến cũ thì bị NÉM.
   //
   // 🔴 `ZTL_TUYEN` ⛔ TUYỆT ĐỐI KHÔNG nới phạm vi đọc. Nó ⛔ không đi vào
-  // `datPhamVi()`, ⛔ không đi vào hậu kiểm. Có bài test canh đúng chuyện đó
+  // `setReadScope()`, ⛔ không đi vào hậu kiểm. Có bài test canh đúng chuyện đó
   // (`R3`) — vì "biến định tuyến lặng lẽ mở luôn quyền đọc" là kiểu hỏng
   // KHÔNG có triệu chứng nào ngoài dữ liệu rò ra.
   // ═══════════════════════════════════════════════════════════════════
   const tuyenTho = (process.env.ZTL_TUYEN ?? '').trim();
 
   if (!phamViTho && !toanBo) {
-    dongDb(db);
+    closeDb(db);
     throw new Error(
       'Client KHÔNG biết phạm vi đọc của mình. Phải khai MỘT trong hai:\n'
       + '  ZTL_CHAT_ID=<chat_id>   -> pane của một nhóm/DM, chỉ đọc đúng chỗ đó\n'
@@ -696,7 +696,7 @@ async function chayClient(co, log, cauHinh) {
     );
   }
   if (toanBo && phamViTho) {
-    dongDb(db);
+    closeDb(db);
     throw new Error(
       `Khai CẢ HAI: ZTL_CHAT_ID=${phamViTho} và ZTL_PHAM_VI=toan_bo. Không đoán ý — `
       + 'bỏ bớt một cái rồi chạy lại.',
@@ -707,14 +707,14 @@ async function chayClient(co, log, cauHinh) {
   // viết thừa? ⛔ Không đoán — ca "nhận dòng của chỗ mình KHÔNG đọc được" tạo ra
   // một pane nhận việc rồi trả lời bằng dữ liệu rỗng, và ⛔ không lỗi nào nổ ra.
   if (tuyenTho && phamViTho) {
-    dongDb(db);
+    closeDb(db);
     throw new Error(
       `Khai CẢ ZTL_TUYEN=${tuyenTho} LẪN ZTL_CHAT_ID=${phamViTho}. ZTL_CHAT_ID đã bao `
       + 'gồm định tuyến rồi. Muốn NHẬN một chỗ mà ĐỌC cả kho thì dùng '
       + 'ZTL_TUYEN=<chat_id> + ZTL_PHAM_VI=toan_bo (vai zalo-router).',
     );
   }
-  datPhamVi(toanBo ? null : phamViTho);
+  setReadScope(toanBo ? null : phamViTho);
   // Danh tính pane cho `nhat_ky_truy_van.client_id`. Mặc định = chính phạm vi
   // (đó CHÍNH LÀ thứ phân biệt các pane với nhau); `ZTL_CLIENT_ID` đè được khi
   // người vận hành muốn tên dễ đọc hơn.
@@ -722,7 +722,7 @@ async function chayClient(co, log, cauHinh) {
   // khai `toan_bo`, nên lấy nguyên chữ đó làm danh tính là HAI PANE TRÙNG TÊN
   // trong `nhat_ky_truy_van.client_id` — và cột đó sinh ra để trả lời "PANE NÀO
   // đã đọc nhóm nào".
-  datClientId(
+  setClientId(
     (process.env.ZTL_CLIENT_ID ?? '').trim()
     || (tuyenTho ? `tuyen:${tuyenTho}` : '')
     || (toanBo ? 'toan_bo' : phamViTho),
@@ -731,18 +731,18 @@ async function chayClient(co, log, cauHinh) {
   // ═══════════════════════════════════════════════════════════════════
   // 🔴 HẬU KIỂM — ⛔ KHÔNG in lại biến env vừa đọc.
   //
-  // In `phamViTho` là in lại LỜI KHAI: xoá mất dòng `datPhamVi` ở trên thì log
+  // In `phamViTho` là in lại LỜI KHAI: xoá mất dòng `setReadScope` ở trên thì log
   // vẫn ra y hệt, mọi bài kiểm khởi động vẫn xanh, và pane lặng lẽ đọc CẢ KHO.
   // Đúng khuôn hỏng CÂM. Nên hỏi lại chính TẦNG TRUY VẤN.
   //
-  // Hỏi bằng `chotChatId(null)` chứ không phải `layPhamVi()`: `null` dựng lại
+  // Hỏi bằng `enforceChatId(null)` chứ không phải `getReadScope()`: `null` dựng lại
   // đúng ca nguy hiểm nhất — model bỏ trống tham số. Khoá ăn thì nó trả về
   // phạm vi; khoá hỏng thì nó trả `null` = "quét mọi nhóm".
   // ═══════════════════════════════════════════════════════════════════
-  const epThu = chotChatId(null);
-  const dungY = toanBo ? epThu === null && layPhamVi() === null : epThu === phamViTho;
+  const epThu = enforceChatId(null);
+  const dungY = toanBo ? epThu === null && getReadScope() === null : epThu === phamViTho;
   if (!dungY) {
-    dongDb(db);
+    closeDb(db);
     throw new Error(
       `Khoá phạm vi KHÔNG ăn: khai ${toanBo ? 'toan_bo' : phamViTho} nhưng tầng truy vấn `
       + `ép về ${epThu === null ? 'MỌI NHÓM' : epThu}. ⛔ Không chạy tiếp — chạy tiếp là rò dữ liệu.`,
@@ -778,15 +778,15 @@ async function chayClient(co, log, cauHinh) {
 
   if (co.kiemKhoiDong) {
     log('[client] --kiem-khoi-dong: đã qua config + DB + phạm vi, thoát mà KHÔNG nối MCP');
-    dongDb(db);
+    closeDb(db);
     return MA_THOAT.OK;
   }
 
   const { createChannel, pushPendingQueue } = await import('./mcp/channel.js');
-  const { layBoiCanhTraLoi } = await import('./store/query.js');
+  const { replyContext } = await import('./store/query.js');
   const { registerTools } = await import('./mcp/tools.js');
   const { readHealth } = await import('./ops/health.js');
-  const { xepHangGui } = await import('./store/write.js');
+  const { enqueueOutbound } = await import('./store/write.js');
 
   // 🔴 Sổ nguồn trên ĐĨA — xem khối chú thích trên.
   const boTichLuy = createSourceLedger({ db });
@@ -809,7 +809,7 @@ async function chayClient(co, log, cauHinh) {
   // daemon rút ra gửi: đúng con đường `tra_loi` đang đi.
   const baoHostClient = (s) => notifyHost(cauHinh, s, {
     api: null,
-    xepHangDm: (dmChatId, text) => { xepHangGui(db, { chatIdDich: dmChatId, text }); },
+    xepHangDm: (dmChatId, text) => { enqueueOutbound(db, { chatIdDich: dmChatId, text }); },
   });
 
   // Sổ đếm số lần đã vớt cho từng câu.
@@ -823,11 +823,11 @@ async function chayClient(co, log, cauHinh) {
     db,
     queueTtlMs: cauHinh.thoiGian.queueTtlMs,
     guiThongBao: channel.guiThongBao,
-    layHangDoiCho,
-    capNhatHangDoi,
+    takePendingQueue,
+    updateQueueState,
     // 🔴 CAS nhận việc — thiếu nó là hai client cùng nhặt một dòng, tức hai tin
     // vào nhóm người thật. Xem khối 🔴 trong `pushPendingQueue`.
-    nhanViec,
+    claimQuestion,
     tenHoiThoai,
     ghiDoTre: (b) => soDoTre.ghi(b),
     gomDaDay: tuyChon?.gomDaDay === true,
@@ -866,7 +866,7 @@ async function chayClient(co, log, cauHinh) {
   channel = createChannel({
     tenServer: TEN_SERVER,
     phienBan: PHIEN_BAN,
-    layBoiCanhTraLoi: (requestId) => layBoiCanhTraLoi(db, requestId),
+    replyContext: (requestId) => replyContext(db, requestId),
     registerTools: (server) =>
       registerTools(server, {
         db,
@@ -878,7 +878,7 @@ async function chayClient(co, log, cauHinh) {
         api: null,
         docSucKhoe: () => readHealth(cauHinh.duongDan.health),
         // ★ Cửa gửi của client: XẾP HÀNG, ⛔ không chạm mạng.
-        kho: { xepHangGuiRa: xepHangGui },
+        kho: { xepHangGuiRa: enqueueOutbound },
       }),
     khiSanSang: () => {
       // Lượt ĐẦU: `gomDaDay` mặc định BẬT — đúng lúc mọi dòng `da_day` /
@@ -956,7 +956,7 @@ async function chayClient(co, log, cauHinh) {
       try { napNongClient?.dung(); } catch { /* nuốt */ }
       try { if (henVot) clearInterval(henVot); } catch { /* nuốt */ }
       try { vong?.dung(); } catch { /* nuốt */ }
-      try { dongDb(db); } catch { /* nuốt */ }
+      try { closeDb(db); } catch { /* nuốt */ }
       process.exit(MA_THOAT.OK);
     });
   }
@@ -970,7 +970,7 @@ async function chayClient(co, log, cauHinh) {
 /**
  * ★ Vòng rút OUTBOX của daemon — thứ duy nhất chạm Zalo ở chế độ tách.
  *
- * 🔴 Nhận việc bằng CAS (`nhanViecGui`) TRƯỚC khi chạm mạng. Hai bộ chạy chồng
+ * 🔴 Nhận việc bằng CAS (`claimOutbound`) TRƯỚC khi chạm mạng. Hai bộ chạy chồng
  * nhau (nhịp trước chưa xong, nhịp sau đã tới) mà không CAS là **gửi hai tin
  * vào nhóm người thật** — mà tin Zalo thì không thu hồi được.
  *
@@ -981,10 +981,10 @@ async function chayClient(co, log, cauHinh) {
  */
 export async function rutOutbox(p) {
   const ra = { daGui: 0, loi: 0 };
-  const { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa } = p.kho;
+  const { takePendingOutbound, claimOutbound, writeSendResult } = p.kho;
   let ds;
   try {
-    ds = layHangDoiGuiCho(p.db, p.soLuong ?? 20);
+    ds = takePendingOutbound(p.db, p.soLuong ?? 20);
   } catch (e) {
     p.log(`[daemon] không đọc được hàng đợi gửi: ${safeLogText(e)}`);
     return ra;
@@ -994,7 +994,7 @@ export async function rutOutbox(p) {
     // CAS: chỉ MỘT bên nhận được việc này.
     let nhanDuoc = false;
     try {
-      nhanDuoc = nhanViecGui(p.db, d.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
+      nhanDuoc = claimOutbound(p.db, d.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
     } catch (e) {
       p.log(`[daemon] nhận việc gửi ${d.id} lỗi: ${safeLogText(e)}`);
     }
@@ -1006,12 +1006,12 @@ export async function rutOutbox(p) {
     try {
       // eslint-disable-next-line no-await-in-loop
       const kq = await p.gui(String(d.chat_id_dich), String(d.text), uids);
-      ghiKetQuaGuiRa(p.db, d.id, { msgId: kq?.msgId ?? null, lyDo: kq?.msgId ? null : 'Zalo không trả msgId' });
+      writeSendResult(p.db, d.id, { msgId: kq?.msgId ?? null, lyDo: kq?.msgId ? null : 'Zalo không trả msgId' });
       if (kq?.msgId) ra.daGui += 1; else ra.loi += 1;
     } catch (e) {
       ra.loi += 1;
       try {
-        ghiKetQuaGuiRa(p.db, d.id, { lyDo: safeLogText(e) });
+        writeSendResult(p.db, d.id, { lyDo: safeLogText(e) });
       } catch (e2) {
         p.log(`[daemon] không ghi được kết quả gửi ${d.id}: ${safeLogText(e2)}`);
       }
@@ -1051,7 +1051,7 @@ export async function main(argv = process.argv) {
       if (api) dungNghe(api);
     } catch { /* nuốt */ }
     try {
-      if (db) dongDb(db);
+      if (db) closeDb(db);
     } catch { /* nuốt */ }
     khoa?.nha();
   };
@@ -1077,7 +1077,7 @@ export async function main(argv = process.argv) {
     log(`giữ khoá pid ${process.pid}`);
 
     // ③ DB
-    db = moDb(cauHinh.duongDan.db);
+    db = openDb(cauHinh.duongDan.db);
     log(`mở DB ${cauHinh.duongDan.db}`);
 
     // ═══ 🔴 v11 — CẢNH BÁO GỬI CHO HOST CŨNG PHẢI VÀO SỔ ═══
@@ -1087,7 +1087,7 @@ export async function main(argv = process.argv) {
     // ⚠️ `api` là biến `let` (watchdog gán lại sau khi nối lại) ⇒ đọc TẠI LÚC
     // GỌI, ⛔ không chụp giá trị lúc dựng hàm.
     const ghiLaiTinTroLy = (t) => {
-      try { ghiTin(db, t, { doTroLyTao: true }); } catch (e) {
+      try { writeMessage(db, t, { doTroLyTao: true }); } catch (e) {
         log(`ghi lại tin trợ lý thất bại (đã nuốt): ${safeLogText(e)}`);
       }
     };
@@ -1160,7 +1160,7 @@ export async function main(argv = process.argv) {
     const boMcp = co.khongMcp || che.cheDo === CHE_DO.TACH;
     if (!boMcp) {
       const { createChannel, pushPendingQueue } = await import('./mcp/channel.js');
-      const { layBoiCanhTraLoi } = await import('./store/query.js');
+      const { replyContext } = await import('./store/query.js');
       const { registerTools } = await import('./mcp/tools.js');
       const { readHealth } = await import('./ops/health.js');
       channel = createChannel({
@@ -1169,7 +1169,7 @@ export async function main(argv = process.argv) {
         // Tin báo cho Claude kèm sẵn trích đoạn tin gốc khi anh reply một tin
         // cũ. Trước đây `channel.js` phải bắc cầu qua biến cấp module trong
         // `mcp/tools.js` vì file này bị pane khác giữ — cầu đó nay ĐÃ XOÁ.
-        layBoiCanhTraLoi: (requestId) => layBoiCanhTraLoi(db, requestId),
+        replyContext: (requestId) => replyContext(db, requestId),
         registerTools: (server) =>
           registerTools(server, {
             db,
@@ -1184,8 +1184,8 @@ export async function main(argv = process.argv) {
             db,
             queueTtlMs: cauHinh.thoiGian.queueTtlMs,
             guiThongBao: channel.guiThongBao,
-            layHangDoiCho,
-            capNhatHangDoi,
+            takePendingQueue,
+            updateQueueState,
             tenHoiThoai,
             // 🔴 A7 — câu hỏi quá hạn phải ĐƯỢC BÁO, không chỉ ghi sổ rồi thôi.
             baoHetHan: (loiNhan) => baoHostDaemon(loiNhan),
@@ -1207,8 +1207,8 @@ export async function main(argv = process.argv) {
           db,
           queueTtlMs: cauHinh.thoiGian.queueTtlMs,
           guiThongBao: channel.guiThongBao,
-          layHangDoiCho,
-          capNhatHangDoi,
+          takePendingQueue,
+          updateQueueState,
           tenHoiThoai,
           gomDaDay: true,
           tuoiMoCoiMs: ORPHAN_AGE_MS,
@@ -1404,14 +1404,14 @@ export async function main(argv = process.argv) {
     // tính năng này vẫn phải chạy bình thường.
     {
       const { batLich, chayMotNhip, chayNhipTheoDuoi, NHIP_MS } = await import('./lich/bo_chay.js');
-      const { dsNguoiTrongNhom, truyVanLichSu } = await import('./store/query.js');
+      const { groupMembers, queryHistory } = await import('./store/query.js');
       const { guiVaoNhom, guiDmHost } = await import('./zalo/send.js');
       const { primaryHostDm } = await import('./ops/notify_host.js');
       const { sinhSoNhac } = await import('./lich/theo_duoi.js');
       if (batLich()) {
         const uidTroLy = toId(api?.getOwnId?.(), 'index.uidTroLy');
         const ghiLaiTin = (t) => {
-          try { ghiTin(db, t, { doTroLyTao: true }); } catch (e) {
+          try { writeMessage(db, t, { doTroLyTao: true }); } catch (e) {
             log(`ghi lại tin nhắc thất bại: ${safeLogText(e)}`);
           }
         };
@@ -1432,7 +1432,7 @@ export async function main(argv = process.argv) {
         hen.push(
           setInterval(() => {
             chayMotNhip({
-              db, api, guiVaoNhom, guiDmHost, dsNguoiTrongNhom,
+              db, api, guiVaoNhom, guiDmHost, groupMembers,
               uidTroLy,
               dmHostChatId: primaryHostDm(cauHinh),
               ghiLai: ghiLaiTin,
@@ -1443,13 +1443,13 @@ export async function main(argv = process.argv) {
             // v4 — lời nhắc THEO ĐUỔI. Cùng nhịp, nhưng đường riêng: lịch một
             // lần hỏng thì lời nhắc theo đuổi vẫn chạy và ngược lại.
             chayNhipTheoDuoi({
-              db, api, guiVaoNhom, guiDmHost, dsNguoiTrongNhom, truyVanLichSu,
+              db, api, guiVaoNhom, guiDmHost, groupMembers, queryHistory,
               uidTroLy,
               ghiLai: ghiLaiTin,
               // Có phiên Claude thì giao model viết câu (câu hôm nay phải khác
               // hôm qua); không có thì code tự gửi câu dự phòng.
               guiThongBao: channel ? channel.guiThongBao : null,
-              taoHangDoi,
+              enqueueQuestion,
               // 🔴 B5 — NẠP ĐẠN CHO LÁ CHẮN CHỐNG RÒ CHÉO.
               // `layBoiCanhNhac` bơm dữ liệu THẲNG vào context model, không đi
               // qua tool nào ⇒ đi vòng qua chỗ `mcp/tools.js` khai nguồn. Thiếu
@@ -1497,24 +1497,24 @@ export async function main(argv = process.argv) {
     // và là chỗ throttle được thi hành TOÀN CỤC (xem chú thích ở `rutOutbox`).
     if (che.cheDo === CHE_DO.TACH) {
       const { guiVaoNhom, guiDmHost } = await import('./zalo/send.js');
-      const { dsNguoiTrongNhom } = await import('./store/query.js');
-      const { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa } = await import('./store/write.js');
-      const { layLoaiHoiThoai } = await import('./store/query.js');
+      const { groupMembers } = await import('./store/query.js');
+      const { takePendingOutbound, claimOutbound, writeSendResult } = await import('./store/write.js');
+      const { conversationKind } = await import('./store/query.js');
       const uidTL = toId(api?.getOwnId?.(), 'index.uidTroLy');
 
       hen.push(setInterval(() => {
         rutOutbox({
           db,
           log,
-          kho: { layHangDoiGuiCho, nhanViecGui, ghiKetQuaGuiRa },
+          kho: { takePendingOutbound, claimOutbound, writeSendResult },
           gui: async (chatId, text, uids) => {
             // Chọn ĐÚNG kiểu luồng — bài học 21/08: `HUONG_TRA_LOI.NHOM` nghĩa
             // là "trả lời nơi đã hỏi", KHÔNG có nghĩa "nơi đó là một nhóm".
-            const laDm = layLoaiHoiThoai(db, chatId) === LOAI_HOI_THOAI.DM;
+            const laDm = conversationKind(db, chatId) === LOAI_HOI_THOAI.DM;
             const tuyChon = {
-              ghiLai: (t) => { try { ghiTin(db, t, { doTroLyTao: true }); } catch { /* nuốt */ } },
+              ghiLai: (t) => { try { writeMessage(db, t, { doTroLyTao: true }); } catch { /* nuốt */ } },
               uidTroLy: uidTL,
-              ...(laDm ? {} : { dsNguoi: dsNguoiTrongNhom(db, chatId) }),
+              ...(laDm ? {} : { dsNguoi: groupMembers(db, chatId) }),
             };
             void uids;
             return laDm

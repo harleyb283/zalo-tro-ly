@@ -14,7 +14,7 @@
  *
  * 1. 🔴 MỞ DB Ở CHẾ ĐỘ READONLY THẬT (`new DatabaseSync(p, { readOnly: true })`).
  *    Đo trên Node v26.7.0: mở được, `INSERT` bị chặn bằng ERR_SQLITE_ERROR, và
- *    `db.function()` vẫn đăng ký được. CỐ Ý KHÔNG dùng `moDb()` của G3 — hàm đó
+ *    `db.function()` vẫn đăng ký được. CỐ Ý KHÔNG dùng `openDb()` của G3 — hàm đó
  *    mở đọc-ghi VÀ chạy `migrate()`. Một công cụ "xem lại lịch sử" mà lỡ tay
  *    migrate kho của anh là chuyện không được phép xảy ra.
  *
@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expandPath } from '../src/lib/paths.js';
 import { toId } from '../src/lib/ids.js';
-import { sietQuyen } from '../src/store/db.js';
+import { tightenPermissions } from '../src/store/db.js';
 
 const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DB_MAC_DINH = '~/.zalo-tro-ly/lichsu.db';
@@ -222,11 +222,11 @@ export function moChiDoc(duongDan) {
   // `<db>-shm` (và `<db>-wal` rỗng) nếu chúng chưa tồn tại — theo umask, tức
   // thường là 0644. Đúng ca hay xảy ra nhất: anh chạy tay lệnh này lúc trợ lý
   // KHÔNG chạy, nên không ai siết quyền sau đó cả.
-  // `sietQuyen()` là hàm G3 export sẵn cho đúng việc này. Nó chỉ SIẾT CHẶT,
+  // `tightenPermissions()` là hàm G3 export sẵn cho đúng việc này. Nó chỉ SIẾT CHẶT,
   // không bao giờ nới, và không đụng một byte dữ liệu nào — nên vẫn đúng lời
   // hứa "chỉ đọc DB".
   try {
-    sietQuyen(duongDan);
+    tightenPermissions(duongDan);
   } catch (e) {
     process.stderr.write(`[export] không siết được quyền file WAL (bỏ qua): ${e.message}\n`);
   }

@@ -18,9 +18,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
+import { closeDb, openDb } from '../src/store/db.js';
 import {
-  capNhatHangDoi, layHangDoiCho, taoHangDoi, upsertHoiThoai,
+  updateQueueState, takePendingQueue, enqueueQuestion, upsertConversation,
 } from '../src/store/write.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
 import { CHE_DO, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
@@ -42,8 +42,8 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-tach-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm thử', duocNghe: true });
   return db;
 }
 
@@ -74,9 +74,9 @@ function nhip(db, them = {}) {
     api: {},
     guiVaoNhom: async (_a, c, t) => { vaoNhom.push({ c, t }); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: null,
-    taoHangDoi,
+    enqueueQuestion,
     dmHostChatId: 'dm-host',
     ...them,
   };
@@ -145,7 +145,7 @@ test('B1 — tách: lời nhắc tới giờ ⇒ tạo hàng đợi cho client, 
   // 🔴 Token phải được đặt — đây là thứ giữ cho lưới an toàn còn bắn được.
   assert.ok(Number(doc(db).cho_model_tu_ms) > 0, 'thiếu token thì lượt nhắc mất ÂM THẦM');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('B2 — tách: client nhặt được đúng việc daemon vừa giao', async () => {
@@ -161,8 +161,8 @@ test('B2 — tách: client nhặt được đúng việc daemon vừa giao', asy
     db,
     queueTtlMs: 1_800_000,
     guiThongBao: async (x) => { daBom.push(x); return true; },
-    layHangDoiCho,
-    capNhatHangDoi,
+    takePendingQueue,
+    updateQueueState,
     tenHoiThoai: () => 'Nhóm thử',
   });
 
@@ -171,7 +171,7 @@ test('B2 — tách: client nhặt được đúng việc daemon vừa giao', asy
   assert.match(String(daBom[0].noiDung), /LỜI NHẮC THEO ĐUỔI/);
   assert.equal(hangDoi(db)[0].trang_thai, TRANG_THAI_HANG_DOI.DA_DAY);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -199,7 +199,7 @@ test('C1 ★★★ tách, không client nào nhặt: quá trần ⇒ code gửi 
   assert.equal(vaoNhom.length, 1);
   assert.equal(vaoNhom[0].c, NHOM);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('C2 — trần chờ là HÀM CỦA NHỊP, không phải hằng số (nhịp phút ngắn hơn)', async () => {
@@ -216,7 +216,7 @@ test('C2 — trần chờ là HÀM CỦA NHỊP, không phải hằng số (nh�
   await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio + tran });
   assert.equal(vaoNhom.length, 1);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -243,7 +243,7 @@ test('D1 ★★★ tách: model trả lời rồi thì lưới KHÔNG bù thêm 
   }
   assert.equal(vaoNhom.length, 0, 'model đã gửi mà code bù thêm = HAI tin vào nhóm người thật');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('D2 — tách: hai nhịp chồng nhau chỉ giao model MỘT lần', async () => {
@@ -258,7 +258,7 @@ test('D2 — tách: hai nhịp chồng nhau chỉ giao model MỘT lần', async
   assert.equal(hangDoi(db).length, 1);
   assert.equal(vaoNhom.length, 0);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -281,7 +281,7 @@ test('E1 ★★★ một-tiến-trình + `--khong-mcp`: gửi câu dự phòng N
   assert.equal(hangDoi(db).length, 0, 'không có client nào thì đừng tạo hàng đợi mồ côi');
   assert.equal(doc(db).cho_model_tu_ms, null, 'không đặt token cho một phiên không tồn tại');
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E2 — một-tiến-trình + CÓ phiên Claude: đi đúng đường notify như cũ', async () => {
@@ -300,7 +300,7 @@ test('E2 — một-tiến-trình + CÓ phiên Claude: đi đúng đường notif
   assert.equal(vaoNhom.length, 0);
   assert.equal(hangDoi(db).length, 1);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 test('E3 — 🔴 biến môi trường của MÁY không được lật hành vi khi chỗ gọi đã khai rõ', async () => {
@@ -316,7 +316,7 @@ test('E3 — 🔴 biến môi trường của MÁY không được lật hành v
     assert.equal(ra.duPhong, 1);
     assert.equal(vaoNhom.length, 1);
 
-    dongDb(db);
+    closeDb(db);
   } finally {
     if (cu === undefined) delete process.env.ZTL_CHE_DO;
     else process.env.ZTL_CHE_DO = cu;
@@ -334,7 +334,7 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
   const { p, vaoNhom } = nhip(db, {
     cheDo: CHE_DO.TACH,
     // Tầng truy vấn khai có chạm một nhóm KHÁC...
-    truyVanLichSu: () => ({ dong: [], nguonChatIds: ['9990000009999'] }),
+    queryHistory: () => ({ dong: [], nguonChatIds: ['9990000009999'] }),
     // ...mà KHÔNG có đường khai nguồn.
   });
 
@@ -344,7 +344,7 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
   assert.equal(vaoNhom.length, 1, 'fail-closed vẫn phải CÓ tin đi ra');
   assert.equal(hangDoi(db).length, 0);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -352,29 +352,29 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
 //
 // 🔴 EM KHÔNG LÀM THEO ĐỀ NGHỊ A2 ("đặt lại dòng về 'cho'"), và đây là bài
 //    chứng minh vì sao KHÔNG CẦN: `pushPendingQueue` của client gọi
-//    `layHangDoiCho(..., { gomDaDay: true })` ⇒ dòng kẹt `'da_day'` ĐÃ được
+//    `takePendingQueue(..., { gomDaDay: true })` ⇒ dòng kẹt `'da_day'` ĐÃ được
 //    client nhặt lại sẵn, không phải đổi trạng thái gì cả.
 // ⚠️ Bài này càng quan trọng SAU khi lưới canh `hang_doi_hoi` bị bỏ hẳn
 //    (21/08/2026): nó là bằng chứng duy nhất còn lại rằng dòng kẹt KHÔNG rơi
-//    vào im lặng — client nhặt lại, hoặc `layHangDoiCho` đánh `het_han` kèm
+//    vào im lặng — client nhặt lại, hoặc `takePendingQueue` đánh `het_han` kèm
 //    `baoHetHan` báo host.
 // ═══════════════════════════════════════════════════════════════════════
 
 test('G1 — tách: dòng kẹt "da_day" ĐÃ được client nhặt lại, không cần đặt về "cho"', async () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r-ket', chatIdHoi: NHOM, msgId: 'm-1', userId: HOST,
     noiDung: 'tóm tắt sáng nay nhóm này trao đổi gì', tsTao: new Date().toISOString(),
   });
-  capNhatHangDoi(db, 'r-ket', TRANG_THAI_HANG_DOI.DA_DAY);
+  updateQueueState(db, 'r-ket', TRANG_THAI_HANG_DOI.DA_DAY);
 
   const daBom = [];
   const kq = await pushPendingQueue({
     db,
     queueTtlMs: 1_800_000,
     guiThongBao: async (x) => { daBom.push(x); return true; },
-    layHangDoiCho,
-    capNhatHangDoi,
+    takePendingQueue,
+    updateQueueState,
     tenHoiThoai: () => 'Nhóm thử',
   });
 
@@ -382,29 +382,29 @@ test('G1 — tách: dòng kẹt "da_day" ĐÃ được client nhặt lại, khô
   assert.equal(daBom[0].requestId, 'r-ket');
   assert.match(String(daBom[0].noiDung), /tóm tắt sáng nay/);
 
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// H — CHỖ GỌI QUÊN TRUYỀN `taoHangDoi`: dù đi nhánh nào cũng phải CÓ TIN ĐI RA
+// H — CHỖ GỌI QUÊN TRUYỀN `enqueueQuestion`: dù đi nhánh nào cũng phải CÓ TIN ĐI RA
 //
 // 🔴 Bài này sinh ra từ một con đột biến SỐNG SÓT (P12: bỏ điều kiện
-//    `p.taoHangDoi`). Em KHÔNG nhận vơ là "test yếu": đo thật thì hai bản cho
+//    `p.enqueueQuestion`). Em KHÔNG nhận vơ là "test yếu": đo thật thì hai bản cho
 //    KẾT QUẢ QUAN SÁT ĐƯỢC GIỐNG HỆT —
 //      · bản gốc : `giaoDuocChoModel = false` -> rơi thẳng (b1), gửi dự phòng
-//      · bản đột biến: vào nhánh (a), `p.taoHangDoi(...)` NÉM, `catch` nuốt,
+//      · bản đột biến: vào nhánh (a), `p.enqueueQuestion(...)` NÉM, `catch` nuốt,
 //        rồi cũng rơi xuống (b1) và gửi dự phòng
-//    ⇒ ĐỘT BIẾN TƯƠNG ĐƯƠNG về hành vi. Điều kiện `p.taoHangDoi` là hàng rào
+//    ⇒ ĐỘT BIẾN TƯƠNG ĐƯƠNG về hành vi. Điều kiện `p.enqueueQuestion` là hàng rào
 //      PHÒNG THỦ (tránh một vòng ném-bắt và một khoảnh khắc token treo lửng),
 //      ⛔ không phải thứ quyết định người dùng có nhận được tin hay không.
 //    Bài dưới đây pin cái THẬT SỰ quan trọng: tin vẫn đi ra, và token sạch.
 // ═══════════════════════════════════════════════════════════════════════
 
-test('H1 — tách nhưng chỗ gọi QUÊN taoHangDoi: vẫn có tin đi ra và token không treo', async () => {
+test('H1 — tách nhưng chỗ gọi QUÊN enqueueQuestion: vẫn có tin đi ra và token không treo', async () => {
   const db = dbTam();
   const bayGio = Date.now();
   nhacDaChot(db, bayGio);
-  const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH, taoHangDoi: undefined });
+  const { p, vaoNhom } = nhip(db, { cheDo: CHE_DO.TACH, enqueueQuestion: undefined });
 
   const ra = await chayNhipTheoDuoi({ ...p, bayGioMs: bayGio });
 
@@ -414,5 +414,5 @@ test('H1 — tách nhưng chỗ gọi QUÊN taoHangDoi: vẫn có tin đi ra và
   assert.equal(doc(db).cho_model_tu_ms, null,
     'token treo lửng = nhịp sau lưới bù thêm một tin nữa cho lượt đã gửi rồi');
 
-  dongDb(db);
+  closeDb(db);
 });

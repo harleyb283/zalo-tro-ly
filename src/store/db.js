@@ -18,7 +18,7 @@
  *    ⚠️ Giới hạn đã biết, nói thẳng: `-wal`/`-shm` do SQLite tự sinh nên
  *    không chặn được lúc tạo, chỉ chmod BÙ sau khi mở. Và WAL xoá `-wal`
  *    khi kết nối cuối cùng đóng ⇒ tiến trình sau tạo lại nó theo umask.
- *    Vì vậy `sietQuyen()` được gọi lại sau migrate (lúc file đã chắc chắn
+ *    Vì vậy `tightenPermissions()` được gọi lại sau migrate (lúc file đã chắc chắn
  *    tồn tại) và được EXPORT để nơi khác gọi lại khi cần.
  *
  * ⛔ stdout dành riêng cho giao thức MCP — mọi cảnh báo đi stderr.
@@ -37,7 +37,7 @@ import { PHIEN_BAN_SCHEMA } from '../lib/hang_so.js';
 
 const THU_MUC_NAY = path.dirname(fileURLToPath(import.meta.url));
 /** schema.sql nằm ở gốc pack — nguồn sự thật DUY NHẤT của cấu trúc bảng. */
-export const DUONG_DAN_SCHEMA = path.resolve(THU_MUC_NAY, '..', '..', 'schema.sql');
+export const SCHEMA_PATH = path.resolve(THU_MUC_NAY, '..', '..', 'schema.sql');
 
 /**
  * Tên đặc biệt của SQLite cho DB nằm hoàn toàn trong RAM. Cố ý cho qua
@@ -62,7 +62,7 @@ const RAM = ':memory:';
  *
  * @param {TDb} db
  */
-export function dangKyHamSql(db) {
+export function registerSqlFunctions(db) {
   try {
     db.function('chu_thuong_vn', { deterministic: true }, (s) =>
       s === null || s === undefined ? null : String(s).toLowerCase(),
@@ -79,7 +79,7 @@ export function dangKyHamSql(db) {
  * @param {string} duongDanTuyetDoi
  * @returns {string[]} các file đã siết được (để nghiệm thu, đừng tự khai)
  */
-export function sietQuyen(duongDanTuyetDoi) {
+export function tightenPermissions(duongDanTuyetDoi) {
   if (duongDanTuyetDoi === RAM) return [];
   const xong = [];
   for (const p of [duongDanTuyetDoi, `${duongDanTuyetDoi}-wal`, `${duongDanTuyetDoi}-shm`]) {
@@ -120,7 +120,7 @@ export function sietQuyen(duongDanTuyetDoi) {
  * @param {{migrate?: boolean}} [tuyChon]
  * @returns {TDb}
  */
-export function moDb(duongDanDb, tuyChon = {}) {
+export function openDb(duongDanDb, tuyChon = {}) {
   const p = duongDanDb === RAM ? RAM : expandPath(duongDanDb);
   if (p !== RAM) ensureParentDir(p);
 
@@ -134,14 +134,14 @@ export function moDb(duongDanDb, tuyChon = {}) {
   // thay vì nổ SQLITE_BUSY ngay lập tức.
   db.exec('PRAGMA busy_timeout = 5000');
 
-  dangKyHamSql(db);
+  registerSqlFunctions(db);
   if (tuyChon.migrate === false) {
-    kiemPhienBanHoacNem(db, p);
+    assertSchemaVersion(db, p);
   } else {
     migrate(db);
   }
   // Gọi SAU migrate: migrate có ghi, nên tới đây `-wal` mới chắc chắn tồn tại.
-  sietQuyen(p);
+  tightenPermissions(p);
   return db;
 }
 
@@ -153,14 +153,14 @@ export function moDb(duongDanDb, tuyChon = {}) {
  * xong biết ngay phải nâng cái nào — mà lúc gặp lỗi này thường là lúc 10 pane
  * vừa chết cùng lúc và không ai bình tĩnh.
  *
- * ⚠️ DB TRẮNG (`layPhienBan` trả `null`) cũng NÉM. Client tự dựng schema là
+ * ⚠️ DB TRẮNG (`getSchemaVersion` trả `null`) cũng NÉM. Client tự dựng schema là
  * quay lại đúng cuộc đua vừa chặn, chỉ khác tên gọi.
  *
  * @param {TDb} db
  * @param {string} duongDan chỉ để nói cho người đọc biết đang nói tới file nào
  */
-export function kiemPhienBanHoacNem(db, duongDan = '(không rõ)') {
-  const v = layPhienBan(db);
+export function assertSchemaVersion(db, duongDan = '(không rõ)') {
+  const v = getSchemaVersion(db);
   if (v === null) {
     throw new Error(
       `DB '${duongDan}' chưa có cấu trúc nào (chưa migrate lần nào), client cần `
@@ -181,12 +181,12 @@ export function kiemPhienBanHoacNem(db, duongDan = '(không rõ)') {
  * @param {TDb} db
  * @returns {void}
  */
-export function dongDb(db) {
+export function closeDb(db) {
   try {
     db.close();
   } catch (e) {
     // Đóng hai lần / đã đóng sẵn không phải lỗi đáng làm chết luồng tắt máy.
-    process.stderr.write(`[store/db] dongDb bỏ qua lỗi: ${e.message}\n`);
+    process.stderr.write(`[store/db] closeDb bỏ qua lỗi: ${e.message}\n`);
   }
 }
 
@@ -194,7 +194,7 @@ export function dongDb(db) {
  * @param {TDb} db
  * @returns {string|null} null = DB trắng, chưa có bảng meta
  */
-export function layPhienBan(db) {
+export function getSchemaVersion(db) {
   try {
     const r = db.prepare("SELECT gia_tri FROM meta WHERE khoa = 'schema_version'").get();
     return r ? String(r.gia_tri) : null;
@@ -242,7 +242,7 @@ function _themCot(db, bang, cot, kieu) {
  *
  * @type {Array<{tu: string, den: string, moTa: string, chay: (db: TDb) => void}>}
  */
-export const BUOC_MIGRATE = [
+export const MIGRATION_STEPS = [
   {
     tu: '1',
     den: '2',
@@ -447,7 +447,7 @@ export const BUOC_MIGRATE = [
  *  1. DB TRẮNG (chưa có bảng meta) -> nạp thẳng schema.sql, xong.
  *  2. DB đúng phiên bản           -> nạp lại schema.sql (mọi lệnh đều
  *     IF NOT EXISTS / INSERT OR IGNORE nên vô hại), xong.
- *  3. DB CŨ HƠN                   -> chạy tuần tự `BUOC_MIGRATE` cho tới khi
+ *  3. DB CŨ HƠN                   -> chạy tuần tự `MIGRATION_STEPS` cho tới khi
  *     bằng phiên bản đích, MỖI BƯỚC trong một transaction riêng, rồi mới nạp
  *     schema.sql để tạo nốt bảng/chỉ mục mới.
  *
@@ -462,7 +462,7 @@ export const BUOC_MIGRATE = [
  * @returns {{tuPhienBan: string|null, denPhienBan: string, daDoi: boolean, buocDaChay: string[]}}
  */
 export function migrate(db) {
-  const tuPhienBan = layPhienBan(db);
+  const tuPhienBan = getSchemaVersion(db);
   /** @type {string[]} */
   const buocDaChay = [];
 
@@ -470,8 +470,8 @@ export function migrate(db) {
     let v = tuPhienBan;
     // Chặn vòng lặp vô hạn nếu ai đó khai một bước `tu === den`.
     for (let i = 0; v !== PHIEN_BAN_SCHEMA; i += 1) {
-      const buoc = BUOC_MIGRATE.find((b) => b.tu === v);
-      if (!buoc || i > BUOC_MIGRATE.length) {
+      const buoc = MIGRATION_STEPS.find((b) => b.tu === v);
+      if (!buoc || i > MIGRATION_STEPS.length) {
         throw new Error(
           `DB đang ở schema_version='${v}' nhưng code cần '${PHIEN_BAN_SCHEMA}'. `
             + 'Chưa có bước migrate nào được viết cho khoảng này — dừng lại thay vì '
@@ -494,10 +494,10 @@ export function migrate(db) {
     }
   }
 
-  const sql = fs.readFileSync(DUONG_DAN_SCHEMA, 'utf8');
+  const sql = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(sql);
 
-  const denPhienBan = layPhienBan(db) ?? PHIEN_BAN_SCHEMA;
+  const denPhienBan = getSchemaVersion(db) ?? PHIEN_BAN_SCHEMA;
   return { tuPhienBan, denPhienBan, daDoi: tuPhienBan !== denPhienBan, buocDaChay };
 }
 
@@ -507,7 +507,7 @@ export function migrate(db) {
  * @param {TDb} db
  * @returns {{bang: string[], chiMuc: string[]}}
  */
-export function moTaSchema(db) {
+export function describeSchema(db) {
   const lay = (loai) =>
     db
       .prepare(

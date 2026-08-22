@@ -16,8 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { dongDb, moDb } from '../src/store/db.js';
-import { ghiTin, taoHangDoi, upsertHoiThoai } from '../src/store/write.js';
+import { closeDb, openDb } from '../src/store/db.js';
+import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
 import { HUONG_TRA_LOI, TEN_TOOL_NHAC, TRANG_THAI_LICH } from '../src/lib/hang_so.js';
 import { chotLich, taoLich } from '../src/lich/lich_hen.js';
 import { taoNhacTheoDuoi } from '../src/lich/theo_duoi.js';
@@ -38,10 +38,10 @@ process.on('exit', () => {
 function dbTam() {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum5-'));
   RAC.push(d);
-  const db = moDb(path.join(d, 'kho', 'lichsu.db'));
-  upsertHoiThoai(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
-  upsertHoiThoai(db, { chatId: NHOM_KHAC, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
-  ghiTin(db, {
+  const db = openDb(path.join(d, 'kho', 'lichsu.db'));
+  upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'Nhóm A', duocNghe: true });
+  upsertConversation(db, { chatId: NHOM_KHAC, loai: 'GROUP', ten: 'Nhóm B', duocNghe: true });
+  writeMessage(db, {
     chatId: NHOM, msgId: 'm-trong', cliMsgId: null, userId: TRONG, tenLucGui: 'Trọng Nguyễn',
     msgType: 'chat.text', noiDung: 'ừ', contentRaw: null,
     tsZalo: 1_700_000_000_000, tuToi: false, coTagHost: false,
@@ -62,7 +62,7 @@ function nhacDaChot(db, v = {}) {
   return d;
 }
 
-/** `truyVanLichSu` giả — mô phỏng ĐÚNG ca "ai đó nới bối cảnh sang nhóm khác". */
+/** `queryHistory` giả — mô phỏng ĐÚNG ca "ai đó nới bối cảnh sang nhóm khác". */
 const truyVanChamNhomKhac = () => ({
   rows: [{ chat_id: NHOM_KHAC, user_id: TRONG, noi_dung: 'chuyện của nhóm B', ts_zalo: 1 }],
   nguonChatIds: [NHOM_KHAC],
@@ -78,11 +78,11 @@ test('B5-a ★★★ bối cảnh chạm nhóm KHÁC -> nguồn PHẢI được 
 
   const daKhai = [];
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi,
-    truyVanLichSu: truyVanChamNhomKhac,
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
+    queryHistory: truyVanChamNhomKhac,
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => true,
     recordSources: (rid, nguon) => daKhai.push({ rid, nguon }),
   });
@@ -91,7 +91,7 @@ test('B5-a ★★★ bối cảnh chạm nhóm KHÁC -> nguồn PHẢI được 
     'dữ liệu vào context model mà KHÔNG khai nguồn -> leak_guard mù, lá chắn thành trang trí');
   assert.ok(daKhai[0].nguon.includes(NHOM_KHAC),
     `nguồn khai được là [${daKhai[0].nguon}] — thiếu nhóm B thì leak_guard tưởng đáp án sạch`);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_guard chuyển sang DM host', async () => {
@@ -102,11 +102,11 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   const bo = createSourceLedger();
 
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi,
-    truyVanLichSu: truyVanChamNhomKhac,
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
+    queryHistory: truyVanChamNhomKhac,
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => true,
     recordSources: (rid, nguon) => recordSources(bo, rid, nguon),
   });
@@ -118,7 +118,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
   assert.equal(qd.huong, HUONG_TRA_LOI.DM_HOST,
     'đáp án mang dữ liệu nhóm B mà vẫn gửi thẳng vào nhóm A -> đúng ca lá chắn sinh ra để chặn');
   assert.deepEqual(qd.nguonLa, [NHOM_KHAC]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSources -> KHÔNG giao model', async () => {
@@ -131,11 +131,11 @@ test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSourc
   let giaoModel = 0;
   const daGui = [];
   const ra = await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi,
-    truyVanLichSu: truyVanChamNhomKhac,
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
+    queryHistory: truyVanChamNhomKhac,
     guiVaoNhom: async (_a, _c, t) => { daGui.push(t); return { msgId: 'x' }; },
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
     // ★ CỐ Ý KHÔNG truyền recordSources
   });
@@ -144,7 +144,7 @@ test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSourc
   assert.equal(ra.duPhong, 1, 'phải rơi xuống câu dự phòng, không được bỏ lượt nhắc');
   assert.equal(daGui.length, 1);
   assert.doesNotMatch(daGui[0], /nhóm B/, 'câu dự phòng KHÔNG được mang nội dung nhóm khác');
-  dongDb(db);
+  closeDb(db);
 });
 
 test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình thường (chống vá quá tay)', async () => {
@@ -152,16 +152,16 @@ test('B5-d ★★ bối cảnh CHỈ trong nhóm mình -> vẫn giao model bình
   nhacDaChot(db);
   let giaoModel = 0;
   await chayNhipTheoDuoi({
-    db, api: {}, bayGioMs: Date.now(), taoHangDoi,
-    truyVanLichSu: () => ({ rows: [], nguonChatIds: [NHOM] }),
+    db, api: {}, bayGioMs: Date.now(), enqueueQuestion,
+    queryHistory: () => ({ rows: [], nguonChatIds: [NHOM] }),
     guiVaoNhom: async () => ({ msgId: 'x' }),
     guiDmHost: async () => ({ msgId: 'y' }),
-    dsNguoiTrongNhom: () => [],
+    groupMembers: () => [],
     guiThongBao: async () => { giaoModel += 1; return true; },
     // không có recordSources, nhưng cũng KHÔNG có nguồn lạ -> vẫn phải chạy đường model
   });
   assert.equal(giaoModel, 1, 'vá quá tay: chặn cả ca sạch thì lời nhắc mất hẳn giọng model');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -186,7 +186,7 @@ function dungTool(db) {
     boTichLuy: { ghiNhan() {}, lay: () => [NHOM], xoa() {}, soPhien: () => 0 },
     api: { getOwnId: () => 'bot' },
     docSucKhoe: () => ({ trangThai: 'OK' }),
-    kho: { ghiNhatKyTruyVan: (_db, b) => { nhatKy.push(b); } },
+    kho: { writeQueryLog: (_db, b) => { nhatKy.push(b); } },
   });
   return {
     nhatKy,
@@ -205,7 +205,7 @@ test('A14-a ★★★ trần số lịch đang chờ áp cho CẢ lời nhắc t
       nguoiDat: HOST, chatIdDat: NHOM, ma: `R${i}`,
     });
   }
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'nhắc nữa đi', tsTao: new Date().toISOString(),
   });
@@ -220,12 +220,12 @@ test('A14-a ★★★ trần số lịch đang chờ áp cho CẢ lời nhắc t
     db.prepare("SELECT count(*) c FROM lich_hen WHERE la_theo_duoi = 1").get().c, 0,
     'phải chặn TRƯỚC khi ghi DB',
   );
-  dongDb(db);
+  closeDb(db);
 });
 
 test('A14-b ★★★ đặt nhắc CHÉO NHÓM phải để lại VẾT trong nhật ký', async () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'nhắc bên nhóm B nhé', tsTao: new Date().toISOString(),
   });
@@ -240,12 +240,12 @@ test('A14-b ★★★ đặt nhắc CHÉO NHÓM phải để lại VẾT trong n
   assert.equal(nhatKy.length, 1, 'đứng nhóm A đặt nhắc vào nhóm B mà KHÔNG để lại vết nào');
   assert.equal(nhatKy[0].coCheo, 1);
   assert.deepEqual(nhatKy[0].nguonChatIds, [NHOM_KHAC]);
-  dongDb(db);
+  closeDb(db);
 });
 
 test('A14-c ★★ đặt nhắc TRONG CÙNG nhóm thì KHÔNG ghi nhật ký chéo (chống nhiễu)', async () => {
   const db = dbTam();
-  taoHangDoi(db, {
+  enqueueQuestion(db, {
     requestId: 'r1', chatIdHoi: NHOM, msgId: 'm1', userId: HOST,
     noiDung: 'nhắc ngay đây', tsTao: new Date().toISOString(),
   });
@@ -256,7 +256,7 @@ test('A14-c ★★ đặt nhắc TRONG CÙNG nhóm thì KHÔNG ghi nhật ký ch
   assert.equal(kq.ok, true, JSON.stringify(kq));
   assert.equal(kq.duLieu.cheoNhom, false);
   assert.equal(nhatKy.length, 0, 'ghi nhật ký cho mọi lượt là làm loãng đúng thứ cần soi');
-  dongDb(db);
+  closeDb(db);
 });
 
 // ═══════════════════════════════════════════════════════════════════════
