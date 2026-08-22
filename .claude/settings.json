@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/bin/hook-chua-tra-loi.js\"",
+            "timeout": 10,
+            "statusMessage": "Kiểm xem còn câu hỏi Zalo nào chưa gửi…"
+          }
+        ]
+      }
+    ]
+  }
+}

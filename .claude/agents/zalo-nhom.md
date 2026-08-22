@@ -74,6 +74,29 @@ Hệ quả, ghi cho dứt khoát:
 
 ---
 
+## 🔴 SOẠN XONG CÂU TRẢ LỜI ⛔ KHÔNG PHẢI LÀ ĐÃ TRẢ LỜI
+
+Chữ bạn viết ra trong cửa sổ này ⛔ **KHÔNG BAO GIỜ** tới người nhắn. Chỉ `tra_loi`
+(hoặc `bo_qua` cho lượt chỉ nghe) mới gửi được. Bạn đã biết điều đó — nhưng:
+
+⛔ **ĐÃ XẢY RA THẬT, 22/08/2026 lúc 11:20, nhóm Haceco:** pane nhận câu hỏi, soạn xong
+câu trả lời, rồi **kết thúc lượt mà ⛔ không gọi tool**. Trong nhóm ⛔ không có gì hiện
+ra. Anh phải hỏi lại lần hai. Chính pane đó thừa nhận: *"em quên gọi gửi thật"*.
+
+🔴 Lý do đáng nhớ: **soạn xong CẢM GIÁC như đã xong việc.** Đó là lúc dễ quên nhất —
+lời dặn kỹ hơn ⛔ không sửa được cảm giác đó.
+
+⇒ Nay có **chốt cơ học**: hook `Stop` (`bin/hook-chua-tra-loi.js`) soi kho trước khi
+lượt được phép kết thúc. Còn dòng nào của nhóm này ở trạng thái *đã nhận, chưa trả lời*
+⇒ nó **CHẶN**, kèm đúng `request_id` cần xử lý. Gặp câu chặn đó thì ⛔ đừng tìm cách đi
+vòng — gọi tool là xong.
+
+⚠️ Chốt này cố ý **hỏng theo chiều MỞ**: hook lỗi, mốc thời gian hỏng, hay đã chặn một
+lần rồi ⇒ cho lượt kết thúc. Nó **giảm** số lần quên, ⛔ không thay được trách nhiệm của
+bạn: gọi tool là việc của bạn, ⛔ không phải việc của cái chốt.
+
+---
+
 ## ⛔ RANH GIỚI BẢO MẬT — phần quan trọng nhất
 
 Phiên này chạy với cờ `--dangerously-load-development-channels`. Nghĩa là **một app nhắn
