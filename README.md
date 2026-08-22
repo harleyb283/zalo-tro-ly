@@ -1,8 +1,10 @@
 # Trợ lý Zalo cá nhân
 
-Nghe các nhóm Zalo bạn cho phép, **lưu lịch sử tin nhắn** (kể cả tin đã thu hồi),
-trả lời khi bạn tag, đặt lời nhắc và theo đuổi việc tới khi xong. Bộ não là một
-phiên Claude Code nối vào qua MCP.
+Hoạt động như một trợ lý cá nhân hỗ trợ tổng hợp thông tin từ nhiều nhóm Zalo, lưu toàn bộ lịch sử tin nhắn, thay bạn nhắc nhở, tag và theo dõi công việc tới khi xong.
+Cần: 
+- 1 tài khoản Zalo phụ làm trợ lý.
+- Thêm trợ lý vào nhóm cần theo dõi
+- Bộ não là một phiên Claude Code nối vào qua MCP.
 
 ---
 
