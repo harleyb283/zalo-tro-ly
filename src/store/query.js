@@ -440,7 +440,7 @@ export function storeStats(db) {
  * @param {unknown} userId người gửi
  * @returns {{id: string, noiDung: string, maXacNhan: string|null}|null} null = cửa 2 ĐÓNG
  */
-export function timViecMoCua2(db, chatId, userId) {
+export function findGate2Task(db, chatId, userId) {
   const c = toId(chatId, 'cua2.chatId');
   const u = toId(userId, 'cua2.userId');
   if (c === null || u === null) return null;

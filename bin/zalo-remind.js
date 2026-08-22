@@ -61,7 +61,7 @@ export const MA = Object.freeze({
   OK: 0, LOI: 1, CAU_HINH: 2, CAN_QR: 3, THAM_SO: 9,
 });
 
-function docThamSo(argv) {
+function parseArgs(argv) {
   const t = {
     text: null, tuFile: null, nhom: null, host: null,
     kiemTra: false, imLang: false, config: null, help: false, duBietRuiRo: false,
@@ -180,7 +180,7 @@ export function pickTarget(cauHinh, t) {
 }
 
 export async function main(argv) {
-  const t = docThamSo(argv);
+  const t = parseArgs(argv);
   if (t.help) { inHelp(); return MA.OK; }
 
   let cauHinh;

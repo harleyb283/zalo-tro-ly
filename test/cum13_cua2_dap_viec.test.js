@@ -21,7 +21,7 @@ import test from 'node:test';
 
 import { closeDb, openDb } from '../src/store/db.js';
 import { writeMessage, enqueueQuestion, upsertConversation } from '../src/store/write.js';
-import { taskOwnerHost, timViecMoCua2, _xoaPhamViChoTest } from '../src/store/query.js';
+import { taskOwnerHost, findGate2Task, _xoaPhamViChoTest } from '../src/store/query.js';
 import { decideGate, LY_DO } from '../src/policy/gate.js';
 import { confirmSchedule, cancelSchedule } from '../src/lich/schedule.js';
 import { closeFollowUp, createFollowUp } from '../src/lich/follow_up.js';
@@ -29,7 +29,7 @@ import {
   HANH_DONG_GATE, TEN_TOOL, TEN_TOOL_GHI, TEN_TOOL_LICH, TEN_TOOL_NHAC,
 } from '../src/lib/hang_so.js';
 import { registerTools, TOOL_NOI_KHI_CUA2, TRAN_NOI_CUA2, LOP } from '../src/mcp/tools.js';
-import { nhanCua2, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
+import { gate2Label, LISTEN_ONLY_LABEL } from '../src/mcp/channel.js';
 import { resetThrottle, setThrottle } from '../src/zalo/send.js';
 import { thanHam, khoiGiua, tuNeo, truocNeo } from './_cat_ma.js';
 
@@ -107,7 +107,7 @@ function dbCoNhac(tuyChon = {}) {
 
 test('★★★ Q1 đủ BA điều kiện -> tìm thấy việc (cửa 2 MỞ)', () => {
   const { db, id } = dbCoNhac();
-  const v = timViecMoCua2(db, NHOM, PHU_TRACH);
+  const v = findGate2Task(db, NHOM, PHU_TRACH);
   assert.equal(v?.id, id);
   assert.equal(v.noiDung, 'gửi báo giá cho khách');
   closeDb(db);
@@ -115,23 +115,23 @@ test('★★★ Q1 đủ BA điều kiện -> tìm thấy việc (cửa 2 MỞ)'
 
 test('★★★ Q2 SAI NGƯỜI -> đóng (quyền đi theo VIỆC, ⛔ không theo NGƯỜI)', () => {
   const { db } = dbCoNhac();
-  assert.equal(timViecMoCua2(db, NHOM, NGUOI_KHAC), null);
-  assert.equal(timViecMoCua2(db, NHOM, HOST), null, 'host đi đường riêng, ⛔ không qua cửa 2');
+  assert.equal(findGate2Task(db, NHOM, NGUOI_KHAC), null);
+  assert.equal(findGate2Task(db, NHOM, HOST), null, 'host đi đường riêng, ⛔ không qua cửa 2');
   closeDb(db);
 });
 
 test('★★★ Q3 SAI NHÓM -> đóng', () => {
   const { db } = dbCoNhac();
-  assert.equal(timViecMoCua2(db, NHOM_KHAC, PHU_TRACH), null,
+  assert.equal(findGate2Task(db, NHOM_KHAC, PHU_TRACH), null,
     '🔴 mở ở nhóm khác = người đó điều khiển trợ lý ở mọi nhóm chung');
   closeDb(db);
 });
 
 test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
   const { db, id } = dbCoNhac();
-  assert.ok(timViecMoCua2(db, NHOM, PHU_TRACH), 'chưa đóng thì phải mở — nếu không bài này rỗng');
+  assert.ok(findGate2Task(db, NHOM, PHU_TRACH), 'chưa đóng thì phải mở — nếu không bài này rỗng');
   closeFollowUp(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: Date.now() });
-  assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null);
+  assert.equal(findGate2Task(db, NHOM, PHU_TRACH), null);
   closeDb(db);
 });
 
@@ -140,21 +140,21 @@ test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (b
   // `trang_thai_td` ⇒ chỉ kiểm ba điều kiện là cửa 2 MỞ CHO MỘT VIỆC ĐÃ HUỶ.
   const { db, id } = dbCoNhac();
   cancelSchedule(db, { id });
-  assert.equal(timViecMoCua2(db, NHOM, PHU_TRACH), null,
+  assert.equal(findGate2Task(db, NHOM, PHU_TRACH), null,
     '🔴 việc đã huỷ mà cửa vẫn mở — người đó nói chuyện với trợ lý về một việc không còn');
   closeDb(db);
 });
 
 test('★★★ Q6 lời nhắc gắn vào DM -> ⛔ KHÔNG mở (anh chốt: không có cửa 2 trong DM)', () => {
   const { db } = dbCoNhac({ chatIdDich: DM_HOST, loaiDich: 'DM' });
-  assert.equal(timViecMoCua2(db, DM_HOST, PHU_TRACH), null);
+  assert.equal(findGate2Task(db, DM_HOST, PHU_TRACH), null);
   closeDb(db);
 });
 
 test('★★ Q7 thiếu dữ liệu -> đóng, ⛔ không ném', () => {
   const { db } = dbCoNhac();
   for (const [c, u] of [[null, PHU_TRACH], [NHOM, null], [null, null], ['', ''], [undefined, undefined]]) {
-    assert.equal(timViecMoCua2(db, c, u), null, `chatId=${c} userId=${u}`);
+    assert.equal(findGate2Task(db, c, u), null, `chatId=${c} userId=${u}`);
   }
   closeDb(db);
 });
@@ -822,7 +822,7 @@ test('★★★ W4 ĐẦU-CUỐI: tra cửa 2 HỎNG -> coi như ĐÓNG, ⛔ KH�
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ N1 nhãn cửa 2 nêu ĐÍCH DANH việc + 3 điều bắt buộc', () => {
-  const n = nhanCua2('gửi báo giá cho khách');
+  const n = gate2Label('gửi báo giá cho khách');
   assert.match(n, /gửi báo giá cho khách/, 'không nêu việc thì model không biết phạm vi là gì');
   assert.match(n, /Ngoài phạm vi/, 'phải dặn ra khỏi phạm vi thì im');
   assert.match(n, /bo_qua/, 'phải chỉ đường đóng lượt');

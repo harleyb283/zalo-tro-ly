@@ -178,7 +178,7 @@ export const LISTEN_ONLY_LABEL =
  *
  * ⚠️ Cắt nội dung việc còn 80 ký tự: nhãn này đi kèm mọi lượt của người đó.
  */
-export function nhanCua2(noiDungViec) {
+export function gate2Label(noiDungViec) {
   const v = String(noiDungViec ?? '').trim().slice(0, 80);
   return `[ĐÁP VIỆC${v ? ` "${v}"` : ''} — người này đang phụ trách việc đó. `
     + 'Đáp NGẮN về đúng việc này. Ngoài phạm vi ⇒ im, gọi bo_qua. '
@@ -190,7 +190,7 @@ function _ghepNoiDung(payload, traLoi) {
   // ⚠️ Cửa 2 THẮNG nhãn chỉ-nghe: hai nhãn nói ngược nhau ("không được trả
   // lời" vs "đáp ngắn"), dán cả hai là bảo model làm hai việc trái nhau.
   const nhan = payload.idViecMoCua
-    ? `${nhanCua2(payload.noiDungViec)}\n`
+    ? `${gate2Label(payload.noiDungViec)}\n`
     : payload.chiNghe === true ? `${LISTEN_ONLY_LABEL}\n` : '';
   if (!traLoi) return nhan + chinh;
   if (nhan) return nhan + _ghepCoTraLoi(payload, traLoi, chinh);

@@ -77,7 +77,7 @@ export function heartbeatDeadlineMs(cauHinh) {
  */
 export const RECONNECT_DEADLINE_MS = 30 * 60_000;
 
-function docThamSo(argv) {
+function parseArgs(argv) {
   const t = { xem: false, json: false, config: null, imLang: false, help: false };
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
@@ -263,7 +263,7 @@ export function judgeHealth(tt, cauHinh, bayGioMs = Date.now(), tienTrinh = null
 }
 
 export async function main(argv) {
-  const t = docThamSo(argv);
+  const t = parseArgs(argv);
   if (t.help) { inHelp(); return MA.OK; }
 
   let cauHinh;

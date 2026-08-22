@@ -104,7 +104,7 @@ function _nghe(chatId, lyDo, idViec) {
  *
  * @param {TinChuanHoa} tin
  * @param {CauHinh} cauHinh
- * @param {{idViecMoCua?: string|null}} [boiCanh] kết quả `timViecMoCua2()` — caller
+ * @param {{idViecMoCua?: string|null}} [boiCanh] kết quả `findGate2Task()` — caller
  *   tra DB rồi truyền vào. Vắng ⇒ cửa 2 ĐÓNG (fail-closed, và đó là mặc định
  *   đúng: mọi caller cũ không truyền gì thì hành vi y hệt v9).
  * @returns {GateResult}
@@ -175,7 +175,7 @@ export function decideGate(tin, cauHinh, boiCanh) {
   //   Không phải *"người này đang nói chuyện"*, mà *"đây là việc EM đang đuổi"*.
   //
   // ⚠️ File này là HÀM THUẦN — ⛔ không chạm DB. Ba điều kiện (đúng người phụ
-  // trách · việc còn mở · đúng nhóm) do `timViecMoCua2()` ở `store/query.js`
+  // trách · việc còn mở · đúng nhóm) do `findGate2Task()` ở `store/query.js`
   // kiểm trong MỘT truy vấn, và caller truyền kết quả vào qua `boiCanh`.
   // ⇒ Giữ được tính thuần, mà vẫn không có chỗ nào tự suy ra quyền.
   //

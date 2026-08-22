@@ -78,7 +78,7 @@ DB luôn được mở ở chế độ CHỈ ĐỌC.`;
  * @param {string[]} argv
  * @returns {Record<string, string|boolean>}
  */
-export function docThamSo(argv) {
+export function parseArgs(argv) {
   const ra = {};
   const co = new Set(['--danh-sach', '--giup', '-h', '--help']);
   for (let i = 0; i < argv.length; i += 1) {
@@ -501,7 +501,7 @@ function mdDanhSach(ds, tz) {
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function main(argv) {
-  const ts = docThamSo(argv.slice(2));
+  const ts = parseArgs(argv.slice(2));
   if (ts.giup) {
     process.stdout.write(`${GIUP}\n`);
     return 0;

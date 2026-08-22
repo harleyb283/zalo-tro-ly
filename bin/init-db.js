@@ -25,7 +25,7 @@ import { PHIEN_BAN_SCHEMA } from '../src/lib/hang_so.js';
 
 const PACK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-function docThamSo(argv) {
+function parseArgs(argv) {
   const ra = { db: null, json: false };
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === '--db') { ra.db = argv[i + 1]; i += 1; }
@@ -54,7 +54,7 @@ function findDbPath(chiDinh) {
 }
 
 function main() {
-  const ts = docThamSo(process.argv);
+  const ts = parseArgs(process.argv);
   const duongDanDb = findDbPath(ts.db);
   const duongDanSchema = path.join(PACK_ROOT, 'schema.sql');
 

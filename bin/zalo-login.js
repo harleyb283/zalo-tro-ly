@@ -51,7 +51,7 @@ const err = (s = '') => process.stderr.write(`${s}\n`);
 // Tham số + cấu hình
 // ═══════════════════════════════════════════════════════════════════════
 
-function docThamSo(argv) {
+function parseArgs(argv) {
   const t = {
     whoami: false, nhom: false, force: false, moAnh: true,
     config: null, qrPath: null, help: false,
@@ -318,7 +318,7 @@ async function lenhQuetQr(cauHinh, tuyChon) {
 // ═══════════════════════════════════════════════════════════════════════
 
 export async function main(argv) {
-  const t = docThamSo(argv);
+  const t = parseArgs(argv);
   if (t.help) { inHelp(); return; }
 
   const { cauHinh, tuFile } = docCauHinhKhoanDung(t.config);

@@ -372,7 +372,7 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
   // Bài này kéo lỗi đó về thời điểm chạy test.
   const src = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
   const can = [
-    ['./scan/probe_a0.js', ['batA0', 'chayA0', 'pickTestGroup', 'probeResultPath']],
+    ['./scan/probe_a0.js', ['isProbeA0Enabled', 'runProbeA0', 'pickTestGroup', 'probeResultPath']],
     ['./scan/drift_check.js', ['isScanEnabled', 'runScanPass']],
     ['./lich/runner.js', ['isSchedulerEnabled', 'runOneTick', 'TICK_MS']],
     ['./lib/hang_so.js', ['GIOI_HAN_QUET']],
@@ -391,7 +391,7 @@ test('H1 ★ mọi module + tên hàm mà index.js nạp ĐỘNG đều tồn t�
 
 test('H2 ★ hai cờ của phần A phải nằm SAU điều kiện bật, không chạy vô điều kiện', () => {
   const src = fs.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8');
-  assert.ok(/if \(batA0\(\)\)/.test(src), 'A0 phải nằm sau if (batA0())');
+  assert.ok(/if \(isProbeA0Enabled\(\)\)/.test(src), 'A0 phải nằm sau if (isProbeA0Enabled())');
   assert.ok(/if \(isScanEnabled\(\)\)/.test(src), 'quét phải nằm sau if (isScanEnabled())');
   // Bộ chạy lịch KHÔNG được phụ thuộc phần quét — B phải sống kể cả khi A hỏng hẳn.
   const iQuet = src.indexOf('isScanEnabled()');

@@ -16,7 +16,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
-  docThamSo, dayBoundary, tzOffsetMinutes, formatTime, messageKindLabel, senderName, recallerName,
+  parseArgs, dayBoundary, tzOffsetMinutes, formatTime, messageKindLabel, senderName, recallerName,
   fetchMessages, recallTable, conversationTable, peopleTable, listConversations, buildMarkdown, openReadOnly,
   findDbPath, main,
 } from '../bin/zalo-export.js';
@@ -366,12 +366,12 @@ test('H1 liệt kê hội thoại kèm số tin, số thu hồi, trạng thái n
 
 // ═══ I. Tham số + chạy thật ═══
 test('I1 đọc tham số: cờ và giá trị', () => {
-  const ts = docThamSo(['--chat', 'abc', '--so', '10', '--danh-sach']);
+  const ts = parseArgs(['--chat', 'abc', '--so', '10', '--danh-sach']);
   assert.deepEqual(ts, { chat: 'abc', so: '10', 'danh-sach': true });
 });
 
 test('I2 tham số thiếu giá trị -> nổ ngay chứ không nuốt', () => {
-  assert.throws(() => docThamSo(['--chat']), /thiếu giá trị/);
+  assert.throws(() => parseArgs(['--chat']), /thiếu giá trị/);
 });
 
 test('I3 --db thắng env và config', () => {

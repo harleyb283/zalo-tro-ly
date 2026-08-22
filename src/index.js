@@ -45,7 +45,7 @@ import { safeLogText } from './lib/redact.js';
 
 import { readConfig, configPath, findGroup, findHostByDm } from './policy/access.js';
 import { decideGate } from './policy/gate.js';
-import { timViecMoCua2 } from './store/query.js';
+import { findGate2Task } from './store/query.js';
 import { sweepStale, recordSources, createSourceLedger } from './policy/leak_guard.js';
 
 import { closeDb, openDb } from './store/db.js';
@@ -302,7 +302,7 @@ export function handleMessage(p, tin) {
   let boiCanhCua2;
   if (nhom && tin.userId && !(cauHinh.hosts ?? []).some((h) => h.userId === tin.userId)) {
     try {
-      const viec = timViecMoCua2(db, chatId, tin.userId);
+      const viec = findGate2Task(db, chatId, tin.userId);
       if (viec) boiCanhCua2 = { idViecMoCua: viec.id, noiDungViec: viec.noiDung };
     } catch (e) {
       log(`cửa 2: không tra được lời nhắc (COI NHƯ ĐÓNG): ${safeLogText(e)}`);
@@ -1365,14 +1365,14 @@ export async function main(argv = process.argv) {
     // Đặt SAU listener để phiên chắc chắn đã sẵn sàng, và bọc catch để A0 hỏng
     // KHÔNG BAO GIỜ làm chết trợ lý — nó là phép đo, không phải điều kiện sống.
     {
-      const { batA0, chayA0, pickTestGroup, probeResultPath } = await import('./scan/probe_a0.js');
-      if (batA0()) {
+      const { isProbeA0Enabled, runProbeA0, pickTestGroup, probeResultPath } = await import('./scan/probe_a0.js');
+      if (isProbeA0Enabled()) {
         const nhomThu = pickTestGroup(db);
         if (!nhomThu) {
           log('A0: không có nhóm nào đang nghe có tin -> BỎ QUA, không gọi mạng');
         } else {
           log(`A0: chạy phép thử trên nhóm ${nhomThu} (đúng MỘT lần)`);
-          chayA0({
+          runProbeA0({
             api, db, chatId: nhomThu,
             duongDanRa: probeResultPath(cauHinh.duongDan.db),
           }).catch((e) => log(`A0 ném lỗi (đã nuốt): ${safeLogText(e)}`));

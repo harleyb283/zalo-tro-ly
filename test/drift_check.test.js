@@ -30,7 +30,7 @@ import {
   applyScanResult, lockBand, writeScanLog, groupsToScan, classifyDrift, runScanPass,
   callsToday, messagesInWindow, withinBand, inQuietHours, isScanEnabled,
 } from '../src/scan/drift_check.js';
-import { maskSampleMessage, batA0, chayA0, waitForSession } from '../src/scan/probe_a0.js';
+import { maskSampleMessage, isProbeA0Enabled, runProbeA0, waitForSession } from '../src/scan/probe_a0.js';
 
 const RAC = [];
 function dbTam() {
@@ -381,10 +381,10 @@ test('G4 registerHistoryApi: api không có custom -> trả false, KHÔNG ném',
 
 test('H1 ★ HAI CỜ đều MẶC ĐỊNH TẮT', () => {
   assert.equal(isScanEnabled({}), false, 'quét đối chiếu phải TẮT khi chưa qua A0');
-  assert.equal(batA0({}), false);
+  assert.equal(isProbeA0Enabled({}), false);
   assert.equal(isScanEnabled({ ZTL_QUET_DOI_CHIEU: '0' }), false);
   assert.equal(isScanEnabled({ ZTL_QUET_DOI_CHIEU: '1' }), true);
-  assert.equal(batA0({ ZTL_PROBE_A0: '1' }), true);
+  assert.equal(isProbeA0Enabled({ ZTL_PROBE_A0: '1' }), true);
 });
 
 test('H2 ★ A0 CHE nội dung tin của người thật, chỉ giữ độ dài + 12 ký tự đầu', () => {
@@ -478,7 +478,7 @@ test('I8 ★★ A0 chưa sẵn sàng -> CHUA_SAN_SANG, TUYỆT ĐỐI không ph�
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-a0-'));
   RAC.push(d);
   const f = path.join(d, 'probe_a0.json');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: { custom() {} }, db: null, chatId: NHOM, duongDanRa: f,
     tranChoMs: 200, nhipChoMs: 100, nghi: async () => {},
   });
@@ -509,7 +509,7 @@ test('I9 ★★ lời gọi mạng ĐẦU TIÊN hỏng -> so_goi_mang = 1 và ke
       throw new Error('404 Not Found');
     },
   };
-  const ra = await chayA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
+  const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   assert.equal(ra.so_goi_mang, 1, 'đã chạm mạng 1 lần -> con số phải nói đúng');
   assert.equal(ra.ket_luan, KET_LUAN_A0.DO);
   assert.equal(ra.co_bang_chung_ve_endpoint, true);
@@ -522,7 +522,7 @@ test('I10 ★ probe_a0.json GHI ĐÈ mỗi lượt, không giữ kết quả cũ
   RAC.push(d);
   const f = path.join(d, 'probe_a0.json');
   fs.writeFileSync(f, JSON.stringify({ ket_luan: 'KET_QUA_CU', rac: true }));
-  await chayA0({
+  await runProbeA0({
     api: { custom() {} }, db: null, chatId: NHOM, duongDanRa: f,
     tranChoMs: 0, nhipChoMs: 10, nghi: async () => {},
   });
@@ -543,7 +543,7 @@ test('I11 A0 chạy được thật khi phiên sẵn sàng + vẫn CHE nội dun
       hasMore: false, lastMsgId: '100',
     }),
   };
-  const ra = await chayA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
+  const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   assert.equal(ra.ket_luan, KET_LUAN_A0.XANH);
   assert.equal(ra.so_goi_mang, 1);
   assert.equal(ra.co_bang_chung_ve_endpoint, true);
@@ -676,7 +676,7 @@ test('J13 ★★ ném TRƯỚC khi chạm mạng -> so_goi_mang = 0 và KHÔNG �
     // Ném mà KHÔNG chạm sổ = chưa hề bắn request nào đi.
     [HISTORY_API_NAME]: async () => { throw new Error('encodeAES trả rỗng'); },
   };
-  const ra = await chayA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
+  const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   assert.equal(ra.so_goi_mang, 0);
   assert.equal(ra.co_bang_chung_ve_endpoint, false);
   assert.notEqual(ra.ket_luan, KET_LUAN_A0.DO, 'chưa bắn request nào mà báo DO là vu oan endpoint');
@@ -699,7 +699,7 @@ test('J14 ★★ ca thật 20/08: 200 + "Lỗi không xác định" -> file nói
       throw e;
     },
   };
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {}, thuBienThe: false,
   });
   assert.equal(ra.ket_luan, KET_LUAN_A0.DO);
@@ -810,14 +810,14 @@ function fileTam(ten) {
   return path.join(d, 'probe_a0.json');
 }
 
-test('K1 ★★ PHÉP THỬ NỔ TUNG -> chayA0 VẪN TRẢ VỀ, KHÔNG ném (daemon phải sống)', async () => {
+test('K1 ★★ PHÉP THỬ NỔ TUNG -> runProbeA0 VẪN TRẢ VỀ, KHÔNG ném (daemon phải sống)', async () => {
   // 🔴 Anh sắp ngồi test. A0 là phép ĐO, không phải điều kiện sống của trợ lý.
   // `api` dưới đây nổ ngay khi bị chạm tới — kiểu hỏng tệ nhất tưởng tượng được.
   const apiDoc = new Proxy({}, {
     get() { throw new Error('api nổ tung ngay khi chạm vào'); },
   });
   const f = fileTam('k1');
-  const ra = await chayA0({ api: apiDoc, db: null, chatId: NHOM, duongDanRa: f });
+  const ra = await runProbeA0({ api: apiDoc, db: null, chatId: NHOM, duongDanRa: f });
   assert.ok(ra, 'phải TRẢ VỀ chứ không ném — ném là daemon có nguy cơ chết theo');
   assert.equal(ra.goi_duoc, false);
   assert.equal(ra.co_bang_chung_ve_endpoint, false, 'phép đo tự hỏng thì CẤM nói gì về endpoint');
@@ -829,18 +829,18 @@ test('K1b ★★ lỗi ném NGOÀI khối try (ngay dòng đầu) -> lưới cu�
   // `p.bayGioMs` là dòng ĐẦU TIÊN, nằm ngoài mọi try bên trong. Đây là ca duy
   // nhất chứng minh lưới bọc ngoài cùng có tác dụng thật.
   const pDoc = new Proxy({}, { get() { throw new Error('p nổ ngay dòng đầu'); } });
-  const ra = await chayA0(pDoc);
+  const ra = await runProbeA0(pDoc);
   assert.ok(ra, 'ném ở đây là daemon có nguy cơ chết theo phép đo');
   assert.equal(ra.co_bang_chung_ve_endpoint, false);
   assert.match(ra.loi, /PHÉP THỬ A0 TỰ NỔ/);
   assert.match(ra.tong_ket, /sửa phép đo/i);
 });
 
-test('K1c ★★ gọi chayA0 KHÔNG tham số: không ném VÀ KHÔNG ngủ 60 giây', async () => {
+test('K1c ★★ gọi runProbeA0 KHÔNG tham số: không ném VÀ KHÔNG ngủ 60 giây', async () => {
   // Không có `api` thì chờ bao lâu cũng vô ích. Trước khi sửa, bài này ngốn
   // đúng 60 giây của MỌI lần chạy bộ test.
   const t = process.hrtime.bigint();
-  const ra = await chayA0();
+  const ra = await runProbeA0();
   const giay = Number(process.hrtime.bigint() - t) / 1e9;
   assert.ok(ra);
   assert.equal(ra.goi_duoc, false);
@@ -852,7 +852,7 @@ test('K2 ★★ TRẦN 5 REQUEST CHO CẢ BỘ — tài khoản THẬT, không �
   const db = dbTam(); moNghe(db); them(db, '900', GIO);
   const dem = [];
   const f = fileTam('k2');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem }), db, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   assert.equal(dem.length, 5, 'chuẩn + 4 biến thể = đúng 5, không hơn');
@@ -869,7 +869,7 @@ test('K2b ★★ trần hạ xuống 3 -> 2 biến thể cuối bị BỎ và n�
   const db = dbTam(); moNghe(db); them(db, '900', GIO);
   const dem = [];
   const f = fileTam('k2b');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem }), db, chatId: NHOM, duongDanRa: f, nghi: async () => {},
     tranRequestCaBo: 3,
   });
@@ -884,7 +884,7 @@ test('K2b ★★ trần hạ xuống 3 -> 2 biến thể cuối bị BỎ và n�
 test('K3 ★★ mỗi biến thể đổi ĐÚNG MỘT thứ, và KHÔNG thử lại cái đã loại', async () => {
   const dem = [];
   const f = fileTam('k3');
-  await chayA0({
+  await runProbeA0({
     api: apiGia({ dem }), db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   const day = dem.map((x) => x.bienThe);
@@ -919,7 +919,7 @@ test('K3b ★ TOI_THIEU là LƯỚI VÉT, cố ý bỏ 3 khoá — chạy CUỐI
 test('K4 ★★ DỪNG SỚM khi một biến thể XANH — thử tiếp là bắn thừa vô nghĩa', async () => {
   const dem = [];
   const f = fileTam('k4');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem, theoBienThe: { [BIEN_THE_THAM_SO.SRC_1]: { xanh: true } } }),
     db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
@@ -932,7 +932,7 @@ test('K4 ★★ DỪNG SỚM khi một biến thể XANH — thử tiếp là b�
 test('K5 ★★ DỪNG SỚM khi gặp 404 giữa chừng — endpoint chết thì tham số nào cũng vô ích', async () => {
   const dem = [];
   const f = fileTam('k5');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem, theoBienThe: { [BIEN_THE_THAM_SO.SRC_1]: { http: 404, ma: null } } }),
     db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
@@ -943,7 +943,7 @@ test('K5 ★★ DỪNG SỚM khi gặp 404 giữa chừng — endpoint chết th
 test('K6 ★★ endpoint chết NGAY lượt chuẩn -> KHÔNG chạy biến thể nào cả', async () => {
   const dem = [];
   const f = fileTam('k6');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem, theoBienThe: { CHUAN: { http: 404, ma: null } } }),
     db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
@@ -956,7 +956,7 @@ test('K7 ★★ GIÃN NHỊP ≥ 2 giây trước MỖI lần bắn biến thể
   const db = dbTam(); moNghe(db); them(db, '900', GIO);
   const nguMs = [];
   const f = fileTam('k7');
-  await chayA0({
+  await runProbeA0({
     api: apiGia(), db, chatId: NHOM, duongDanRa: f,
     nghi: async (ms) => { nguMs.push(ms); },
   });
@@ -968,7 +968,7 @@ test('K7 ★★ GIÃN NHỊP ≥ 2 giây trước MỖI lần bắn biến thể
 test('K8 ★★ CON_TRO_THAT: không có msg_id trong DB -> BỎ LƯỢT, CẤM bịa id', async () => {
   const dem = [];
   const f = fileTam('k8');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia({ dem }), db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   const ct = ra.bo_bien_the.find((x) => x.bien_the === BIEN_THE_THAM_SO.CON_TRO_THAT);
@@ -985,7 +985,7 @@ test('K9 ★★ CON_TRO_THAT dùng ĐÚNG msg_id mới nhất trong DB, không p
   them(db, '100', GIO); them(db, '900', GIO + 1000); them(db, '500', GIO + 500);
   const dem = [];
   const f = fileTam('k9');
-  await chayA0({
+  await runProbeA0({
     api: apiGia({ dem }), db, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   const ct = dem.find((x) => x.bienThe === BIEN_THE_THAM_SO.CON_TRO_THAT);
@@ -995,7 +995,7 @@ test('K9 ★★ CON_TRO_THAT dùng ĐÚNG msg_id mới nhất trong DB, không p
 
 test('K10 ★★ mỗi biến thể ghi ĐỦ: đổi gì · vì sao nghi · BẰNG CHỨNG · loại được gì', async () => {
   const f = fileTam('k10');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia(), db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   for (const x of ra.bo_bien_the) {
@@ -1009,7 +1009,7 @@ test('K10 ★★ mỗi biến thể ghi ĐỦ: đổi gì · vì sao nghi · B�
 
 test('K11 ★★ tất cả hỏng -> tổng kết nói ĐÃ LOẠI gì và nghi gì tiếp (không bỏ lửng)', async () => {
   const f = fileTam('k11');
-  const ra = await chayA0({
+  const ra = await runProbeA0({
     api: apiGia(), db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {},
   });
   assert.match(ra.tong_ket, /ĐÃ LOẠI/);
@@ -1025,7 +1025,7 @@ test('K12 ★ file kết quả KHÔNG lộ nội dung tin người thật dù ch
   const db = dbTam(); moNghe(db);
   them(db, '900', GIO, { noiDung: 'chuyen rieng tu cua nguoi ta' });
   const f = fileTam('k12');
-  await chayA0({ api: apiGia(), db, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
+  await runProbeA0({ api: apiGia(), db, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   const raw = fs.readFileSync(f, 'utf8');
   assert.ok(!raw.includes('chuyen rieng tu'), 'file này Router đọc bằng mắt');
   closeDb(db);

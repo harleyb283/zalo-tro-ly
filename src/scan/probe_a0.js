@@ -81,7 +81,7 @@ function _log(msg) {
 }
 
 /** Bật hay không — đọc env, mặc định TẮT. */
-export function batA0(env = process.env) {
+export function isProbeA0Enabled(env = process.env) {
   return String(env?.ZTL_PROBE_A0 ?? '') === '1';
 }
 
@@ -113,9 +113,9 @@ export function maskSampleMessage(m) {
  *          bayGioMs?: number, tranGoi?: number}} p
  * @returns {Promise<object>} chính bản ghi đã ghi ra file
  */
-export async function chayA0(p) {
+export async function runProbeA0(p) {
   // ═══════════════════════════════════════════════════════════════════════
-  // 🔴 LƯỚI CUỐI CÙNG — chayA0() KHÔNG BAO GIỜ ĐƯỢC NÉM.
+  // 🔴 LƯỚI CUỐI CÙNG — runProbeA0() KHÔNG BAO GIỜ ĐƯỢC NÉM.
   //
   // Anh sắp ngồi test trợ lý. A0 là PHÉP ĐO, không phải điều kiện sống của
   // trợ lý: nó nổ kiểu gì thì daemon vẫn phải khởi động và nghe tin bình
@@ -292,7 +292,7 @@ async function _chayA0(p) {
     // kiểu gì cũng vô ích, bắn thêm chỉ tổ rủi ro gắn cờ spam.
     if (p.thuBienThe !== false && ra.nhom_loi === NHOM_LOI_A0.ENDPOINT_SONG_LOI_GIAO_THUC) {
       // 🔴 BỌC RIÊNG. Bộ biến thể chạy TRONG khối catch — nó mà ném thì cả
-      // chayA0() ném, và anh mất luôn kết quả của lượt CHUẨN đã đo xong.
+      // runProbeA0() ném, và anh mất luôn kết quả của lượt CHUẨN đã đo xong.
       // Phần phụ tuyệt đối không được kéo phần chính xuống theo.
       try {
         ra.bo_bien_the = await _chayBoBienThe(p, ra, bayGio, ra.so_goi_mang);
@@ -323,7 +323,7 @@ async function _chayA0(p) {
  * ⇒ Chỉ khi `co_bang_chung_ve_endpoint === true` thì `ket_luan` mới có ý nghĩa
  * với endpoint. `doc_the_nao` viết thẳng câu đó ra để người đọc khỏi phải suy.
  *
- * PHẢI gọi ở MỌI đường thoát của chayA0().
+ * PHẢI gọi ở MỌI đường thoát của runProbeA0().
  */
 function _chotBangChung(ra) {
   try { ra.tong_ket = _tongKet(ra); } catch { ra.tong_ket = null; }
