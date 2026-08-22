@@ -207,8 +207,16 @@ test('D1 ★★ NGƯỜI KHÁC trong nhóm KHÔNG đổi được nhịp', () =>
 
 test('D2 ★★ host giãn nhịp -> chu kỳ ĐỔI và mốc kế tiếp DỜI theo', () => {
   // "2 ngày check lại 1 lần cho anh" — model quy đổi thành chuKyNgay = 2.
+  //
+  // ⚠️ `boChuNhat: false` là ĐỂ BÀI TEST TIỀN ĐỊNH, ⛔ không phải để né lỗi.
+  // Mặc định pack BỎ CHỦ NHẬT. Chạy bài này vào thứ Bảy thì nhịp 1 ngày và
+  // nhịp 2 ngày CÙNG rơi vào sáng thứ Hai — mốc mới bằng đúng mốc cũ, và phép
+  // so `>` đỏ dù hành vi hoàn toàn đúng. Đã dính thật ngày 22/08/2026 (thứ Bảy):
+  // bài xanh suốt từ hôm trước, sang thứ Bảy thì đỏ mà ⛔ không ai đổi dòng code
+  // nào. Ghim lịch lại thì phép so mới đo đúng thứ nó định đo — là "van xả có
+  // dời mốc hay không" — chứ ⛔ không đo hôm nay là thứ mấy.
   const { db } = dbTam();
-  const { id } = nhacGia(db); chot(db);
+  const { id } = nhacGia(db, { boChuNhat: false }); chot(db);
   const truoc = Number(db.prepare('SELECT gui_luc_ms g FROM lich_hen LIMIT 1').get().g);
   const kq = chinhNhip(db, { id, laHost: true, chuKyNgay: 2 });
   assert.equal(kq.ok, true);
