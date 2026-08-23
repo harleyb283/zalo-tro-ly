@@ -195,13 +195,40 @@ export function closeDb(db) {
  * @returns {string|null} null = DB trắng, chưa có bảng meta
  */
 export function getSchemaVersion(db) {
-  try {
-    const r = db.prepare("SELECT gia_tri FROM meta WHERE khoa = 'schema_version'").get();
-    return r ? String(r.gia_tri) : null;
-  } catch {
-    // Bảng meta chưa tồn tại — đúng trạng thái của một DB trắng, không phải lỗi.
-    return null;
+  // 🔴 PHẢI đọc được CẢ HAI cấu trúc, và đây không phải chuyện thẩm mỹ:
+  // bước 11->12 đổi chính bảng `meta` sang (name, value). Hàm này chạy TRƯỚC
+  // migrate ⇒ trên DB đời cũ nó vẫn phải đọc được (khoa, gia_tri), nếu không
+  // thì DB cũ bị nhìn thành "DB trắng" và migrate nạp đè schema mới lên cấu
+  // trúc cũ — hỏng câm, mà lại hỏng trên kho tin nhắn thật.
+  for (const [cot, khoa] of [['value', 'name'], ['gia_tri', 'khoa']]) {
+    try {
+      const r = db.prepare(`SELECT ${cot} AS v FROM meta WHERE ${khoa} = 'schema_version'`).get();
+      if (r) return String(r.v);
+    } catch {
+      // Cấu trúc kia — thử tiếp. Hết cả hai mới là DB trắng.
+    }
   }
+  return null;
+}
+
+/**
+ * Ghi phiên bản schema, chịu được cả hai cấu trúc bảng `meta` (xem
+ * `getSchemaVersion`). NÉM nếu không ghi được: phiên bản không nhích lên nghĩa
+ * là lần chạy sau migrate lại từ đầu — vòng lặp câm.
+ *
+ * @param {TDb} db
+ * @param {string} v
+ */
+function _datPhienBan(db, v) {
+  for (const [cot, khoa] of [['value', 'name'], ['gia_tri', 'khoa']]) {
+    try {
+      const kq = db.prepare(`UPDATE meta SET ${cot} = ? WHERE ${khoa} = 'schema_version'`).run(v);
+      if (Number(kq.changes) > 0) return;
+    } catch {
+      // Cấu trúc kia — thử tiếp.
+    }
+  }
+  throw new Error(`Không ghi được schema_version='${v}' vào bảng meta (cả hai cấu trúc đều trượt).`);
 }
 
 /**
@@ -229,13 +256,81 @@ function _themCot(db, bang, cot, kieu) {
 }
 
 /**
+ * Bảng đã có trong DB chưa? Dùng cho bước đổi tên (11->12) để chạy lại được
+ * mà không ném — SQLite KHÔNG có `ALTER TABLE ... RENAME ... IF EXISTS`.
+ * @param {TDb} db
+ * @param {string} bang
+ * @returns {boolean}
+ */
+function _coBang(db, bang) {
+  try {
+    return db
+      .prepare("SELECT 1 AS c FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(bang) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * ★ BẢN ĐỒ ĐỔI TÊN v11 -> v12 (sang tiếng Anh, anh chốt 22/08/2026).
+ *
+ * 🔴 CHỈ bước 11->12 được dùng bản đồ này. Mọi bước TRƯỚC nó chạy trên DB đời
+ * cũ, nơi bảng/cột còn mang tên tiếng Việt — sửa tên trong các bước cũ là làm
+ * chết đường nâng cấp của mọi DB chưa lên v12.
+ *
+ * ⚠️ `meta` nằm trong `cot` mà không nằm trong `bang`: tên bảng giữ nguyên,
+ * chỉ hai cột đổi. `reaction` cũng vậy.
+ */
+export const DOI_TEN_V12 = Object.freeze({
+  bang: {
+    doi_chieu_lich_su: 'history_audit',
+    ghi_nho: 'memories',
+    hang_doi_gui: 'send_queue',
+    hang_doi_hoi: 'ask_queue',
+    hoi_thoai: 'conversations',
+    lich_hen: 'schedules',
+    nguoi: 'people',
+    nguon_phien: 'request_origin',
+    nhat_ky_cong_ghi: 'write_gate_log',
+    nhat_ky_hanh_dong: 'action_log',
+    nhat_ky_truy_van: 'query_log',
+    su_kien_nhom: 'group_events',
+    su_kien_thu_hoi: 'recall_events',
+    tin_nhan: 'messages',
+    yeu_cau_duyet: 'approval_requests',
+  },
+  cot: {
+    doi_chieu_lich_su: { ts_bat_dau: 'ts_start', ts_ket_thuc: 'ts_end', cua_so_tu_ms: 'window_from_ms', cua_so_den_ms: 'window_to_ms', bien_min_msg_id: 'edge_min_msg_id', bien_max_msg_id: 'edge_max_msg_id', so_tin_zalo: 'zalo_msg_count', so_tin_db: 'db_msg_count', so_nghi_ngo: 'suspect_count', so_xac_nhan: 'confirmed_count', so_backfill: 'backfill_count', so_goi_mang: 'net_call_count', ket_qua: 'result', ghi_chu: 'note' },
+    ghi_nho: { nguoi_ghi: 'written_by', loai: 'kind', noi_dung: 'content', nguyen_van: 'verbatim', khi_nao_ms: 'when_ms', ai_lien_quan: 'related_users', ts_tao: 'ts_created', ts_cap_nhat: 'ts_updated', nguon_nguoi: 'source_user', nguon_nguyen_van: 'source_verbatim' },
+    hang_doi_gui: { chat_id_dich: 'target_chat_id', trang_thai: 'status', so_lan_thu: 'attempt_count', ly_do: 'reason', ts_tao: 'ts_created', ts_cap_nhat: 'ts_updated' },
+    hang_doi_hoi: { chat_id_hoi: 'asking_chat_id', noi_dung: 'content', ts_tao: 'ts_created', trang_thai: 'status', chi_nghe: 'listen_only', id_viec_mo_cua: 'open_pane_job_id' },
+    hoi_thoai: { loai: 'kind', ten: 'name', duoc_nghe: 'listened', lan_dau_thay: 'first_seen', lan_cuoi_thay: 'last_seen' },
+    lich_hen: { chat_id_dich: 'target_chat_id', loai_dich: 'target_kind', noi_dung: 'content', gui_luc_ms: 'send_at_ms', mui_gio: 'timezone', dien_giai_goc: 'raw_phrasing', dien_giai_xac_nhan: 'confirm_phrasing', nguoi_dat: 'created_by', chat_id_dat: 'creator_chat_id', trang_thai: 'status', ma_xac_nhan: 'confirm_code', msg_id_da_gui: 'sent_msg_id', so_lan_thu: 'attempt_count', ly_do_loi: 'error_reason', ts_tao: 'ts_created', ts_cap_nhat: 'ts_updated', la_theo_duoi: 'is_follow_up', trang_thai_td: 'follow_up_status', chu_ky_ngay: 'cycle_days', gio_nhac: 'remind_time', bo_chu_nhat: 'skip_sunday', nhac_lan_cuoi_ms: 'last_remind_ms', so_lan_da_nhac: 'remind_count', nguoi_phu_trach: 'owner', tam_dung_toi_ms: 'paused_until_ms', dong_boi: 'closed_by', dong_luc_ms: 'closed_at_ms', ly_do_dong: 'close_reason', cho_model_tu_ms: 'model_wait_since_ms', chu_ky_phut: 'cycle_minutes', tran_so_lan: 'max_reminds' },
+    meta: { khoa: 'name', gia_tri: 'value' },
+    nguoi: { ten_hien_thi: 'display_name', la_host: 'is_host', cap_nhat: 'updated_at' },
+    nhat_ky_cong_ghi: { su_kien: 'event', cue_trung: 'cue_hit', ly_do: 'reason' },
+    nhat_ky_hanh_dong: { ten_tool: 'tool_name', doi_tuong: 'target', nguon_nguoi: 'source_user', nguon_nguyen_van: 'source_verbatim', da_bao_host: 'host_notified' },
+    nhat_ky_truy_van: { chat_id_hoi: 'asking_chat_id', nguon_chat_ids: 'source_chat_ids', co_cheo: 'has_cross', huong_tra_loi: 'reply_route' },
+    reaction: { msg_id_dich: 'target_msg_id', bieu_tuong: 'emoji', ts_ghi: 'ts_saved', khop_duoc: 'matched' },
+    su_kien_nhom: { loai: 'kind', du_lieu: 'data', ts_ghi: 'ts_saved' },
+    su_kien_thu_hoi: { msg_id_dich: 'target_msg_id', cli_msg_id_dich: 'target_cli_msg_id', nguoi_thu_hoi: 'recaller_id', ten_nguoi_thu_hoi: 'recaller_name', ts_ghi: 'ts_saved', khop_duoc: 'matched', nguon: 'source', khoang_tu_ms: 'range_from_ms', khoang_den_ms: 'range_to_ms' },
+    tin_nhan: { ten_luc_gui: 'name_at_send', noi_dung: 'content', ts_ghi: 'ts_saved', tu_toi: 'from_me', co_tag_host: 'has_host_tag', da_thu_hoi: 'recalled', thu_hoi_boi: 'recalled_by', thu_hoi_luc: 'recalled_at', do_tro_ly_tao: 'made_by_assistant', tra_loi_msg_id: 'reply_msg_id', tra_loi_cli_msg_id: 'reply_cli_msg_id', tra_loi_user_id: 'reply_user_id', tra_loi_trich: 'reply_quote', thu_hoi_nguon: 'recall_source', thu_hoi_do_tin_cay: 'recall_confidence', vang_mat_lan_dau: 'absent_first_ms', vang_mat_so_lan: 'absent_count' },
+    yeu_cau_duyet: { chat_id_xin: 'requesting_chat_id', nguoi_noi: 'said_by', nguyen_van: 'verbatim', viec: 'task', ly_do: 'reason', trang_thai: 'status', nguoi_duyet: 'approved_by', ghi_chu_duyet: 'approval_note', ts_tao: 'ts_created', ts_duyet: 'ts_approved' },
+  },
+});
+
+/**
  * CÁC BƯỚC MIGRATE, chạy tuần tự theo `tu` -> `den`.
  *
  * 🔴 LUẬT CHO MỌI BƯỚC THÊM VÀO ĐÂY:
- *  · CHỈ ĐƯỢC CỘNG THÊM (`ADD COLUMN`, `CREATE TABLE`). CẤM `DROP`, cấm
- *    `ALTER ... RENAME`, cấm dựng bảng mới rồi copy dữ liệu sang. DB này là
- *    kho lịch sử hội thoại THẬT của người thật — mất là mất hẳn, không có
- *    nguồn nào phát lại được.
+ *  · CHỈ ĐƯỢC CỘNG THÊM (`ADD COLUMN`, `CREATE TABLE`). CẤM `DROP`, cấm dựng
+ *    bảng mới rồi copy dữ liệu sang. DB này là kho lịch sử hội thoại THẬT của
+ *    người thật — mất là mất hẳn, không có nguồn nào phát lại được.
+ *  · ⚠️ NGOẠI LỆ DUY NHẤT, đã cân nhắc và anh chốt: bước 11->12 dùng
+ *    `ALTER TABLE ... RENAME`. Lệnh này KHÔNG chép bảng và KHÔNG đụng một
+ *    byte dữ liệu nào — nó sửa mỗi câu định nghĩa bảng, nên không nằm cùng
+ *    hạng rủi ro với DROP/copy. Ngoài bước đó ra, luật cấm vẫn nguyên.
  *  · Cột mới PHẢI cho phép NULL và KHÔNG có `NOT NULL` (dòng cũ lấy đâu ra
  *    giá trị). SQLite cũng từ chối `ADD COLUMN NOT NULL` không có DEFAULT.
  *  · Phải chạy lại được nhiều lần mà không ném (dùng `_themCot`).
@@ -438,6 +533,43 @@ export const MIGRATION_STEPS = [
       _themCot(db, 'ghi_nho', 'nguon_nguyen_van', 'TEXT');
     },
   },
+  {
+    tu: '11',
+    den: '12',
+    moTa: 'đổi TÊN BẢNG + TÊN CỘT sang tiếng Anh (không đụng dữ liệu)',
+    chay(db) {
+      // 🔴 VÌ SAO `RENAME` ở đây KHÔNG cùng hạng rủi ro với DROP/copy:
+      // `ALTER TABLE ... RENAME` chỉ viết lại câu `CREATE TABLE` trong
+      // sqlite_master. Không dòng nào bị đọc, ghi, chép hay xoá — số dòng
+      // trước và sau BẮT BUỘC bằng nhau, và đó là thứ được đối chiếu thật
+      // trước/sau khi chạy trên kho của anh.
+      //
+      // ⚠️ SQLite >= 3.25 tự sửa theo mọi tham chiếu tới cột được đổi tên:
+      // ràng buộc CHECK, chỉ mục (kể cả chỉ mục một phần `WHERE recalled = 1`),
+      // khoá ngoại. Nhờ vậy KHÔNG phải dựng lại bảng nào — kể cả
+      // `hang_doi_hoi.trang_thai` vốn có CHECK liệt kê cứng 6 giá trị.
+      // Node 26 đi kèm SQLite mới hơn nhiều mốc đó (đã đo).
+      //
+      // ⛔ GIÁ TRỊ trong các cột KHÔNG đổi: `kind` của memories vẫn là
+      // 'su_kien'/'chot_viec'…, `status` vẫn là 'cho'/'da_day'… Đổi giá trị là
+      // đụng vào DỮ LIỆU THẬT, việc này chỉ đổi mặt chữ của cái nhãn.
+      for (const [cu, moi] of Object.entries(DOI_TEN_V12.bang)) {
+        if (_coBang(db, cu) && !_coBang(db, moi)) {
+          db.exec(`ALTER TABLE ${cu} RENAME TO ${moi}`);
+        }
+      }
+      for (const [bangCu, cot] of Object.entries(DOI_TEN_V12.cot)) {
+        const bang = DOI_TEN_V12.bang[bangCu] ?? bangCu;
+        if (!_coBang(db, bang)) continue;
+        for (const [cu, moi] of Object.entries(cot)) {
+          // Chạy lại được nhiều lần: đã đổi rồi thì bỏ qua, không ném.
+          if (_coCot(db, bang, cu) && !_coCot(db, bang, moi)) {
+            db.exec(`ALTER TABLE ${bang} RENAME COLUMN ${cu} TO ${moi}`);
+          }
+        }
+      }
+    },
+  },
 ];
 
 /**
@@ -483,7 +615,9 @@ export function migrate(db) {
       db.exec('BEGIN IMMEDIATE');
       try {
         buoc.chay(db);
-        db.prepare("UPDATE meta SET gia_tri = ? WHERE khoa = 'schema_version'").run(buoc.den);
+        // Đi qua `_datPhienBan`: bước 11->12 đổi luôn tên cột của bảng `meta`,
+        // nên câu UPDATE viết cứng tên cột sẽ nổ ngay tại bước đó.
+        _datPhienBan(db, buoc.den);
         db.exec('COMMIT');
       } catch (e) {
         try { db.exec('ROLLBACK'); } catch { /* rollback hỏng thì lỗi gốc quan trọng hơn */ }

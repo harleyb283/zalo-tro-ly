@@ -238,7 +238,7 @@ test('★★★ R4 router khai `ZTL_TUYEN` ⇒ hậu kiểm phạm vi VẪN ch�
 
 test('★★★ R5 `client_id` của router KHÁC của dự phòng (⛔ không trùng tên)', () => {
   // Cả hai đều khai `toan_bo`. Lấy nguyên chữ đó làm danh tính là HAI PANE
-  // TRÙNG TÊN trong `nhat_ky_truy_van.client_id` — cột sinh ra để trả lời
+  // TRÙNG TÊN trong `query_log.client_id` — cột sinh ra để trả lời
   // "PANE NÀO đã đọc nhóm nào".
   const idx = fs.readFileSync(path.join(GOC, 'src/index.js'), 'utf8')
     .replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');

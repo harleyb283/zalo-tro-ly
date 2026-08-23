@@ -115,7 +115,7 @@ function docTuCode() {
 
 /**
  * -> Map<tênTool, {bat:Set, tuyChon:Set}> lấy từ các dòng bảng markdown dạng
- *      | `ten_tool` | mô tả gì cũng được | `a`* · `b` · `c` |
+ *      | `tool_name` | mô tả gì cũng được | `a`* · `b` · `c` |
  *
  * CHỈ đọc ô ĐẦU (tên tool) và ô CUỐI (tham số). Ô mô tả ở giữa bị BỎ QUA hoàn
  * toàn — đó chính là chỗ làm bài test giòn nếu đem ra so.

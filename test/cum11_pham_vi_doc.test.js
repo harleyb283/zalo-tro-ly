@@ -142,7 +142,7 @@ test('★★★ P6 `readMemos` bị ép — ghi nhớ nhóm khác là dữ liệ
   setReadScope(NHOM_A);
   const kq = readMemos(db, { chatId: NHOM_B });
   assert.equal(kq.rows.length, 1);
-  assert.equal(kq.rows[0].noi_dung, 'của A');
+  assert.equal(kq.rows[0].content, 'của A');
   closeDb(db);
 });
 
@@ -155,7 +155,7 @@ test('★★ P7 `latestMessages` đi qua cùng cửa nên cũng bị ép', () =>
 });
 
 test('★★★ P7b `reminderTagUids` bị ép — UID là dữ liệu riêng NHẤT', () => {
-  // 🔴 Đường này KHÔNG đi qua `queryHistory`: nó tra thẳng `lich_hen` theo id.
+  // 🔴 Đường này KHÔNG đi qua `queryHistory`: nó tra thẳng `schedules` theo id.
   // `idNhac` suy từ hàng đợi nên model không tự chọn được, nhưng dữ liệu cũ /
   // lỗi ghi vẫn trỏ được sang nhóm khác — và thứ nó trả về là **uid người
   // thật**, món riêng tư nhất trong kho.
@@ -253,7 +253,7 @@ test('★★★ T1 qua tool `history`: hỏi nhóm B -> chỉ nhóm A, và NÓI 
   closeDb(db);
 });
 
-test('★★★ T2 NGHIỆM THU③: 20 lượt của pane nhóm -> co_cheo = 0 trên 100%', async () => {
+test('★★★ T2 NGHIỆM THU③: 20 lượt của pane nhóm -> has_cross = 0 trên 100%', async () => {
   const db = dbHaiNhom();
   setReadScope(NHOM_A);
   const { goi, nhatKy } = dungTool(db);
@@ -271,7 +271,7 @@ test('★★★ T2 NGHIỆM THU③: 20 lượt của pane nhóm -> co_cheo = 0 t
   // rồi trả lời một lượt để sinh dòng nhật ký
   await goi(TEN_TOOL.LICH_SU, { request_id: phien(db, 'rz') });
   assert.deepEqual(nhatKy.filter((x) => x.coCheo === true), [],
-    'pane nhóm mà còn dòng co_cheo=1 nghĩa là vẫn đọc được nhóm khác');
+    'pane nhóm mà còn dòng has_cross=1 nghĩa là vẫn đọc được nhóm khác');
   closeDb(db);
 });
 
@@ -307,10 +307,10 @@ test('★★★ T3 NGHIỆM THU④: `client_id` LÀ CỘT THẬT trong DB và gh
   const rt = await goi(TEN_TOOL.TRA_LOI, { request_id: rid, text: 'Dạ em tóm tắt nhóm mình ạ' });
   assert.equal(rt.ok, true, JSON.stringify(rt));
 
-  const dong = db.prepare('SELECT * FROM nhat_ky_truy_van WHERE request_id = $r').get({ r: rid });
+  const dong = db.prepare('SELECT * FROM query_log WHERE request_id = $r').get({ r: rid });
   assert.ok(dong, 'không có dòng nhật ký = mất bằng chứng nghiệm thu');
   assert.equal(dong.client_id, 'pane-nhom-a', 'client_id phải là TÊN PANE, không phải null/khác');
-  assert.equal(dong.co_cheo, 0);
+  assert.equal(dong.has_cross, 0);
   closeDb(db);
 });
 

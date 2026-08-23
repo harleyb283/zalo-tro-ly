@@ -93,11 +93,11 @@ export function createRescueLedger(p = {}) {
      * 🔴 Dòng `cho` LUÔN được đẩy và ⛔ KHÔNG bị đếm: nó là câu hỏi bình thường
      * chưa từng tới ai. Đếm nó là tự đặt trần lên đường đi chính.
      *
-     * @param {{request_id?: any, trang_thai?: any, ts_tao?: any, noi_dung?: any}} r
+     * @param {{request_id?: any, status?: any, ts_created?: any, content?: any}} r
      * @returns {boolean}
      */
     choPhep(r) {
-      if (String(r?.trang_thai ?? '') === 'cho') return true;
+      if (String(r?.status ?? '') === 'cho') return true;
 
       const rid = String(r?.request_id ?? '');
       if (!rid) return false;
@@ -106,14 +106,14 @@ export function createRescueLedger(p = {}) {
       dem.set(rid, n);
 
       if (n <= tran) {
-        log(`vớt lần ${n}/${tran}: ${rid} (${String(r?.trang_thai)}, ${String(r?.ts_tao)})`);
+        log(`vớt lần ${n}/${tran}: ${rid} (${String(r?.status)}, ${String(r?.ts_created)})`);
         return true;
       }
 
       if (!daBao.has(rid)) {
         daBao.add(rid);
-        const gio = String(r?.ts_tao ?? '').slice(11, 16);
-        const trich = String(r?.noi_dung ?? '').replace(/\s+/g, ' ').slice(0, 80);
+        const gio = String(r?.ts_created ?? '').slice(11, 16);
+        const trich = String(r?.content ?? '').replace(/\s+/g, ' ').slice(0, 80);
         log(`vớt QUÁ ${tran} lần vẫn im -> báo host: ${rid}`);
         notifyHost?.(
           `⚠️ Câu hỏi lúc ${gio} "${trich}" em đã đẩy lại ${tran} lần mà phiên trả lời `

@@ -21,7 +21,7 @@
  * ═══ 🔴 SỬA 20/08/2026 — BUG THẬT: TÊN LOẠI TIN VĂN BẢN LÀ `webchat` ═══
  *
  * Lần chạy thật đầu tiên: 10/10 dòng trong DB có `msg_type='UNKNOWN'` và
- * `noi_dung=NULL`, chữ thật kẹt trong `content_raw`:
+ * `content=NULL`, chữ thật kẹt trong `content_raw`:
  *     {"_msgTypeGoc":"webchat","_khongPhaiJson":true,"_text":"Test trợ lý 1"}
  *
  * Nguyên nhân: `'chat.text'` (và `'chat.image'`) **CHƯA BAO GIỜ TỒN TẠI** —
@@ -250,7 +250,7 @@ export function parseTs(v) {
 }
 
 /**
- * Như `parseTs` nhưng dùng cho cột NOT NULL (`tin_nhan.ts_zalo`).
+ * Như `parseTs` nhưng dùng cho cột NOT NULL (`messages.ts_zalo`).
  *
  * ⚠️ Không đọc được thì lấy giờ NHẬN làm xấp xỉ — nhưng PHẢI kêu ra stderr.
  * Bỏ dòng tin chỉ vì thiếu mốc thời gian là mất dữ liệu thật; im lặng thay
@@ -284,7 +284,7 @@ function _chuoiHoacNull(v) {
  *
  * Hai cột danh tính khác nhau, đừng trộn:
  *   · KHOÁ  = tên Zalo thật, dùng để SO KHỚP payload đến.
- *   · GIÁ TRỊ = hằng số nội bộ, dùng để GHI cột `tin_nhan.msg_type`.
+ *   · GIÁ TRỊ = hằng số nội bộ, dùng để GHI cột `messages.msg_type`.
  *
  * Ghi bằng hằng số nội bộ để `MSG_TYPE_CO_NOI_DUNG` ở `write.js` (chốt chặn
  * spec H, KHÔNG thuộc quyền sửa của file này) vẫn thi hành đúng, và để 10
@@ -368,7 +368,7 @@ export function isTextMessage(msgTypeGoc) {
  * 🔴 BẪY GIỐNG HỆT THU HỒI (bẫy 2+3 ở đầu file), đừng vấp lại:
  *   · Tin ĐƯỢC TRẢ LỜI nằm ở `quote.globalMsgId`, KHÔNG phải `msgId` của tin
  *     hiện tại.
- *   · `globalMsgId`/`cliMsgId` khai là **NUMBER** trong khi `tin_nhan.msg_id`
+ *   · `globalMsgId`/`cliMsgId` khai là **NUMBER** trong khi `messages.msg_id`
  *     là **TEXT** ⇒ bắt buộc qua `toId()`, nếu không thì ghép không ra dòng
  *     nào mà cũng chẳng có lỗi.
  *   · `ownerId` là tác giả TIN GỐC, KHÔNG phải người bấm trả lời (người bấm
@@ -406,11 +406,11 @@ export function parseQuotedReply(quote) {
 /**
  * Đính bằng chứng `mentions` vào `contentRaw` — CHỈ khi tin thật sự có tag.
  *
- * 🔴 Vì sao cần: `co_tag_host` là cờ SUY RA (so `mentions[].uid` với
+ * 🔴 Vì sao cần: `has_host_tag` là cờ SUY RA (so `mentions[].uid` với
  * `hosts[].userId` trong config). Trước bản này, payload `mentions` KHÔNG
  * được lưu ở bất cứ đâu ⇒ khi cờ ra 0 thì **không có cách nào** biết là
  * "anh không tag" hay "anh có tag mà so hụt uid". Đúng ca đó đã xảy ra:
- * 2 tin thật trong nhóm Haceco KT đều `co_tag_host=0` và không ai kết luận
+ * 2 tin thật trong nhóm Haceco KT đều `has_host_tag=0` và không ai kết luận
  * được gì. Mà đây lại là điều kiện kích hoạt CỐT LÕI của spec B.
  *
  * Tin không tag ai thì KHÔNG đụng tới `contentRaw` — tuyệt đại đa số tin
@@ -504,7 +504,7 @@ export function normalizeMsgType(msgTypeGoc) {
  *
  * Vì chưa chắc nên hàm CỐ Ý dè dặt:
  *   · chỉ nhận chuỗi thuần, không phải bytes, không rỗng;
- *   · không tìm thấy thì trả `null` (để `noi_dung` NULL) chứ KHÔNG bịa —
+ *   · không tìm thấy thì trả `null` (để `content` NULL) chứ KHÔNG bịa —
  *     `contentRaw` vẫn giữ nguyên object để còn đối chiếu.
  * Payload thật đầu tiên bắt được sau bản vá sẽ chốt được danh sách này.
  *
@@ -606,7 +606,7 @@ export function parseContent(msgType, content) {
  *   `uidFrom` mới là host.
  *
  *   Nhưng hàm này so `uid` với `hostUserIds`, tức đang hỏi *"tin này có tag
- *   HOST không"*. Hai câu hỏi KHÁC NHAU. Cột `co_tag_host` giữ đúng nghĩa
+ *   HOST không"*. Hai câu hỏi KHÁC NHAU. Cột `has_host_tag` giữ đúng nghĩa
  *   đen của tên nó; ai cần *"có tag trợ lý không"* (điều kiện kích hoạt thật
  *   của spec B) thì phải so với uid tài khoản bot, và uid đó KHÔNG có trong
  *   `boiCanh` hiện tại. ⚠️ Đã báo Router — đừng lặng lẽ đổi nghĩa hàm này.
@@ -742,7 +742,7 @@ export function normalizeGroupEvent(tho) {
  *      một nhóm lạ là mở đường cho luật chống rò chéo hiểu sai phạm vi.
  *
  * ⚠️ Hàm này là PHẦN THÊM của G2 (không có trong `types.d.ts`): `TinChuanHoa`
- * không mang trường loại hội thoại, mà `hoi_thoai.loai` trong schema thì bắt
+ * không mang trường loại hội thoại, mà `conversations.kind` trong schema thì bắt
  * buộc. G3/G4 dùng lại được, KHÔNG cần tự viết bản thứ hai. Đã báo Router.
  *
  * @param {unknown} threadId

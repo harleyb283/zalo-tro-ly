@@ -360,9 +360,9 @@ test('E2 ★ notify trả FALSE -> hàng đợi GIỮ "cho" để đẩy bù, kh
     tinGia({ msgId: 'chua-day' }),
   );
   await new Promise((r) => setTimeout(r, 30));
-  const dong = db.prepare('SELECT * FROM hang_doi_hoi').get();
+  const dong = db.prepare('SELECT * FROM ask_queue').get();
   assert.ok(dong, 'chưa mở hàng đợi');
-  assert.equal(dong.trang_thai, 'cho', 'đẩy chưa được mà đã đổi trạng thái');
+  assert.equal(dong.status, 'cho', 'đẩy chưa được mà đã đổi trạng thái');
   closeDb(db);
 });
 
@@ -373,8 +373,8 @@ test('E3 ★ notify TRẢ TRUE -> chỉ được chuyển "da_day", TUYỆT Đ�
     tinGia({ msgId: 'da-day' }),
   );
   await new Promise((r) => setTimeout(r, 30));
-  const dong = db.prepare('SELECT * FROM hang_doi_hoi').get();
-  assert.equal(dong.trang_thai, 'da_day',
+  const dong = db.prepare('SELECT * FROM ask_queue').get();
+  assert.equal(dong.status, 'da_day',
     'đã notify KHÔNG có nghĩa là đã tới — bằng chứng duy nhất là Claude gọi lại tool');
   closeDb(db);
 });
@@ -382,7 +382,7 @@ test('E3 ★ notify TRẢ TRUE -> chỉ được chuyển "da_day", TUYỆT Đ�
 test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ không phải lượt được nói)', async () => {
   // 🔴 HÀNH VI ĐỔI CÓ CHỦ ĐÍCH (anh chốt 21/08/2026): trợ lý phải theo kịp
   // nhóm, nên tin người khác nay TẠO MỘT LƯỢT thay vì bị vứt.
-  // ⚠️ Phần KHÔNG được đổi: lượt đó mang cờ `chi_nghe = 1`, và server chặn
+  // ⚠️ Phần KHÔNG được đổi: lượt đó mang cờ `listen_only = 1`, và server chặn
   // `reply` + mọi tool ghi trên nó ⇒ vẫn 0 tin đi ra Zalo.
   const { db, cauHinh } = dungHe();
   const daBao = [];
@@ -395,14 +395,14 @@ test('E4 [ĐỔI v9] tin NGƯỜI LẠ -> GHI DB + mở lượt CHỈ NGHE (⛔ 
   assert.equal(daBao.length, 1, 'người lạ nay ĐƯỢC đánh thức trợ lý (để nghe)');
 
   // 🔴 Canh GIÁ TRỊ THẬT XUỐNG CỘT DB, ⛔ không chỉ canh "có gọi hàm".
-  const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'nguoi-la'").get();
+  const dong = db.prepare("SELECT * FROM ask_queue WHERE msg_id = 'nguoi-la'").get();
   assert.ok(dong, 'phải có dòng hàng đợi');
-  assert.equal(dong.chi_nghe, 1, '🔴 thiếu cờ này là lượt người lạ ĐƯỢC NÓI — rò ra Zalo');
+  assert.equal(dong.listen_only, 1, '🔴 thiếu cờ này là lượt người lạ ĐƯỢC NÓI — rò ra Zalo');
   assert.equal(daBao[0].chiNghe, true, 'tin báo cho model cũng phải mang cờ');
   closeDb(db);
 });
 
-test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng duoc_nghe=0 nên tầng đọc không trả ra', async () => {
+test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng listened=0 nên tầng đọc không trả ra', async () => {
   const { db, cauHinh } = dungHe();
   handleMessage(
     { db, cauHinh, guiThongBao: async () => true, tenHoiThoai: () => null },
@@ -412,7 +412,7 @@ test('E5 nhóm NGOÀI allowlist -> vẫn lưu, nhưng duoc_nghe=0 nên tầng đ
   assert.equal(storeStats(db).soTinDaLuu, 1, 'tin phải được LƯU');
   assert.equal(queryHistory(db, {}).rows.length, 0, 'nhưng KHÔNG được đọc ra (fail-closed)');
   assert.equal(
-    Number(db.prepare("SELECT duoc_nghe d FROM hoi_thoai WHERE chat_id='Z'").get().d), 0,
+    Number(db.prepare("SELECT listened d FROM conversations WHERE chat_id='Z'").get().d), 0,
   );
   closeDb(db);
 });

@@ -64,14 +64,14 @@ function _canhBao(msg) {
 // ═══════════════════════════════════════════════════════════════════════
 
 const SQL_GHI_TIN = `
-INSERT OR IGNORE INTO tin_nhan
-  (chat_id, msg_id, cli_msg_id, user_id, ten_luc_gui, msg_type, noi_dung,
-   content_raw, ts_zalo, ts_ghi, tu_toi, co_tag_host, do_tro_ly_tao,
-   tra_loi_msg_id, tra_loi_cli_msg_id, tra_loi_user_id, tra_loi_trich)
+INSERT OR IGNORE INTO messages
+  (chat_id, msg_id, cli_msg_id, user_id, name_at_send, msg_type, content,
+   content_raw, ts_zalo, ts_saved, from_me, has_host_tag, made_by_assistant,
+   reply_msg_id, reply_cli_msg_id, reply_user_id, reply_quote)
 VALUES
-  ($chat_id, $msg_id, $cli_msg_id, $user_id, $ten_luc_gui, $msg_type, $noi_dung,
-   $content_raw, $ts_zalo, $ts_ghi, $tu_toi, $co_tag_host, $do_tro_ly_tao,
-   $tra_loi_msg_id, $tra_loi_cli_msg_id, $tra_loi_user_id, $tra_loi_trich)
+  ($chat_id, $msg_id, $cli_msg_id, $user_id, $name_at_send, $msg_type, $content,
+   $content_raw, $ts_zalo, $ts_saved, $from_me, $has_host_tag, $made_by_assistant,
+   $reply_msg_id, $reply_cli_msg_id, $reply_user_id, $reply_quote)
 `;
 
 /**
@@ -79,7 +79,7 @@ VALUES
  * IGNORE — CỐ Ý không dựng tầng dedupe TTL kiểu Bot API: `zca-js` là
  * websocket push, không phát lại như `getUpdates`.
  *
- * ★ THI HÀNH SPEC H NGAY TẠI ĐÂY: msg_type ngoài `chat.text` thì `noi_dung`
+ * ★ THI HÀNH SPEC H NGAY TẠI ĐÂY: msg_type ngoài `chat.text` thì `content`
  * bị ép NULL, bất kể caller truyền gì. Không lưu nội dung media của người
  * khác. Ép ở tầng ghi chứ không tin lời hứa của tầng trên — tầng trên là
  * `normalize.js` của gói khác, và một lời hứa qua ranh giới gói thì không
@@ -95,7 +95,7 @@ export function writeMessage(db, tin, tuyChon) {
   let noiDung = _hoac(tin.noiDung);
   if (noiDung !== null && !MSG_TYPE_CO_NOI_DUNG.includes(msgType)) {
     _canhBao(
-      `spec H: msg_type='${msgType}' mà có noi_dung (${String(noiDung).length} ký tự) ` +
+      `spec H: msg_type='${msgType}' mà có content (${String(noiDung).length} ký tự) ` +
         '-> ĐÃ ÉP NULL. Đi sửa normalize.js, đừng sửa chỗ này.',
     );
     noiDung = null;
@@ -106,39 +106,39 @@ export function writeMessage(db, tin, tuyChon) {
     msg_id: toIdRequired(tin.msgId, 'tin.msgId'),
     cli_msg_id: toId(tin.cliMsgId, 'tin.cliMsgId'),
     user_id: toId(tin.userId, 'tin.userId'),
-    ten_luc_gui: _hoac(tin.tenLucGui),
+    name_at_send: _hoac(tin.tenLucGui),
     msg_type: msgType,
-    tra_loi_msg_id: toId(tin.traLoiMsgId, 'tin.traLoiMsgId'),
-    tra_loi_cli_msg_id: toId(tin.traLoiCliMsgId, 'tin.traLoiCliMsgId'),
-    tra_loi_user_id: toId(tin.traLoiUserId, 'tin.traLoiUserId'),
-    tra_loi_trich: _hoac(tin.traLoiTrich),
-    noi_dung: noiDung,
+    reply_msg_id: toId(tin.traLoiMsgId, 'tin.traLoiMsgId'),
+    reply_cli_msg_id: toId(tin.traLoiCliMsgId, 'tin.traLoiCliMsgId'),
+    reply_user_id: toId(tin.traLoiUserId, 'tin.traLoiUserId'),
+    reply_quote: _hoac(tin.traLoiTrich),
+    content: noiDung,
     content_raw: _hoac(tin.contentRaw),
     ts_zalo: _soHoacNull(tin.tsZalo) ?? 0,
-    ts_ghi: _bayGio(),
-    tu_toi: _co(tin.tuToi),
-    co_tag_host: _co(tin.hasHostMention),
-    do_tro_ly_tao: _co(tuyChon?.doTroLyTao),
+    ts_saved: _bayGio(),
+    from_me: _co(tin.tuToi),
+    has_host_tag: _co(tin.hasHostMention),
+    made_by_assistant: _co(tuyChon?.doTroLyTao),
   });
 
-  // ═══ 🔴 A8 — CỜ `do_tro_ly_tao` KHÔNG ĐƯỢC PHỤ THUỘC VÀO AI GHI TRƯỚC ═══
+  // ═══ 🔴 A8 — CỜ `made_by_assistant` KHÔNG ĐƯỢC PHỤ THUỘC VÀO AI GHI TRƯỚC ═══
   // Tin trợ lý tự gửi QUAY LẠI qua websocket listener với `tuToi = true`. Hai
   // đường cùng ghi một `(chat_id, msg_id)`, và `INSERT OR IGNORE` cho đường nào
   // TỚI TRƯỚC thắng. Cả pack từng tin rằng đường của mình luôn tới trước.
   //
   // ⛔ NIỀM TIN ĐÓ SAI, VÀ ĐÃ ĐO ĐƯỢC: đếm trên DB thật lúc 21/08/2026 00:28 —
-  //    user_id = <uid bot>:  do_tro_ly_tao = 1 -> 33 dòng
-  //                          do_tro_ly_tao = 0 -> 18 dòng   (35,3 % THUA CUỘC ĐUA)
-  //    Kéo theo: dòng do listener ghi mang `ten_luc_gui` của bot, mà
+  //    user_id = <uid bot>:  made_by_assistant = 1 -> 33 dòng
+  //                          made_by_assistant = 0 -> 18 dòng   (35,3 % THUA CUỘC ĐUA)
+  //    Kéo theo: dòng do listener ghi mang `name_at_send` của bot, mà
   //    `groupMembers()` suy danh sách thành viên từ đúng cột đó ⇒ BOT TỰ LỌT
   //    VÀO danh sách người trong nhóm và có thể TỰ TAG CHÍNH NÓ.
   //
   // ✅ Cách đúng: ghi trước bằng `INSERT OR IGNORE`, rồi ÉP cờ bằng `UPDATE`.
   //    Thắng bất kể ai tới trước, và không cần biết ai tới trước.
-  //    Xoá luôn `ten_luc_gui` vì tin của trợ lý không phải "một thành viên đang nói".
+  //    Xoá luôn `name_at_send` vì tin của trợ lý không phải "một thành viên đang nói".
   if (tuyChon?.doTroLyTao && Number(kq.changes) !== 1) {
     db.prepare(
-      `UPDATE tin_nhan SET do_tro_ly_tao = 1, ten_luc_gui = NULL
+      `UPDATE messages SET made_by_assistant = 1, name_at_send = NULL
         WHERE chat_id = $chat_id AND msg_id = $msg_id`,
     ).run({
       chat_id: toIdRequired(tin.chatId, 'tin.chatId'),
@@ -153,44 +153,44 @@ export function writeMessage(db, tin, tuyChon) {
 // ═══════════════════════════════════════════════════════════════════════
 
 const SQL_DANH_DAU_THEO_MSG_ID = `
-UPDATE tin_nhan
-   SET da_thu_hoi = 1, thu_hoi_boi = $boi, thu_hoi_luc = $luc
+UPDATE messages
+   SET recalled = 1, recalled_by = $boi, recalled_at = $luc
  WHERE chat_id = $chat_id AND msg_id = $msg_id
 `;
 
 const SQL_DANH_DAU_THEO_CLI = `
-UPDATE tin_nhan
-   SET da_thu_hoi = 1, thu_hoi_boi = $boi, thu_hoi_luc = $luc
+UPDATE messages
+   SET recalled = 1, recalled_by = $boi, recalled_at = $luc
  WHERE chat_id = $chat_id AND cli_msg_id = $cli
 `;
 
 const SQL_GHI_SU_KIEN_THU_HOI = `
-INSERT OR IGNORE INTO su_kien_thu_hoi
-  (event_id, chat_id, msg_id_dich, cli_msg_id_dich, nguoi_thu_hoi,
-   ten_nguoi_thu_hoi, ts_zalo, ts_ghi, khop_duoc)
+INSERT OR IGNORE INTO recall_events
+  (event_id, chat_id, target_msg_id, target_cli_msg_id, recaller_id,
+   recaller_name, ts_zalo, ts_saved, matched)
 VALUES
-  ($event_id, $chat_id, $msg_id_dich, $cli_msg_id_dich, $nguoi_thu_hoi,
-   $ten_nguoi_thu_hoi, $ts_zalo, $ts_ghi, $khop_duoc)
+  ($event_id, $chat_id, $target_msg_id, $target_cli_msg_id, $recaller_id,
+   $recaller_name, $ts_zalo, $ts_saved, $matched)
 `;
 
 /**
  * Đánh dấu một tin đã bị thu hồi. **UPDATE, TUYỆT ĐỐI KHÔNG DELETE** —
- * `noi_dung` cũ phải còn nguyên sau khi gọi hàm này (có test canh).
+ * `content` cũ phải còn nguyên sau khi gọi hàm này (có test canh).
  *
  * Ghép bằng `sk.msgIdDich` (= content.globalMsgId, tin BỊ thu hồi), KHÔNG
  * phải `sk.eventId` (= TUndo.msgId, ID của chính sự kiện). Ghép nhầm ⇒
  * UPDATE không trúng dòng nào và KHÔNG có lỗi nào được ném ra.
  *
- * Không khớp dòng nào ⇒ VẪN ghi `su_kien_thu_hoi` với `khop_duoc = 0` (ca
+ * Không khớp dòng nào ⇒ VẪN ghi `recall_events` với `matched = 0` (ca
  * MỒ CÔI). Bỏ qua lặng lẽ là xoá mất dấu vết của bẫy ghép ID — chính
- * `SELECT count(*) FROM su_kien_thu_hoi WHERE khop_duoc=0` là thước đo
+ * `SELECT count(*) FROM recall_events WHERE matched=0` là thước đo
  * nghiệm thu M2.
  *
  * ⚠️ ĐƯỜNG GHÉP DỰ PHÒNG (G3 thêm, KHÔNG có trong stub G0 — đã báo Router):
- * `msg_id` trượt thì thử tiếp `cli_msg_id` (schema đã có sẵn `cli_msg_id_dich`
+ * `msg_id` trượt thì thử tiếp `cli_msg_id` (schema đã có sẵn `target_cli_msg_id`
  * và chỉ mục `idx_tin_cli` — hai thứ đó chỉ có nghĩa nếu ai đó dùng tới).
  * Trả thêm `ghepBang` để biết đường nào đã trúng: ghép được nhờ đường dự
- * phòng nghĩa là đường CHÍNH đang hỏng, và nếu chỉ nhìn `khop_duoc` thì
+ * phòng nghĩa là đường CHÍNH đang hỏng, và nếu chỉ nhìn `matched` thì
  * thước đo mồ côi sẽ nói dối là "vẫn ổn". Trường này là THÊM, không đổi tên
  * trường nào của hợp đồng.
  *
@@ -244,13 +244,13 @@ export function markRecalled(db, sk) {
     db.prepare(SQL_GHI_SU_KIEN_THU_HOI).run({
       event_id: toIdRequired(sk.eventId, 'thuHoi.eventId'),
       chat_id: chatId,
-      msg_id_dich: msgIdDich,
-      cli_msg_id_dich: cliDich,
-      nguoi_thu_hoi: boi,
-      ten_nguoi_thu_hoi: _hoac(sk.recallerName),
+      target_msg_id: msgIdDich,
+      target_cli_msg_id: cliDich,
+      recaller_id: boi,
+      recaller_name: _hoac(sk.recallerName),
       ts_zalo: luc ?? 0,
-      ts_ghi: _bayGio(),
-      khop_duoc: _co(n > 0),
+      ts_saved: _bayGio(),
+      matched: _co(n > 0),
     });
     db.exec('COMMIT');
     return { khopDuoc: n > 0, ghepBang };
@@ -275,25 +275,25 @@ export function markRecalled(db, sk) {
  */
 export function writeGroupEvent(db, sk) {
   db.prepare(
-    `INSERT INTO su_kien_nhom (chat_id, loai, du_lieu, ts_zalo, ts_ghi)
-     VALUES ($chat_id, $loai, $du_lieu, $ts_zalo, $ts_ghi)`,
+    `INSERT INTO group_events (chat_id, kind, data, ts_zalo, ts_saved)
+     VALUES ($chat_id, $loai, $data, $ts_zalo, $ts_saved)`,
   ).run({
     chat_id: toIdRequired(sk.chatId, 'suKienNhom.chatId'),
     loai: String(sk.loai ?? 'UNKNOWN'),
-    du_lieu: _hoac(sk.duLieu),
+    data: _hoac(sk.duLieu),
     ts_zalo: _soHoacNull(sk.tsZalo),
-    ts_ghi: _bayGio(),
+    ts_saved: _bayGio(),
   });
 }
 
 /**
  * Ghi một reaction.
  *
- * ⚠️ `khop_duoc = 0` là chuyện BÌNH THƯỜNG ở đây, khác hẳn ý nghĩa của cùng
- * cái cờ đó bên `su_kien_thu_hoi`. Reaction thả từ app điện thoại cho
+ * ⚠️ `matched = 0` là chuyện BÌNH THƯỜNG ở đây, khác hẳn ý nghĩa của cùng
+ * cái cờ đó bên `recall_events`. Reaction thả từ app điện thoại cho
  * `gMsgID = 0` (zca-js issue #360, CÒN MỞ) ⇒ không biết thả lên tin nào.
  * Người Việt chủ yếu dùng điện thoại nên phần lớn reaction sẽ mồ côi.
- * ⇒ ĐỪNG dùng `reaction.khop_duoc = 0` làm dấu hiệu hỏng.
+ * ⇒ ĐỪNG dùng `reaction.matched = 0` làm dấu hiệu hỏng.
  *
  * @param {TDb} db
  * @param {ReactionChuanHoa} r
@@ -302,30 +302,30 @@ export function writeGroupEvent(db, sk) {
 export function writeReaction(db, r) {
   const dich = toId(r.msgIdDich, 'reaction.msgIdDich');
   db.prepare(
-    `INSERT INTO reaction (chat_id, msg_id_dich, user_id, bieu_tuong, ts_zalo, ts_ghi, khop_duoc)
-     VALUES ($chat_id, $msg_id_dich, $user_id, $bieu_tuong, $ts_zalo, $ts_ghi, $khop_duoc)`,
+    `INSERT INTO reaction (chat_id, target_msg_id, user_id, emoji, ts_zalo, ts_saved, matched)
+     VALUES ($chat_id, $target_msg_id, $user_id, $emoji, $ts_zalo, $ts_saved, $matched)`,
   ).run({
     chat_id: toIdRequired(r.chatId, 'reaction.chatId'),
-    msg_id_dich: dich,
+    target_msg_id: dich,
     user_id: toId(r.userId, 'reaction.userId'),
-    bieu_tuong: _hoac(r.bieuTuong),
+    emoji: _hoac(r.bieuTuong),
     ts_zalo: _soHoacNull(r.tsZalo),
-    ts_ghi: _bayGio(),
-    khop_duoc: _co(dich !== null && dich !== '0'),
+    ts_saved: _bayGio(),
+    matched: _co(dich !== null && dich !== '0'),
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 4. DANH BẠ — hoi_thoai · nguoi
+// 4. DANH BẠ — conversations · people
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * ⚠️ `duoc_nghe` ở đây là ĐIỀU KIỆN LỌC của cả tầng đọc: `query.js` chỉ trả
- * dòng thuộc hội thoại có `duoc_nghe = 1`. Quên upsert hội thoại ⇒ truy vấn
+ * ⚠️ `listened` ở đây là ĐIỀU KIỆN LỌC của cả tầng đọc: `query.js` chỉ trả
+ * dòng thuộc hội thoại có `listened = 1`. Quên upsert hội thoại ⇒ truy vấn
  * trả RỖNG dù tin đã nằm trong DB. Hướng fail-closed là cố ý (thà không thấy
  * còn hơn thấy nhầm nhóm chưa được duyệt), nhưng phải biết mà tìm.
  *
- * `ten` chỉ được ghi đè khi có giá trị mới — `COALESCE` giữ tên cũ, tránh một
+ * `name` chỉ được ghi đè khi có giá trị mới — `COALESCE` giữ tên cũ, tránh một
  * sự kiện thiếu tên xoá trắng tên đã biết.
  *
  * @param {TDb} db
@@ -335,18 +335,18 @@ export function writeReaction(db, r) {
 export function upsertConversation(db, ht) {
   const now = _bayGio();
   db.prepare(
-    `INSERT INTO hoi_thoai (chat_id, loai, ten, duoc_nghe, lan_dau_thay, lan_cuoi_thay)
-     VALUES ($chat_id, $loai, $ten, $duoc_nghe, $now, $now)
+    `INSERT INTO conversations (chat_id, kind, name, listened, first_seen, last_seen)
+     VALUES ($chat_id, $loai, $name, $listened, $now, $now)
      ON CONFLICT(chat_id) DO UPDATE SET
-       loai          = excluded.loai,
-       ten           = COALESCE(excluded.ten, hoi_thoai.ten),
-       duoc_nghe     = excluded.duoc_nghe,
-       lan_cuoi_thay = excluded.lan_cuoi_thay`,
+       kind          = excluded.kind,
+       name          = COALESCE(excluded.name, conversations.name),
+       listened     = excluded.listened,
+       last_seen = excluded.last_seen`,
   ).run({
     chat_id: toIdRequired(ht.chatId, 'hoiThoai.chatId'),
     loai: String(ht.loai ?? 'UNKNOWN'),
-    ten: _hoac(ht.ten),
-    duoc_nghe: _co(ht.duocNghe),
+    name: _hoac(ht.ten),
+    listened: _co(ht.duocNghe),
     now,
   });
 }
@@ -358,17 +358,17 @@ export function upsertConversation(db, ht) {
  */
 export function upsertPerson(db, ng) {
   db.prepare(
-    `INSERT INTO nguoi (user_id, ten_hien_thi, la_host, cap_nhat)
-     VALUES ($user_id, $ten_hien_thi, $la_host, $cap_nhat)
+    `INSERT INTO people (user_id, display_name, is_host, updated_at)
+     VALUES ($user_id, $display_name, $is_host, $updated_at)
      ON CONFLICT(user_id) DO UPDATE SET
-       ten_hien_thi = COALESCE(excluded.ten_hien_thi, nguoi.ten_hien_thi),
-       la_host      = excluded.la_host,
-       cap_nhat     = excluded.cap_nhat`,
+       display_name = COALESCE(excluded.display_name, people.display_name),
+       is_host      = excluded.is_host,
+       updated_at     = excluded.updated_at`,
   ).run({
-    user_id: toIdRequired(ng.userId, 'nguoi.userId'),
-    ten_hien_thi: _hoac(ng.tenHienThi),
-    la_host: _co(ng.isHost),
-    cap_nhat: _bayGio(),
+    user_id: toIdRequired(ng.userId, 'people.userId'),
+    display_name: _hoac(ng.tenHienThi),
+    is_host: _co(ng.isHost),
+    updated_at: _bayGio(),
   });
 }
 
@@ -385,32 +385,32 @@ const _TRANG_THAI_HOP_LE = new Set(Object.values(TRANG_THAI_HANG_DOI));
  */
 export function enqueueQuestion(db, muc) {
   db.prepare(
-    `INSERT INTO hang_doi_hoi
-       (request_id, chat_id_hoi, msg_id, user_id, noi_dung, ts_tao, trang_thai, chi_nghe,
-        id_viec_mo_cua)
-     VALUES ($request_id, $chat_id_hoi, $msg_id, $user_id, $noi_dung, $ts_tao, $trang_thai, $chi_nghe,
-             $id_viec_mo_cua)`,
+    `INSERT INTO ask_queue
+       (request_id, asking_chat_id, msg_id, user_id, content, ts_created, status, listen_only,
+        open_pane_job_id)
+     VALUES ($request_id, $asking_chat_id, $msg_id, $user_id, $content, $ts_created, $status, $listen_only,
+             $open_pane_job_id)`,
   ).run({
     request_id: String(muc.requestId),
-    chat_id_hoi: toIdRequired(muc.chatIdHoi, 'hangDoi.chatIdHoi'),
+    asking_chat_id: toIdRequired(muc.chatIdHoi, 'hangDoi.chatIdHoi'),
     msg_id: toIdRequired(muc.msgId, 'hangDoi.msgId'),
     user_id: toIdRequired(muc.userId, 'hangDoi.userId'),
-    noi_dung: String(muc.noiDung ?? ''),
-    ts_tao: muc.tsTao || _bayGio(),
-    trang_thai: TRANG_THAI_HANG_DOI.CHO,
+    content: String(muc.noiDung ?? ''),
+    ts_created: muc.tsTao || _bayGio(),
+    status: TRANG_THAI_HANG_DOI.CHO,
     // 🔴 Ép về 0/1 Ở ĐÂY, ⛔ đừng đưa boolean thẳng xuống SQLite. Cột là
     // INTEGER nhưng SQLite có "type affinity": nhét thứ khác vào nó có thể im
-    // lặng đổi kiểu, rồi `chi_nghe` đọc lên thành chuỗi và `!== 1` cho ra kết
+    // lặng đổi kiểu, rồi `listen_only` đọc lên thành chuỗi và `!== 1` cho ra kết
     // quả ngược — tức lượt CHỈ NGHE hoá thành lượt được nói, trong im lặng.
-    chi_nghe: muc.chiNghe === true || muc.chiNghe === 1 ? 1 : 0,
+    listen_only: muc.chiNghe === true || muc.chiNghe === 1 ? 1 : 0,
     // v10 — CỬA 2. Chuỗi rỗng ⇒ NULL: `''` là một giá trị "có mặt" trong SQL,
-    // và `WHERE id_viec_mo_cua IS NOT NULL` sẽ coi nó là cửa MỞ cho một việc
+    // và `WHERE open_pane_job_id IS NOT NULL` sẽ coi nó là cửa MỞ cho một việc
     // không tồn tại. Ép về NULL ở đây, ⛔ đừng để tầng dưới đoán.
     // ⚠️ TRIM rồi mới kiểm rỗng: `'   '` là truthy trong JS nên lọt qua phép
     // kiểm ngây thơ, rồi nằm trong cột như một id hợp lệ. `IS NOT NULL` coi nó
     // là cửa MỞ cho một việc không tồn tại, trong khi tầng tool truthy-check
     // lại thấy có — hai tầng hiểu ngược nhau, và không tầng nào báo lỗi.
-    id_viec_mo_cua: typeof muc.idViecMoCua === 'string' && muc.idViecMoCua.trim()
+    open_pane_job_id: typeof muc.idViecMoCua === 'string' && muc.idViecMoCua.trim()
       ? muc.idViecMoCua.trim() : null,
   });
 }
@@ -430,7 +430,7 @@ export function updateQueueState(db, requestId, trangThai) {
     );
   }
   const kq = db
-    .prepare('UPDATE hang_doi_hoi SET trang_thai = $tt WHERE request_id = $rid')
+    .prepare('UPDATE ask_queue SET status = $tt WHERE request_id = $rid')
     .run({ tt: trangThai, rid: String(requestId) });
   return Number(kq.changes) > 0;
 }
@@ -442,7 +442,7 @@ export function updateQueueState(db, requestId, trangThai) {
  */
 export function getQueueRow(db, requestId) {
   const r = db
-    .prepare('SELECT * FROM hang_doi_hoi WHERE request_id = ?')
+    .prepare('SELECT * FROM ask_queue WHERE request_id = ?')
     .get(String(requestId));
   return r ? /** @type {DongHangDoi} */ ({ ...r }) : null;
 }
@@ -469,7 +469,7 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   // hết hạn, không ai được báo. Anh hỏi, không ai trả lời, KHÔNG MỘT DẤU VẾT.
   //
   // ⛔ ĐÃ XẢY RA THẬT — DB tối 20/08/2026 có 3 dòng kẹt `da_day`, hai dòng lúc
-  //    22:16:56 và 22:17:59, khớp từng giây với hai câu anh hỏi. Tra `tin_nhan`
+  //    22:16:56 và 22:17:59, khớp từng giây với hai câu anh hỏi. Tra `messages`
   //    khoảng 22:16 -> 23:03: KHÔNG có tin nào của trợ lý. Hai câu bốc hơi.
   //
   // `gomDaDay` chỉ nên bật ở `khiSanSang` (Claude vừa bắt tay lại): lúc đó mọi
@@ -486,12 +486,12 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   trangThai.forEach((t, i) => { bien[`t${i}`] = t; });
 
   // ═══════════════════════════════════════════════════════════════════
-  // 🔴 v10.2 — LỌC THEO `chat_id_hoi`: KHOÁ ĐỊNH TUYẾN PANE.
+  // 🔴 v10.2 — LỌC THEO `asking_chat_id`: KHOÁ ĐỊNH TUYẾN PANE.
   //
   // ⛔ ĐÂY LÀ LỖ HỔNG THẬT, không phải tính năng thêm cho vui. Trước dòng này,
   // hàm trả về MỌI dòng đang chờ ⇒ một client đã khoá `ZTL_CHAT_ID` vào nhóm A
   // **vẫn nhặt được câu hỏi của nhóm B**, đẩy vào model của pane A, rồi
-  // `reply` gửi theo `chat_id_hoi` của phiên ⇒ **pane A trả lời vào nhóm B**.
+  // `reply` gửi theo `asking_chat_id` của phiên ⇒ **pane A trả lời vào nhóm B**.
   // Khoá phạm vi ĐỌC (bước 6) nằm ở `query.js` và ⛔ KHÔNG canh đường này —
   // hai tầng khác nhau. Thiếu bộ lọc ở đây thì "panel-mỗi-nhóm" vô nghĩa.
   //
@@ -501,15 +501,15 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   let dieuKienChat = '';
   const _chat = toId(tuyChon.chatIdHoi ?? null, 'takePendingQueue.chatIdHoi');
   if (_chat !== null) {
-    dieuKienChat = ' AND chat_id_hoi = $chat';
+    dieuKienChat = ' AND asking_chat_id = $chat';
     bien.chat = _chat;
   }
 
   const rows = db
     .prepare(
-      `SELECT * FROM hang_doi_hoi
-        WHERE trang_thai IN (${cho})${dieuKienChat}
-        ORDER BY ts_tao ASC`,
+      `SELECT * FROM ask_queue
+        WHERE status IN (${cho})${dieuKienChat}
+        ORDER BY ts_created ASC`,
     )
     .all(bien);
 
@@ -521,10 +521,10 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
   const hetHan = [];
 
   for (const r of rows) {
-    const moc = Date.parse(String(r.ts_tao));
+    const moc = Date.parse(String(r.ts_created));
     if (!Number.isFinite(moc)) {
       _canhBao(
-        `hàng đợi ${r.request_id}: ts_tao='${r.ts_tao}' không đọc được -> COI LÀ CÒN HẠN.`,
+        `hàng đợi ${r.request_id}: ts_created='${r.ts_created}' không đọc được -> COI LÀ CÒN HẠN.`,
       );
       con.push({ ...r });
       continue;
@@ -550,7 +550,7 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
     // bắt nó chờ thêm 3 phút là tự tay làm chậm mọi câu hỏi bình thường.
     else if (
       Number.isFinite(tuoiMoCoi) && tuoiMoCoi > 0
-      && String(r.trang_thai) !== TRANG_THAI_HANG_DOI.CHO
+      && String(r.status) !== TRANG_THAI_HANG_DOI.CHO
       && bayGio - moc < tuoiMoCoi
     ) {
       // còn NON — để yên, phiên đang xử lý dở.
@@ -568,7 +568,7 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
     // Router đo thật: nhóm Haceco 449 tin/ngày ⇒ báo host mỗi lượt im lặng là
     // ~449 tin cảnh báo/ngày. Cảnh báo phiền là cảnh báo bị bỏ qua, mà cái bị
     // bỏ qua cùng nó là những câu hỏi THẬT của anh nằm lẫn trong đống đó.
-    if (Number(r.chi_nghe) === 1) continue;
+    if (Number(r.listen_only) === 1) continue;
     // 🔴 Đánh `het_han` rồi IM LẶNG là vẫn nuốt mất câu hỏi của anh — chỉ khác
     // là nuốt có ghi sổ. Caller PHẢI có đường báo host. `_canhBao` đi stderr của
     // tiến trình nền, mà stderr đó KHÔNG AI ĐỌC.
@@ -593,24 +593,24 @@ export function takePendingQueue(db, queueTtlMs, tuyChon = {}) {
 export function writeQueryLog(db, banGhi) {
   const nguon = Array.isArray(banGhi.nguonChatIds) ? banGhi.nguonChatIds.map(String) : [];
   db.prepare(
-    `INSERT INTO nhat_ky_truy_van
-       (client_id, request_id, chat_id_hoi, nguon_chat_ids, co_cheo, huong_tra_loi, ts)
-     VALUES ($client_id, $request_id, $chat_id_hoi, $nguon, $co_cheo, $huong, $ts)`,
+    `INSERT INTO query_log
+       (client_id, request_id, asking_chat_id, source_chat_ids, has_cross, reply_route, ts)
+     VALUES ($client_id, $request_id, $asking_chat_id, $nguon, $has_cross, $huong, $ts)`,
   ).run({
     // v8 — PANE nào đã đọc. NULL = chế độ một tiến trình (một CÂU TRẢ LỜI, ⛔
     // không phải "không rõ").
     client_id: banGhi.clientId ? String(banGhi.clientId) : null,
     request_id: String(banGhi.requestId),
-    chat_id_hoi: toIdRequired(banGhi.chatIdHoi, 'nhatKy.chatIdHoi'),
+    asking_chat_id: toIdRequired(banGhi.chatIdHoi, 'nhatKy.chatIdHoi'),
     nguon: JSON.stringify(nguon),
-    co_cheo: _co(banGhi.coCheo),
+    has_cross: _co(banGhi.coCheo),
     huong: _hoac(banGhi.huongTraLoi),
     ts: _bayGio(),
   });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 10. ghi_nho — chỗ ĐÁP cho chữ "lưu lại" (v6, 21/08/2026)
+// 10. memories — chỗ ĐÁP cho chữ "lưu lại" (v6, 21/08/2026)
 // ═══════════════════════════════════════════════════════════════════════
 
 const _LOAI_HOP_LE = new Set(Object.values(LOAI_GHI_NHO));
@@ -656,31 +656,31 @@ export function writeMemo(db, p) {
   const ts = _bayGio();
 
   db.prepare(
-    `INSERT INTO ghi_nho
-       (id, chat_id, request_id, nguoi_ghi, loai, noi_dung, nguyen_van,
-        khi_nao_ms, ai_lien_quan, ts_tao, ts_cap_nhat,
-        nguon_nguoi, nguon_nguyen_van)
-     VALUES ($id, $chat_id, $request_id, $nguoi_ghi, $loai, $noi_dung, $nguyen_van,
-             $khi_nao_ms, $ai_lien_quan, $ts, $ts,
-             $nguon_nguoi, $nguon_nguyen_van)`,
+    `INSERT INTO memories
+       (id, chat_id, request_id, written_by, kind, content, verbatim,
+        when_ms, related_users, ts_created, ts_updated,
+        source_user, source_verbatim)
+     VALUES ($id, $chat_id, $request_id, $written_by, $loai, $content, $verbatim,
+             $when_ms, $related_users, $ts, $ts,
+             $source_user, $source_verbatim)`,
   ).run({
     id,
     chat_id: toIdRequired(p?.chatId, 'ghiNho.chatId'),
     request_id: toId(p?.requestId ?? null, 'ghiNho.requestId'),
-    nguoi_ghi: toIdRequired(p?.nguoiGhi, 'ghiNho.nguoiGhi'),
+    written_by: toIdRequired(p?.nguoiGhi, 'ghiNho.nguoiGhi'),
     loai,
-    noi_dung: noiDung,
-    nguyen_van: nguyenVan,
-    khi_nao_ms: khiNao,
-    ai_lien_quan: ai.length ? JSON.stringify(ai) : null,
+    content: noiDung,
+    verbatim: nguyenVan,
+    when_ms: khiNao,
+    related_users: ai.length ? JSON.stringify(ai) : null,
     ts,
     // ═══ 🔴 v11 — NGUỒN. *"X nói rằng…"* ⛔ KHÁC *"…là sự thật"* ═══
     // Cả HAI cột đi cùng nhau: có người mà thiếu câu thì lần sau ⛔ không đối
     // chiếu được, có câu mà thiếu người thì ⛔ không biết hỏi lại ai.
-    nguon_nguoi: toId(p?.nguonNguoi ?? null, 'ghiNho.nguonNguoi'),
-    nguon_nguyen_van: String(p?.nguonNguyenVan ?? '').trim() || null,
+    source_user: toId(p?.nguonNguoi ?? null, 'ghiNho.nguonNguoi'),
+    source_verbatim: String(p?.nguonNguyenVan ?? '').trim() || null,
   });
-  return { id, dong: db.prepare('SELECT * FROM ghi_nho WHERE id = $id').get({ id }) };
+  return { id, dong: db.prepare('SELECT * FROM memories WHERE id = $id').get({ id }) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -704,9 +704,9 @@ export function requestApproval(db, p) {
   if (!viec) throw new Error('requestApproval.viec rỗng — không xin một việc trống.');
   const id = p?.id ? String(p.id) : randomUUID();
   db.prepare(
-    `INSERT INTO yeu_cau_duyet
-       (id, chat_id_xin, request_id, nguoi_noi, nguyen_van, viec, ly_do,
-        trang_thai, ts_tao)
+    `INSERT INTO approval_requests
+       (id, requesting_chat_id, request_id, said_by, verbatim, task, reason,
+        status, ts_created)
      VALUES ($id, $chat, $rid, $nguoi, $nv, $viec, $ly, $tt, $ts)`,
   ).run({
     id,
@@ -719,7 +719,7 @@ export function requestApproval(db, p) {
     tt: TRANG_THAI_DUYET.CHO_DUYET,
     ts: _bayGio(),
   });
-  return { id, dong: db.prepare('SELECT * FROM yeu_cau_duyet WHERE id = $id').get({ id }) };
+  return { id, dong: db.prepare('SELECT * FROM approval_requests WHERE id = $id').get({ id }) };
 }
 
 /**
@@ -741,8 +741,8 @@ export function writeActionTrail(db, p) {
   const ten = String(p?.tenTool ?? '').trim();
   if (!ten) throw new Error('writeActionTrail.tenTool rỗng.');
   const r = db.prepare(
-    `INSERT INTO nhat_ky_hanh_dong
-       (ts, chat_id, request_id, ten_tool, doi_tuong, nguon_nguoi, nguon_nguyen_van, da_bao_host)
+    `INSERT INTO action_log
+       (ts, chat_id, request_id, tool_name, target, source_user, source_verbatim, host_notified)
      VALUES ($ts, $chat, $rid, $ten, $dt, $ai, $cau, $bao)`,
   ).run({
     ts: _bayGio(),
@@ -762,10 +762,10 @@ export function readActionTrail(db, tuyChon = {}) {
   const dk = [];
   const th = { n: Number(tuyChon.soLuong) > 0 ? Math.trunc(Number(tuyChon.soLuong)) : 50 };
   if (tuyChon.chatId != null) { dk.push('chat_id = $chat'); th.chat = String(tuyChon.chatId); }
-  if (tuyChon.tenTool != null) { dk.push('ten_tool = $ten'); th.ten = String(tuyChon.tenTool); }
+  if (tuyChon.tenTool != null) { dk.push('tool_name = $ten'); th.ten = String(tuyChon.tenTool); }
   const where = dk.length ? `WHERE ${dk.join(' AND ')}` : '';
   return db.prepare(
-    `SELECT * FROM nhat_ky_hanh_dong ${where} ORDER BY id DESC LIMIT $n`,
+    `SELECT * FROM action_log ${where} ORDER BY id DESC LIMIT $n`,
   ).all(th).map((r) => ({ ...r }));
 }
 
@@ -779,14 +779,14 @@ export function listApprovalRequests(db, tuyChon = {}) {
   const tt = tuyChon.trangThai ?? TRANG_THAI_DUYET.CHO_DUYET;
   const n = Number(tuyChon.soLuong) > 0 ? Math.trunc(Number(tuyChon.soLuong)) : 50;
   return db.prepare(
-    `SELECT * FROM yeu_cau_duyet WHERE trang_thai = $tt ORDER BY ts_tao ASC LIMIT $n`,
+    `SELECT * FROM approval_requests WHERE status = $tt ORDER BY ts_created ASC LIMIT $n`,
   ).all({ tt, n }).map((r) => ({ ...r }));
 }
 
 /**
  * ★ Duyệt / từ chối một yêu cầu. Trả `false` = ⛔ không tìm thấy hoặc ĐÃ xử lý rồi.
  *
- * 🔴 CAS (`AND trang_thai = 'cho_duyet'`): hai lượt duyệt cùng một yêu cầu thì
+ * 🔴 CAS (`AND status = 'cho_duyet'`): hai lượt duyệt cùng một yêu cầu thì
  * chỉ MỘT thắng. ⛔ Không có nó thì "đã từ chối" bị ghi đè thành "đã duyệt" mà
  * ⛔ không ai biết.
  *
@@ -799,9 +799,9 @@ export function resolveApproval(db, id, decideGate, phuThuoc = {}) {
   const den = decideGate === true || decideGate === TRANG_THAI_DUYET.DA_DUYET
     ? TRANG_THAI_DUYET.DA_DUYET : TRANG_THAI_DUYET.TU_CHOI;
   const kq = db.prepare(
-    `UPDATE yeu_cau_duyet
-        SET trang_thai = $den, nguoi_duyet = $ai, ghi_chu_duyet = $gc, ts_duyet = $ts
-      WHERE id = $id AND trang_thai = $cho`,
+    `UPDATE approval_requests
+        SET status = $den, approved_by = $ai, approval_note = $gc, ts_approved = $ts
+      WHERE id = $id AND status = $cho`,
   ).run({
     den,
     ai: toId(phuThuoc.nguoiDuyet ?? null, 'resolveApproval.nguoiDuyet'),
@@ -831,14 +831,14 @@ export function writeWriteGateLog(db, banGhi) {
   }
   const cue = Array.isArray(banGhi?.cueTrung) ? banGhi.cueTrung.map(String) : [];
   db.prepare(
-    `INSERT INTO nhat_ky_cong_ghi (request_id, chat_id, su_kien, cue_trung, ly_do, ts)
-     VALUES ($request_id, $chat_id, $su_kien, $cue, $ly_do, $ts)`,
+    `INSERT INTO write_gate_log (request_id, chat_id, event, cue_hit, reason, ts)
+     VALUES ($request_id, $chat_id, $su_kien, $cue, $reason, $ts)`,
   ).run({
     request_id: String(banGhi?.requestId ?? ''),
     chat_id: toId(banGhi?.chatId ?? null, 'nhatKyCongGhi.chatId'),
     su_kien: sk,
     cue: cue.length ? JSON.stringify(cue) : null,
-    ly_do: banGhi?.lyDo ? String(banGhi.lyDo) : null,
+    reason: banGhi?.lyDo ? String(banGhi.lyDo) : null,
     ts: _bayGio(),
   });
 }
@@ -860,7 +860,7 @@ export function writeWriteGateLog(db, banGhi) {
  *
  * ⚠️ CHỈ HOST — giữ nguyên chốt của anh, y như `closeFollowUp`.
  *
- * 🔴 GIỮ `so_lan_da_nhac`, ⛔ KHÔNG reset về 0. Số lượt đã nhắc là SỰ THẬT LỊCH
+ * 🔴 GIỮ `remind_count`, ⛔ KHÔNG reset về 0. Số lượt đã nhắc là SỰ THẬT LỊCH
  * SỬ — người ta đã bị làm phiền đúng ngần ấy lần, mở lại không xoá được việc đó.
  * Reset là biến trần 10 lượt thành vô hạn chỉ bằng cách đóng-mở-đóng-mở.
  * Cần nhắc thêm thì nới trần MINH BẠCH bằng `noiTran`.
@@ -880,42 +880,42 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
   let dong;
   const khoa = String(id ?? '').trim();
   if (khoa) {
-    dong = db.prepare('SELECT * FROM lich_hen WHERE (id = $k OR ma_xac_nhan = $k) AND la_theo_duoi = 1')
+    dong = db.prepare('SELECT * FROM schedules WHERE (id = $k OR confirm_code = $k) AND is_follow_up = 1')
       .get({ k: khoa });
   } else {
     // Bỏ trống ⇒ lời nhắc VỪA ĐÓNG GẦN ĐÂY NHẤT của chính hội thoại này.
-    // ⚠️ Lọc theo `chat_id_dich`: thiếu nó thì đứng ở nhóm A mở được lời nhắc
+    // ⚠️ Lọc theo `target_chat_id`: thiếu nó thì đứng ở nhóm A mở được lời nhắc
     // của nhóm B — một đường rò chéo nhóm KHÔNG đi qua `history`.
     const c = toId(chatId ?? null, 'reopenReminder.chatId');
     if (!c) return { ok: false, ly: 'KHONG_TIM_THAY' };
     dong = db.prepare(
-      `SELECT * FROM lich_hen
-        WHERE la_theo_duoi = 1 AND chat_id_dich = $c AND trang_thai_td = $ttd
-        ORDER BY dong_luc_ms DESC LIMIT 1`,
+      `SELECT * FROM schedules
+        WHERE is_follow_up = 1 AND target_chat_id = $c AND follow_up_status = $ttd
+        ORDER BY closed_at_ms DESC LIMIT 1`,
     ).get({ c, ttd: TRANG_THAI_TD.DA_XONG });
   }
 
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
-  if (dong.trang_thai_td !== TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'CHUA_DONG' };
+  if (dong.follow_up_status !== TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'CHUA_DONG' };
 
   // Hết lượt mà mở lại nhưng KHÔNG nới trần thì `claimReminderTurn` đóng nó ngay
   // ở lượt kế tiếp — mở mà như không mở. Nói thẳng ra thay vì làm rồi im.
-  const tran = dong.tran_so_lan === null || dong.tran_so_lan === undefined
-    ? null : Number(dong.tran_so_lan);
-  const daNhac = Number(dong.so_lan_da_nhac ?? 0);
+  const tran = dong.max_reminds === null || dong.max_reminds === undefined
+    ? null : Number(dong.max_reminds);
+  const daNhac = Number(dong.remind_count ?? 0);
   const hetLuot = tran !== null && daNhac >= tran;
   if (hetLuot && !noiTran) return { ok: false, ly: 'HET_LUOT_CAN_NOI_TRAN', tranCu: tran, daNhac };
 
   const tranMoi = hetLuot && noiTran ? daNhac + Number(tran) : tran;
 
   db.prepare(
-    `UPDATE lich_hen
-        SET trang_thai_td = $ttd, trang_thai = $tt,
-            dong_boi = NULL, dong_luc_ms = NULL, ly_do_dong = NULL,
-            tam_dung_toi_ms = NULL, cho_model_tu_ms = NULL,
-            tran_so_lan = $tran,
-            gui_luc_ms = $ke, ts_cap_nhat = $ts
-      WHERE id = $id AND trang_thai_td = $cu`,
+    `UPDATE schedules
+        SET follow_up_status = $ttd, status = $tt,
+            closed_by = NULL, closed_at_ms = NULL, close_reason = NULL,
+            paused_until_ms = NULL, model_wait_since_ms = NULL,
+            max_reminds = $tran,
+            send_at_ms = $ke, ts_updated = $ts
+      WHERE id = $id AND follow_up_status = $cu`,
   ).run({
     ttd: TRANG_THAI_TD.DANG_THEO_DUOI,
     tt: TRANG_THAI_LICH.DA_LEN_LICH,
@@ -933,7 +933,7 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
     ok: true,
     daNoiTran: Boolean(hetLuot && noiTran),
     tranMoi,
-    dong: db.prepare('SELECT * FROM lich_hen WHERE id = $id').get({ id: dong.id }),
+    dong: db.prepare('SELECT * FROM schedules WHERE id = $id').get({ id: dong.id }),
     nguoiMo: String(nguoiMo ?? ''),
   };
 }
@@ -948,9 +948,9 @@ export function reopenReminder(db, { id, chatId, nguoiMo, isHost, noiTran, bayGi
  * giờ nhắc quen thuộc; từ lượt thứ hai `claimReminderTurn` nắn lại đúng.
  */
 function _khoangNhipMs(dong) {
-  const phut = Number(dong?.chu_ky_phut);
+  const phut = Number(dong?.cycle_minutes);
   if (Number.isFinite(phut) && phut > 0) return Math.floor(phut * 60_000);
-  const ngay = Number(dong?.chu_ky_ngay);
+  const ngay = Number(dong?.cycle_days);
   return Math.floor((Number.isFinite(ngay) && ngay > 0 ? ngay : 1) * 86_400_000);
 }
 
@@ -967,7 +967,7 @@ function _khoangNhipMs(dong) {
  * **cùng tin là mình nhận được**, rồi cùng gửi — tức hai tin vào nhóm người
  * thật, mà tin Zalo thì không thu hồi được.
  *
- * Ở đây điều kiện `AND trang_thai = $tu` là thứ làm việc: SQLite thi hành
+ * Ở đây điều kiện `AND status = $tu` là thứ làm việc: SQLite thi hành
  * `UPDATE` nguyên tử, nên chỉ MỘT lệnh thấy trạng thái cũ và đổi được nó;
  * lệnh còn lại đếm `changes = 0` và biết mình thua.
  *
@@ -992,7 +992,7 @@ export function claimQuestion(db, requestId, tuTrangThai, denTrangThai) {
   // ═══════════════════════════════════════════════════════════════════
   // 🔴 NGUỒN == ĐÍCH ⇒ TỪ CHỐI. ⛔ ĐỪNG BỎ DÒNG NÀY.
   //
-  // `UPDATE … SET trang_thai='X' WHERE trang_thai='X'` khớp dòng và SQLite vẫn
+  // `UPDATE … SET status='X' WHERE status='X'` khớp dòng và SQLite vẫn
   // đếm `changes = 1` ⇒ CAS **LUÔN THẮNG**, cho MỌI người gọi. Dùng nó làm
   // chốt giành việc là N tiến trình cùng "nhận được" một dòng rồi cùng làm.
   //
@@ -1010,7 +1010,7 @@ export function claimQuestion(db, requestId, tuTrangThai, denTrangThai) {
 
   const kq = db
     .prepare(
-      'UPDATE hang_doi_hoi SET trang_thai = $den WHERE request_id = $rid AND trang_thai = $tu',
+      'UPDATE ask_queue SET status = $den WHERE request_id = $rid AND status = $tu',
     )
     .run({ den: denTrangThai, rid: String(requestId), tu: tuTrangThai });
   return Number(kq.changes) === 1;
@@ -1024,7 +1024,7 @@ const _TRANG_THAI_GUI_HOP_LE = new Set(Object.values(TRANG_THAI_GUI));
  * ⚠️ Xếp hàng ≠ đã gửi. Người gọi PHẢI nói với model đúng chữ *"đã xếp hàng
  * gửi"* — viết *"đã gửi"* là dựng lại đúng ca hỏng 08:03 (nói xong ≠ làm xong).
  *
- * 🔴 Ép kiểu ở đây, ⛔ đừng đẩy xuống cho SQLite. Cột `so_lan_thu` là INTEGER
+ * 🔴 Ép kiểu ở đây, ⛔ đừng đẩy xuống cho SQLite. Cột `attempt_count` là INTEGER
  * nhưng SQLite có "type affinity": nhét chuỗi vào nó có thể im lặng đổi kiểu,
  * hoặc im lặng GIỮ NGUYÊN chuỗi trong một cột khai là số — cả hai đều hỏng câm.
  *
@@ -1040,9 +1040,9 @@ export function enqueueOutbound(db, p) {
   const ts = _bayGio();
 
   db.prepare(
-    `INSERT INTO hang_doi_gui
-       (id, request_id, chat_id_dich, text, tag_user_ids, trang_thai, so_lan_thu,
-        ly_do, msg_id, ts_tao, ts_cap_nhat)
+    `INSERT INTO send_queue
+       (id, request_id, target_chat_id, text, tag_user_ids, status, attempt_count,
+        reason, msg_id, ts_created, ts_updated)
      VALUES ($id, $rid, $chat, $text, $tag, $tt, 0, NULL, NULL, $ts, $ts)`,
   ).run({
     id,
@@ -1053,14 +1053,14 @@ export function enqueueOutbound(db, p) {
     tt: TRANG_THAI_GUI.CHO,
     ts,
   });
-  return { id, dong: db.prepare('SELECT * FROM hang_doi_gui WHERE id = $id').get({ id }) };
+  return { id, dong: db.prepare('SELECT * FROM send_queue WHERE id = $id').get({ id }) };
 }
 
 /**
  * ★ NHẬN một tin trong outbox bằng CAS — cùng nguyên tắc với `claimQuestion`.
  *
  * 🔴 Đây là chốt duy nhất ngăn hai bộ chạy chồng nhau cùng gửi MỘT tin.
- * `so_lan_thu` cộng ngay lúc nhận, ⛔ không phải lúc gửi xong: gửi rồi mới đếm
+ * `attempt_count` cộng ngay lúc nhận, ⛔ không phải lúc gửi xong: gửi rồi mới đếm
  * thì tiến trình chết giữa chừng là lượt thử đó **biến mất khỏi sổ**, và lời
  * nhắc quay vòng mãi mà số đếm không nhúc nhích.
  *
@@ -1076,11 +1076,11 @@ export function claimOutbound(db, id, tuTrangThai, denTrangThai) {
   }
   const kq = db
     .prepare(
-      `UPDATE hang_doi_gui
-          SET trang_thai = $den,
-              so_lan_thu = so_lan_thu + CASE WHEN $den = $dangGui THEN 1 ELSE 0 END,
-              ts_cap_nhat = $ts
-        WHERE id = $id AND trang_thai = $tu`,
+      `UPDATE send_queue
+          SET status = $den,
+              attempt_count = attempt_count + CASE WHEN $den = $dangGui THEN 1 ELSE 0 END,
+              ts_updated = $ts
+        WHERE id = $id AND status = $tu`,
     )
     .run({
       den: denTrangThai, id: String(id), tu: tuTrangThai,
@@ -1093,12 +1093,12 @@ export function claimOutbound(db, id, tuTrangThai, denTrangThai) {
 export function writeSendResult(db, id, { msgId, lyDo } = {}) {
   const ok = Boolean(msgId);
   const kq = db.prepare(
-    `UPDATE hang_doi_gui SET trang_thai = $tt, msg_id = $m, ly_do = $ly, ts_cap_nhat = $ts
+    `UPDATE send_queue SET status = $tt, msg_id = $m, reason = $ly, ts_updated = $ts
       WHERE id = $id`,
   ).run({
     tt: ok ? TRANG_THAI_GUI.DA_GUI : TRANG_THAI_GUI.LOI,
     m: ok ? String(msgId) : null,
-    // ⛔ Không để `ly_do` rỗng khi 'loi': dòng lỗi không có lý do thì người đọc
+    // ⛔ Không để `reason` rỗng khi 'loi': dòng lỗi không có lý do thì người đọc
     // chỉ còn cách đoán, mà đoán sai ở đây là gửi lại một tin đã tới nơi.
     ly: ok ? null : String(lyDo ?? '(không rõ lý do)'),
     ts: _bayGio(),
@@ -1115,7 +1115,7 @@ export function takePendingOutbound(db, soLuong = 20) {
   const n = Number.isFinite(Number(soLuong)) && Number(soLuong) > 0
     ? Math.min(Math.floor(Number(soLuong)), 200) : 20;
   return db.prepare(
-    'SELECT * FROM hang_doi_gui WHERE trang_thai = $tt ORDER BY ts_tao ASC LIMIT $n',
+    'SELECT * FROM send_queue WHERE status = $tt ORDER BY ts_created ASC LIMIT $n',
   ).all({ tt: TRANG_THAI_GUI.CHO, n });
 }
 
@@ -1126,8 +1126,8 @@ export function takePendingOutbound(db, soLuong = 20) {
 export function takeStuckOutbound(db, quaMs, bayGioMs = Date.now()) {
   const moc = new Date(Math.floor(bayGioMs) - Number(quaMs)).toISOString();
   return db.prepare(
-    `SELECT * FROM hang_doi_gui
-      WHERE trang_thai IN ($cho, $dang) AND ts_cap_nhat <= $moc
-      ORDER BY ts_cap_nhat ASC LIMIT 50`,
+    `SELECT * FROM send_queue
+      WHERE status IN ($cho, $dang) AND ts_updated <= $moc
+      ORDER BY ts_updated ASC LIMIT 50`,
   ).all({ cho: TRANG_THAI_GUI.CHO, dang: TRANG_THAI_GUI.DANG_GUI, moc });
 }

@@ -200,7 +200,7 @@ export function attachMessageHandlers(p) {
     try {
       const kq = markRecalled(db, sk);
       if (!kq.khopDuoc) {
-        // Ghi log to: đây là thước đo nghiệm thu M2 (`khop_duoc = 0` = mồ côi).
+        // Ghi log to: đây là thước đo nghiệm thu M2 (`matched = 0` = mồ côi).
         log(`⚠️ thu hồi ${sk?.eventId} KHÔNG ghép được vào tin nào (mồ côi)`);
       } else if (kq.ghepBang === 'cli_msg_id') {
         log(`⚠️ thu hồi ${sk?.eventId} phải ghép bù bằng cli_msg_id — đường ghép CHÍNH đang hỏng`);
@@ -261,9 +261,9 @@ export function handleMessage(p, tin) {
   const hostDm = findHostByDm(cauHinh, chatId);
 
   // ── ① GHI DB TRƯỚC — luôn luôn, mọi tin ───────────────────────────
-  // `duoc_nghe` = có trong allowlist (khớp đúng chú thích cột trong
+  // `listened` = có trong allowlist (khớp đúng chú thích cột trong
   // schema.sql). Nhóm lạ VẪN được lưu lịch sử (spec: "âm thầm lưu toàn bộ
-  // lịch sử chat của các nhóm nó được add vào") nhưng `duoc_nghe = 0` nên
+  // lịch sử chat của các nhóm nó được add vào") nhưng `listened = 0` nên
   // tầng đọc không trả ra — fail-closed, đúng hướng.
   try {
     upsertConversation(db, {
@@ -715,12 +715,12 @@ async function chayClient(co, log, cauHinh) {
     );
   }
   setReadScope(toanBo ? null : phamViTho);
-  // Danh tính pane cho `nhat_ky_truy_van.client_id`. Mặc định = chính phạm vi
+  // Danh tính pane cho `query_log.client_id`. Mặc định = chính phạm vi
   // (đó CHÍNH LÀ thứ phân biệt các pane với nhau); `ZTL_CLIENT_ID` đè được khi
   // người vận hành muốn tên dễ đọc hơn.
   // ⚠️ `tuyenTho` đi TRƯỚC `'toan_bo'`: cả `zalo-router` lẫn client DỰ PHÒNG đều
   // khai `toan_bo`, nên lấy nguyên chữ đó làm danh tính là HAI PANE TRÙNG TÊN
-  // trong `nhat_ky_truy_van.client_id` — và cột đó sinh ra để trả lời "PANE NÀO
+  // trong `query_log.client_id` — và cột đó sinh ra để trả lời "PANE NÀO
   // đã đọc nhóm nào".
   setClientId(
     (process.env.ZTL_CLIENT_ID ?? '').trim()
@@ -889,7 +889,7 @@ async function chayClient(co, log, cauHinh) {
       // ⛔ Trước v9 KHÔNG có dòng này, và đó là lỗi CHẶN CỨNG: client rút hàng
       // đợi ĐÚNG MỘT LẦN rồi `await new Promise(() => {})` ngồi im mãi ⇒ ở chế
       // độ tách, MỌI tin nhắn mới của người dùng chỉ được nhặt lúc pane khởi
-      // động. Sau đó daemon ghi vào `hang_doi_hoi` bao nhiêu cũng nằm đó.
+      // động. Sau đó daemon ghi vào `ask_queue` bao nhiêu cũng nằm đó.
       vong = createWorkPollLoop({
         // ⚠️ `gomDaDay: false` trong vòng poll. Bật nó ở đây là mỗi 2 giây đẩy
         // lại chính câu Claude ĐANG xử lý dở — xem khối A7 ở `store/write.js`.
@@ -1005,7 +1005,7 @@ export async function drainOutbox(p) {
 
     try {
       // eslint-disable-next-line no-await-in-loop
-      const kq = await p.gui(String(d.chat_id_dich), String(d.text), uids);
+      const kq = await p.gui(String(d.target_chat_id), String(d.text), uids);
       writeSendResult(p.db, d.id, { msgId: kq?.msgId ?? null, lyDo: kq?.msgId ? null : 'Zalo không trả msgId' });
       if (kq?.msgId) ra.daGui += 1; else ra.loi += 1;
     } catch (e) {

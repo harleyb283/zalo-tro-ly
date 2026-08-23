@@ -11,7 +11,7 @@
  *
  * 🔴 VÌ SAO KHÔNG DỌN DỮ LIỆU MÀ SỬA TRUY VẤN:
  *    Hai bản vá đang đá nhau. Bản "lấp chữ bị mất" (20/08) CỐ Ý điền tên hiển
- *    thị của bot vào dòng `do_tro_ly_tao=1` để đọc lịch sử cho dễ; bản chống
+ *    thị của bot vào dòng `made_by_assistant=1` để đọc lịch sử cho dễ; bản chống
  *    tự-tag lại muốn tên đó biến mất. Cả hai đều đúng ở chỗ của nó ⇒ xoá hôm
  *    nay thì mai bản kia điền lại. Luật phải nằm ở TẦNG ĐỌC.
  *
@@ -19,7 +19,7 @@
  *    trong đó ⇒ trợ lý có thể tự tag CHÍNH NÓ trong nhóm người thật ⇒ tự đánh
  *    thức chính nó ⇒ vòng lặp tự kích hoạt.
  *
- * ⛔ KHÔNG lọc theo `do_tro_ly_tao`: cột đó THUA CUỘC ĐUA 35,3% (18/51 dòng của
+ * ⛔ KHÔNG lọc theo `made_by_assistant`: cột đó THUA CUỘC ĐUA 35,3% (18/51 dòng của
  *    bot mang cờ 0 vì listener ghi trước). Lọc theo UID.
  * ═══════════════════════════════════════════════════════════════════════
  */
@@ -49,7 +49,7 @@ process.on('exit', () => {
 
 /**
  * Dựng lại ĐÚNG trạng thái DB thật hiện nay: bot có tin KÈM TÊN HIỂN THỊ, và
- * có cả dòng `do_tro_ly_tao=1` lẫn `do_tro_ly_tao=0` (cuộc đua listener).
+ * có cả dòng `made_by_assistant=1` lẫn `made_by_assistant=0` (cuộc đua listener).
  * Bài test dựng dữ liệu "sạch" sẽ xanh cả khi chưa vá gì — vô nghĩa.
  */
 function dbTam({ uidBot = BOT } = {}) {
@@ -233,9 +233,9 @@ test('N10 registerTools với getOwnId() = "0" -> KHÔNG nhớ bừa', () => {
 // 5. CHỐNG SÓT LẦN SAU — canh CẢ HỌ chỗ dùng danh sách người
 // ═══════════════════════════════════════════════════════════════════════
 
-test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot chỉ có dòng cờ 0', () => {
-  // Ca THẬT: 18/51 dòng của bot mang `do_tro_ly_tao = 0` vì listener ghi trước
-  // (thua cuộc đua 35,3%). Ai "sửa" bằng cách thêm `AND do_tro_ly_tao = 0` vào
+test('N12 🔴 lọc bằng UID chứ không bằng cờ `made_by_assistant` — bot chỉ có dòng cờ 0', () => {
+  // Ca THẬT: 18/51 dòng của bot mang `made_by_assistant = 0` vì listener ghi trước
+  // (thua cuộc đua 35,3%). Ai "sửa" bằng cách thêm `AND made_by_assistant = 0` vào
   // truy vấn sẽ để nguyên mấy dòng đó ⇒ bot vẫn lọt. Bài này dựng ca cực đoan:
   // TOÀN BỘ dòng của bot đều cờ 0.
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-cum4b-'));
@@ -254,7 +254,7 @@ test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot
         tsZalo: ts, tuToi: false, hasHostMention: false,
       });   // KHÔNG truyền doTroLyTao -> cờ 0, đúng như listener ghi
     }
-    const co1 = db.prepare('SELECT COUNT(*) c FROM tin_nhan WHERE user_id = ? AND do_tro_ly_tao = 1')
+    const co1 = db.prepare('SELECT COUNT(*) c FROM messages WHERE user_id = ? AND made_by_assistant = 1')
       .get(BOT).c;
     assert.equal(co1, 0, 'ca thử phải là: bot KHÔNG có dòng nào mang cờ 1');
 
@@ -264,7 +264,7 @@ test('N12 🔴 lọc bằng UID chứ không bằng cờ `do_tro_ly_tao` — bot
   } finally { setAssistantUid(null); closeDb(db); }
 });
 
-test('N13 truy vấn groupMembers KHÔNG được dựa vào cờ `do_tro_ly_tao`', () => {
+test('N13 truy vấn groupMembers KHÔNG được dựa vào cờ `made_by_assistant`', () => {
   // Chốt cứng ở mức MÃ NGUỒN, vì hành vi sai của cách-lọc-bằng-cờ chỉ lộ ra
   // trong đúng ca cuộc-đua — dễ "sửa" nhầm rồi thấy test vẫn xanh.
   const s = fs.readFileSync(new URL('../src/store/query.js', import.meta.url), 'utf8');
@@ -272,12 +272,12 @@ test('N13 truy vấn groupMembers KHÔNG được dựa vào cờ `do_tro_ly_tao
   // hàm ⇒ i = -1 ⇒ cắt ra CHUỖI RỖNG ⇒ regex không khớp ⇒ bài test XANH VĨNH VIỄN
   // trong khi ⛔ không canh gì cả. `thanHam` NÉM khi mất neo.
   const than = thanHam(s, 'export function groupMembers');
-  assert.equal(/do_tro_ly_tao/.test(than), false,
-    'groupMembers dựa vào do_tro_ly_tao — cột đó thua cuộc đua 35,3%, phải lọc theo uid');
+  assert.equal(/made_by_assistant/.test(than), false,
+    'groupMembers dựa vào made_by_assistant — cột đó thua cuộc đua 35,3%, phải lọc theo uid');
 });
 
 test('N11 mọi chỗ trong src/ đọc danh sách người đều đi qua groupMembers', () => {
-  // Nếu sau này ai viết truy vấn `ten_luc_gui` riêng để suy ra thành viên nhóm,
+  // Nếu sau này ai viết truy vấn `name_at_send` riêng để suy ra thành viên nhóm,
   // luật lọc bot ở đây không áp được cho nó. Bài này bắt đúng lúc đó, thay vì
   // chờ bot tự tag mình lần nữa trên hệ thật.
   const goc = new URL('../src/', import.meta.url);
@@ -288,7 +288,7 @@ test('N11 mọi chỗ trong src/ đọc danh sách người đều đi qua group
       if (e.isDirectory()) { duyet(con); continue; }
       if (!e.name.endsWith('.js')) continue;
       const s = fs.readFileSync(con, 'utf8');
-      // Bỏ chú thích khỏi phép soi: chính file này bàn về `ten_luc_gui` rất nhiều.
+      // Bỏ chú thích khỏi phép soi: chính file này bàn về `name_at_send` rất nhiều.
       const ma = s.split('\n').filter((l) => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
       if (/GROUP BY\s+user_id/i.test(ma) && !con.pathname.endsWith('/store/query.js')) {
         nghiNgo.push(con.pathname.replace(goc.pathname, ''));

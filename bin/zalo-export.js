@@ -18,11 +18,11 @@
  *    mở đọc-ghi VÀ chạy `migrate()`. Một công cụ "xem lại lịch sử" mà lỡ tay
  *    migrate kho của anh là chuyện không được phép xảy ra.
  *
- * 2. 🔴 KHÔNG JOIN `hoi_thoai.duoc_nghe = 1` như `store/query.js`.
+ * 2. 🔴 KHÔNG JOIN `conversations.listened = 1` như `store/query.js`.
  *    `query.js` fail-closed vì nó phục vụ MODEL (nhóm rời allowlist thì model
  *    không được đọc nữa). File này phục vụ CHÍNH ANH, chạy tay trên máy anh:
  *    lọc mất tin của nhóm đã rời allowlist là GIẤU DỮ LIỆU của chủ sở hữu.
- *    Thay vào đó, hội thoại có `duoc_nghe = 0` được xuất kèm ghi chú.
+ *    Thay vào đó, hội thoại có `listened = 0` được xuất kèm ghi chú.
  *
  * 3. 🔴 `--so N` lấy N tin MỚI NHẤT rồi in theo thứ tự TĂNG DẦN.
  *    Viết thẳng `ORDER BY ts_zalo ASC LIMIT N` là lấy nhầm N tin CŨ NHẤT —
@@ -264,57 +264,57 @@ function dieuKien(loc) {
 export function fetchMessages(db, loc) {
   const { menh, bien } = dieuKien(loc);
   const tong = Number(
-    db.prepare(`SELECT count(*) AS c FROM tin_nhan t${menh}`).get(bien)?.c ?? 0,
+    db.prepare(`SELECT count(*) AS c FROM messages t${menh}`).get(bien)?.c ?? 0,
   );
 
   const gioiHan = Number.isFinite(loc.soLuong) && loc.soLuong > 0 ? Math.floor(loc.soLuong) : null;
   // DESC + LIMIT rồi reverse: xem quyết định số 3 ở đầu file.
   const sql =
-    `SELECT t.* FROM tin_nhan t${menh} ORDER BY t.ts_zalo DESC, t.msg_id DESC` +
+    `SELECT t.* FROM messages t${menh} ORDER BY t.ts_zalo DESC, t.msg_id DESC` +
     (gioiHan ? ' LIMIT $gioi_han' : '');
   const rows = db.prepare(sql).all(gioiHan ? { ...bien, gioi_han: gioiHan } : bien);
   return { tin: rows.reverse(), tongKhopBoLoc: tong };
 }
 
-/** Sự kiện thu hồi theo (chat_id, msg_id_dich) — để biết AI thu hồi và LÚC NÀO. */
+/** Sự kiện thu hồi theo (chat_id, target_msg_id) — để biết AI thu hồi và LÚC NÀO. */
 export function recallTable(db, chatId) {
   const rows = chatId
-    ? db.prepare('SELECT * FROM su_kien_thu_hoi WHERE chat_id = ?').all(chatId)
-    : db.prepare('SELECT * FROM su_kien_thu_hoi').all();
+    ? db.prepare('SELECT * FROM recall_events WHERE chat_id = ?').all(chatId)
+    : db.prepare('SELECT * FROM recall_events').all();
   const ra = new Map();
-  for (const r of rows) ra.set(`${r.chat_id}|${r.msg_id_dich}`, r);
+  for (const r of rows) ra.set(`${r.chat_id}|${r.target_msg_id}`, r);
   return ra;
 }
 
 export function conversationTable(db) {
   const ra = new Map();
-  for (const r of db.prepare('SELECT * FROM hoi_thoai').all()) ra.set(String(r.chat_id), r);
+  for (const r of db.prepare('SELECT * FROM conversations').all()) ra.set(String(r.chat_id), r);
   return ra;
 }
 
 export function peopleTable(db) {
   const ra = new Map();
-  for (const r of db.prepare('SELECT * FROM nguoi').all()) ra.set(String(r.user_id), r);
+  for (const r of db.prepare('SELECT * FROM people').all()) ra.set(String(r.user_id), r);
   return ra;
 }
 
 /** Danh sách hội thoại + số tin + khoảng thời gian, cho `--danh-sach`. */
 export function listConversations(db) {
   return db.prepare(`
-    SELECT h.chat_id, h.ten, h.loai, h.duoc_nghe,
+    SELECT h.chat_id, h.name, h.kind, h.listened,
            count(t.msg_id) AS so_tin,
            min(t.ts_zalo)  AS som_nhat,
            max(t.ts_zalo)  AS muon_nhat,
-           sum(t.da_thu_hoi) AS so_thu_hoi
-    FROM hoi_thoai h LEFT JOIN tin_nhan t ON t.chat_id = h.chat_id
+           sum(t.recalled) AS so_thu_hoi
+    FROM conversations h LEFT JOIN messages t ON t.chat_id = h.chat_id
     GROUP BY h.chat_id
     UNION ALL
-    -- Hội thoại có tin nhưng CHƯA có dòng trong hoi_thoai: vẫn phải hiện, nếu
+    -- Hội thoại có tin nhưng CHƯA có dòng trong conversations: vẫn phải hiện, nếu
     -- không thì tin nằm trong kho mà không ai biết đường nào tra ra.
     SELECT t.chat_id, NULL, NULL, NULL,
-           count(*), min(t.ts_zalo), max(t.ts_zalo), sum(t.da_thu_hoi)
-    FROM tin_nhan t
-    WHERE t.chat_id NOT IN (SELECT chat_id FROM hoi_thoai)
+           count(*), min(t.ts_zalo), max(t.ts_zalo), sum(t.recalled)
+    FROM messages t
+    WHERE t.chat_id NOT IN (SELECT chat_id FROM conversations)
     GROUP BY t.chat_id
     ORDER BY muon_nhat DESC
   `).all();
@@ -352,13 +352,13 @@ export function messageKindLabel(r) {
 }
 
 /**
- * Tên người gửi — LUÔN dùng `ten_luc_gui` (ảnh chụp lúc gửi).
- * ⚠️ CỐ Ý KHÔNG tra `nguoi.ten_hien_thi`: người đổi tên thì lịch sử phải giữ
+ * Tên người gửi — LUÔN dùng `name_at_send` (ảnh chụp lúc gửi).
+ * ⚠️ CỐ Ý KHÔNG tra `people.display_name`: người đổi tên thì lịch sử phải giữ
  * nguyên bối cảnh lúc đó, nếu không đọc lại sẽ hiểu sai ai nói câu gì.
  */
 export function senderName(r) {
-  if (r.do_tro_ly_tao === 1) return 'Trợ lý (tự gửi)';
-  const ten = (r.ten_luc_gui ?? '').trim();
+  if (r.made_by_assistant === 1) return 'Trợ lý (tự gửi)';
+  const ten = (r.name_at_send ?? '').trim();
   if (ten) return ten;
   const uid = toId(r.user_id, 'export.user_id');
   return uid ? `<${uid}>` : '<không rõ người gửi>';
@@ -369,12 +369,12 @@ export function senderName(r) {
  * cấm để người đọc tưởng đây là tên lúc thu hồi trong khi thực ra là tên hiện tại.
  */
 export function recallerName(r, sk, nguoi) {
-  const boi = toId(sk?.nguoi_thu_hoi ?? r.thu_hoi_boi, 'export.thu_hoi_boi');
-  const tenLuu = (sk?.ten_nguoi_thu_hoi ?? '').trim();
+  const boi = toId(sk?.recaller_id ?? r.recalled_by, 'export.recalled_by');
+  const tenLuu = (sk?.recaller_name ?? '').trim();
   if (tenLuu) return tenLuu;
   if (!boi) return 'không rõ ai';
   if (boi === toId(r.user_id, 'export.user_id')) return `${senderName(r)} (chính người gửi)`;
-  const ht = (nguoi.get(boi)?.ten_hien_thi ?? '').trim();
+  const ht = (nguoi.get(boi)?.display_name ?? '').trim();
   return ht ? `${ht} (tên HIỆN TẠI, không phải tên lúc thu hồi)` : `<${boi}>`;
 }
 
@@ -393,12 +393,12 @@ export function buildMarkdown(p) {
 
   d.push(`# Lịch sử Zalo — ${tenHt}`, '');
   if (loc.chatId) {
-    d.push(`- **Hội thoại:** ${tenHt} (\`${loc.chatId}\`${ht?.loai ? `, ${ht.loai}` : ''})`);
-    if (ht && Number(ht.duoc_nghe) === 0) {
+    d.push(`- **Hội thoại:** ${tenHt} (\`${loc.chatId}\`${ht?.kind ? `, ${ht.kind}` : ''})`);
+    if (ht && Number(ht.listened) === 0) {
       d.push('- ⚠️ Hội thoại này **không còn trong danh sách nghe** — tin cũ vẫn được xuất đầy đủ.');
     }
     if (!ht) {
-      d.push('- ⚠️ Không có dòng nào trong bảng `hoi_thoai` cho mã này (tin vẫn còn trong kho).');
+      d.push('- ⚠️ Không có dòng nào trong bảng `conversations` cho mã này (tin vẫn còn trong kho).');
     }
   } else {
     d.push('- **Hội thoại:** TẤT CẢ (không lọc theo `--chat`)');
@@ -408,7 +408,7 @@ export function buildMarkdown(p) {
       ` → ${loc.den === null ? 'tới nay' : formatTime(loc.den, tz).ngay}`,
   );
 
-  const soThuHoi = tin.filter((r) => Number(r.da_thu_hoi) === 1).length;
+  const soThuHoi = tin.filter((r) => Number(r.recalled) === 1).length;
   const monG = Number.isFinite(loc.soLuong) && loc.soLuong > 0
     ? Math.min(tongKhopBoLoc, Math.floor(loc.soLuong))
     : tongKhopBoLoc;
@@ -448,15 +448,15 @@ export function buildMarkdown(p) {
 
     const ten = senderName(r);
     const nhomNhan = nhieuHoiThoai
-      ? ` · _${(hoiThoai.get(String(r.chat_id))?.ten ?? `<${r.chat_id}>`)}_`
+      ? ` · _${(hoiThoai.get(String(r.chat_id))?.name ?? `<${r.chat_id}>`)}_`
       : '';
-    const daThuHoi = Number(r.da_thu_hoi) === 1;
+    const daThuHoi = Number(r.recalled) === 1;
     const sk = thuHoi.get(`${r.chat_id}|${r.msg_id}`);
 
     if (daThuHoi) {
       // 🔴 ĐÂY LÀ LÝ DO TỒN TẠI CỦA CẢ CÔNG CỤ: hiện RÕ là đã thu hồi, nói AI
       // và LÚC NÀO, nhưng VẪN IN NGUYÊN NỘI DUNG GỐC.
-      const lucMs = Number(sk?.ts_zalo ?? r.thu_hoi_luc ?? 0);
+      const lucMs = Number(sk?.ts_zalo ?? r.recalled_at ?? 0);
       const luc = lucMs > 0 ? `${formatTime(lucMs, tz).ngay} ${formatTime(lucMs, tz).gio}` : 'không rõ lúc nào';
       d.push(`**[${g.gio}] ${ten}${nhomNhan}** — 🗑️ **TIN ĐÃ THU HỒI**`);
       d.push(`_Thu hồi bởi ${recallerName(r, sk, nguoi)} lúc ${luc}. Nội dung gốc vẫn giữ:_`);
@@ -466,8 +466,8 @@ export function buildMarkdown(p) {
     }
 
     const nhan = messageKindLabel(r);
-    if (r.noi_dung !== null && r.noi_dung !== undefined && String(r.noi_dung) !== '') {
-      d.push(trichDan(r.noi_dung));
+    if (r.content !== null && r.content !== undefined && String(r.content) !== '') {
+      d.push(trichDan(r.content));
     } else if (nhan) {
       d.push(`> _[${nhan}]_ — nội dung không được lưu (chỉ lưu tin chữ).`);
     } else {
@@ -486,9 +486,9 @@ function mdDanhSach(ds, tz) {
   for (const r of ds) {
     const som = r.som_nhat ? formatTime(Number(r.som_nhat), tz).ngay : '—';
     const muon = r.muon_nhat ? formatTime(Number(r.muon_nhat), tz).ngay : '—';
-    const nghe = r.duoc_nghe === null ? '⚠️ chưa có trong hoi_thoai' : (Number(r.duoc_nghe) === 1 ? 'có' : 'KHÔNG');
+    const nghe = r.listened === null ? '⚠️ chưa có trong conversations' : (Number(r.listened) === 1 ? 'có' : 'KHÔNG');
     d.push(
-      `| \`${r.chat_id}\` | ${(r.ten ?? '').trim() || '—'} | ${r.loai ?? '—'} | ${nghe} ` +
+      `| \`${r.chat_id}\` | ${(r.name ?? '').trim() || '—'} | ${r.kind ?? '—'} | ${nghe} ` +
         `| ${Number(r.so_tin ?? 0)} | ${Number(r.so_thu_hoi ?? 0)} | ${som} | ${muon} |`,
     );
   }

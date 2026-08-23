@@ -63,7 +63,7 @@ function _canhBao(msg) {
  * ═══ HAI KIỂU SỔ — mặc định vẫn là RAM, KHÔNG đổi hành vi hôm nay ═══
  *
  * `createSourceLedger()`        -> sổ RAM, y hệt trước giờ.
- * `createSourceLedger({ db })`  -> sổ trên ĐĨA (bảng `nguon_phien`).
+ * `createSourceLedger({ db })`  -> sổ trên ĐĨA (bảng `request_origin`).
  *
  * 🔴 VÌ SAO CẦN SỔ TRÊN ĐĨA: khi tách daemon/client, `bo_chay` (daemon) ghi
  * nguồn vào sổ RAM của daemon còn `tra_loi` (client) tra sổ RAM của client ⇒
@@ -133,7 +133,7 @@ export function createSourceLedger(tuyChon = {}) {
 }
 
 /**
- * ★ Sổ nguồn trên ĐĨA — bảng `nguon_phien`.
+ * ★ Sổ nguồn trên ĐĨA — bảng `request_origin`.
  *
  * ═══ 🔴 HƯỚNG FAIL: ĐỌC HỎNG THÌ NÉM. ⛔ TUYỆT ĐỐI KHÔNG `catch` RỒI TRẢ `[]` ═══
  *
@@ -161,7 +161,7 @@ function _boTichLuySqlite(db) {
       }
       const ts = Date.now();
       const st = db.prepare(
-        'INSERT OR IGNORE INTO nguon_phien (request_id, chat_id, ts) VALUES ($r, $c, $t)',
+        'INSERT OR IGNORE INTO request_origin (request_id, chat_id, ts) VALUES ($r, $c, $t)',
       );
       for (const id of nguonChatIds ?? []) {
         const c = toId(id, 'leakGuard.nguon');
@@ -174,18 +174,18 @@ function _boTichLuySqlite(db) {
       if (rid === null) return [];
       // ⛔ KHÔNG bọc try/catch ở đây. Xem khối chú thích trên hàm.
       return db
-        .prepare('SELECT chat_id FROM nguon_phien WHERE request_id = $r ORDER BY chat_id')
+        .prepare('SELECT chat_id FROM request_origin WHERE request_id = $r ORDER BY chat_id')
         .all({ r: rid })
         .map((x) => String(x.chat_id));
     },
 
     xoa(requestId) {
       const rid = _chuan(requestId);
-      if (rid !== null) db.prepare('DELETE FROM nguon_phien WHERE request_id = $r').run({ r: rid });
+      if (rid !== null) db.prepare('DELETE FROM request_origin WHERE request_id = $r').run({ r: rid });
     },
 
     soPhien() {
-      const r = db.prepare('SELECT count(DISTINCT request_id) AS c FROM nguon_phien').get();
+      const r = db.prepare('SELECT count(DISTINCT request_id) AS c FROM request_origin').get();
       return Number(r?.c ?? 0);
     },
 
@@ -252,7 +252,7 @@ export function sweepStale(boTichLuy, tuoiToiDaMs) {
   // giữ nguyên — xoá sớm hơn hàng đợi hết hạn là tự tay mở đường rò.
   if (boTichLuy?._db) {
     const kq = boTichLuy._db
-      .prepare('DELETE FROM nguon_phien WHERE ts < $moc')
+      .prepare('DELETE FROM request_origin WHERE ts < $moc')
       .run({ moc: Date.now() - nguong });
     return Number(kq.changes);
   }

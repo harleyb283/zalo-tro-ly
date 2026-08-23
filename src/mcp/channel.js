@@ -10,7 +10,7 @@
  * 🔴 NOTIFY LÀ BEST-EFFORT, KHÔNG BAO GIỜ RAISE. ⛔ CẤM coi "notify xong" =
  *    "đã tới". Bằng chứng đã tới DUY NHẤT là Claude gọi ngược lại tool.
  *
- * 🔴 Hàng đợi để TRÊN ĐĨA (bảng hang_doi_hoi), không phải RAM như bản Python
+ * 🔴 Hàng đợi để TRÊN ĐĨA (bảng ask_queue), không phải RAM như bản Python
  *    mẫu — anh tag hỏi lúc pane bận/chết thì câu hỏi không được rơi.
  *    ⇒ File này CỐ Ý KHÔNG có buffer RAM: `guiThongBao()` đẩy được thì trả
  *    true, không đẩy được thì trả false và dòng vẫn nằm nguyên ở trạng thái
@@ -401,11 +401,11 @@ export function createChannel(phuThuoc) {
             ts: _iso(payload.tsZalo),
             // v9 — chỉ có mặt khi ĐÚNG là lượt nghe.
             // ⚠️ `undefined` chứ ⛔ KHÔNG phải `''`: `_metaSach` bỏ khoá vắng
-            // giá trị, nhưng chuỗi rỗng thì nó GIỮ — và `chi_nghe: ""` trong
+            // giá trị, nhưng chuỗi rỗng thì nó GIỮ — và `listen_only: ""` trong
             // meta là rác gửi kèm mỗi lượt, đọc lên còn dễ hiểu nhầm là "có cờ".
-            chi_nghe: payload.chiNghe === true ? '1' : undefined,
+            listen_only: payload.chiNghe === true ? '1' : undefined,
             // v10 — id lời nhắc mở cửa 2. Vắng = cửa đóng.
-            id_viec_mo_cua: payload.idViecMoCua ? String(payload.idViecMoCua) : undefined,
+            open_pane_job_id: payload.idViecMoCua ? String(payload.idViecMoCua) : undefined,
             // Bản có cấu trúc, dạng CHUỖI JSON — client nào muốn thì tự parse.
             tra_loi: _traLoiChuoi(traLoi),
           }),
@@ -526,7 +526,7 @@ export async function pushPendingQueue(p) {
   // để tiện đếm là bắt file test của gói khác phải sửa theo — cái giá không đáng.
   if (daHetHan.length && typeof p.baoHetHan === 'function') {
     const liet = daHetHan
-      .map((r) => `· ${String(r.ts_tao).slice(11, 16)} "${String(r.noi_dung ?? '').slice(0, 60)}"`)
+      .map((r) => `· ${String(r.ts_created).slice(11, 16)} "${String(r.content ?? '').slice(0, 60)}"`)
       .join('\n');
     try {
       await p.baoHetHan(
@@ -556,7 +556,7 @@ export async function pushPendingQueue(p) {
     // là **hai lượt model cho một câu hỏi**, tức hai tin vào nhóm người thật.
     // Tin Zalo không thu hồi được.
     //
-    // 🔴 CAS ĐI TỪ `r.trang_thai` — trạng thái LÚC ĐỌC LÊN — sang `dang_xu_ly`.
+    // 🔴 CAS ĐI TỪ `r.status` — trạng thái LÚC ĐỌC LÊN — sang `dang_xu_ly`.
     // ⛔ KHÔNG CAS sang `da_day`: `gomDaDay` gom cả `da_day`, nên
     // `da_day -> da_day` **luôn thắng** và hai bên cùng "nhận được" việc.
     // `dang_xu_ly` không nằm trong tập quét ⇒ chỉ thắng đúng một lần.
@@ -564,7 +564,7 @@ export async function pushPendingQueue(p) {
     let daCam = false;
     if (typeof p.claimQuestion === 'function') {
       try {
-        daCam = p.claimQuestion(p.db, rid, String(r.trang_thai), 'dang_xu_ly');
+        daCam = p.claimQuestion(p.db, rid, String(r.status), 'dang_xu_ly');
       } catch (e) {
         _log(cleanError(`nhận việc ${rid} lỗi`, e).message);
       }
@@ -575,9 +575,9 @@ export async function pushPendingQueue(p) {
     // Đo Ở ĐÂY, sau CAS: chỉ bên THẬT SỰ nhận được việc mới đóng góp số.
     // Bên thua CAS mà cũng ghi thì số bị pha loãng bởi những lượt không ai làm.
     if (typeof p.ghiDoTre === 'function') {
-      const moc = Date.parse(String(r.ts_tao));
+      const moc = Date.parse(String(r.ts_created));
       if (Number.isFinite(moc)) {
-        try { p.ghiDoTre({ requestId: rid, treMs: Date.now() - moc, chiNghe: Number(r.chi_nghe) === 1 }); }
+        try { p.ghiDoTre({ requestId: rid, treMs: Date.now() - moc, chiNghe: Number(r.listen_only) === 1 }); }
         catch (e) { _log(cleanError('không ghi được độ trễ', e).message); }
       }
     }
@@ -586,12 +586,12 @@ export async function pushPendingQueue(p) {
     try {
       ok = await p.guiThongBao({
         requestId: rid,
-        chatId: String(r.chat_id_hoi),
-        tenHoiThoai: p.tenHoiThoai?.(String(r.chat_id_hoi)) ?? null,
+        chatId: String(r.asking_chat_id),
+        tenHoiThoai: p.tenHoiThoai?.(String(r.asking_chat_id)) ?? null,
         nguoiHoi: r.user_id ? String(r.user_id) : null,
-        noiDung: String(r.noi_dung ?? ''),
-        tsZalo: Date.parse(String(r.ts_tao)) || Date.now(),
-        chiNghe: Number(r.chi_nghe) === 1,
+        noiDung: String(r.content ?? ''),
+        tsZalo: Date.parse(String(r.ts_created)) || Date.now(),
+        chiNghe: Number(r.listen_only) === 1,
       });
     } catch (e) {
       _log(cleanError(`đẩy ${rid} ném lỗi`, e).message);

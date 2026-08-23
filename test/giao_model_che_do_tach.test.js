@@ -7,7 +7,7 @@
  * MODEL. Đó là thứ duy nhất chặn việc bật chế độ tách trên máy thật.
  *
  * 🔴 BA THỨ PHẢI CANH CÙNG LÚC, thiếu một là bản vá thành lỗ hổng:
- *   ① tách  ⇒ việc được giao cho client (dòng `hang_doi_hoi` ở `'cho'`)
+ *   ① tách  ⇒ việc được giao cho client (dòng `ask_queue` ở `'cho'`)
  *   ② tách + KHÔNG AI NHẶT ⇒ VẪN có tin đi ra (câu dự phòng) — ⛔ không im lặng
  *   ③ một-tiến-trình ⇒ y hệt hôm nay, kể cả nhánh `--khong-mcp`
  * ═══════════════════════════════════════════════════════════════════════
@@ -56,12 +56,12 @@ function nhacDaChot(db, bayGio, v = {}) {
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: NGUOI, ma, ...v,
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = $g WHERE ma_xac_nhan = $m')
+  db.prepare('UPDATE schedules SET send_at_ms = $g WHERE confirm_code = $m')
     .run({ g: bayGio - 1000, m: ma });
-  return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+  return db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 }
 
-const doc = (db, ma = 'NHAC') => db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+const doc = (db, ma = 'NHAC') => db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 
 /**
  * Bộ phụ thuộc của một nhịp. `guiThongBao` MẶC ĐỊNH null — đúng hoàn cảnh
@@ -83,7 +83,7 @@ function nhip(db, them = {}) {
   return { p, vaoNhom };
 }
 
-const hangDoi = (db) => db.prepare('SELECT * FROM hang_doi_hoi ORDER BY ts_tao ASC').all();
+const hangDoi = (db) => db.prepare('SELECT * FROM ask_queue ORDER BY ts_created ASC').all();
 
 // ═══════════════════════════════════════════════════════════════════════
 // A — NHẬN DIỆN CHẾ ĐỘ. Phải là TÍN HIỆU DƯƠNG, không suy từ chỗ vắng mặt.
@@ -138,12 +138,12 @@ test('B1 — tách: lời nhắc tới giờ ⇒ tạo hàng đợi cho client, 
 
   const hd = hangDoi(db);
   assert.equal(hd.length, 1);
-  assert.equal(hd[0].trang_thai, TRANG_THAI_HANG_DOI.CHO, "phải ở 'cho' thì client mới nhặt");
+  assert.equal(hd[0].status, TRANG_THAI_HANG_DOI.CHO, "phải ở 'cho' thì client mới nhặt");
   assert.match(String(hd[0].msg_id), /^nhac:/, 'client/tra_loi nhận ra phiên nhắc qua tiền tố này');
-  assert.match(String(hd[0].noi_dung), /LỜI NHẮC THEO ĐUỔI/, 'gói dữ kiện cho model phải có mặt');
+  assert.match(String(hd[0].content), /LỜI NHẮC THEO ĐUỔI/, 'gói dữ kiện cho model phải có mặt');
 
   // 🔴 Token phải được đặt — đây là thứ giữ cho lưới an toàn còn bắn được.
-  assert.ok(Number(doc(db).cho_model_tu_ms) > 0, 'thiếu token thì lượt nhắc mất ÂM THẦM');
+  assert.ok(Number(doc(db).model_wait_since_ms) > 0, 'thiếu token thì lượt nhắc mất ÂM THẦM');
 
   closeDb(db);
 });
@@ -169,7 +169,7 @@ test('B2 — tách: client nhặt được đúng việc daemon vừa giao', asy
   assert.equal(kq.day, 1, 'client không nhặt được = việc nằm chết trong hàng đợi');
   assert.equal(daBom.length, 1);
   assert.match(String(daBom[0].noiDung), /LỜI NHẮC THEO ĐUỔI/);
-  assert.equal(hangDoi(db)[0].trang_thai, TRANG_THAI_HANG_DOI.DA_DAY);
+  assert.equal(hangDoi(db)[0].status, TRANG_THAI_HANG_DOI.DA_DAY);
 
   closeDb(db);
 });
@@ -279,7 +279,7 @@ test('E1 ★★★ một-tiến-trình + `--khong-mcp`: gửi câu dự phòng N
   assert.equal(ra.giaoModel, 0);
   assert.equal(vaoNhom.length, 1, 'tin phải đi ra NGAY trong chính nhịp này');
   assert.equal(hangDoi(db).length, 0, 'không có client nào thì đừng tạo hàng đợi mồ côi');
-  assert.equal(doc(db).cho_model_tu_ms, null, 'không đặt token cho một phiên không tồn tại');
+  assert.equal(doc(db).model_wait_since_ms, null, 'không đặt token cho một phiên không tồn tại');
 
   closeDb(db);
 });
@@ -354,7 +354,7 @@ test('F1 — tách: bối cảnh chạm nhóm KHÁC mà chưa nối recordSource
 //    chứng minh vì sao KHÔNG CẦN: `pushPendingQueue` của client gọi
 //    `takePendingQueue(..., { gomDaDay: true })` ⇒ dòng kẹt `'da_day'` ĐÃ được
 //    client nhặt lại sẵn, không phải đổi trạng thái gì cả.
-// ⚠️ Bài này càng quan trọng SAU khi lưới canh `hang_doi_hoi` bị bỏ hẳn
+// ⚠️ Bài này càng quan trọng SAU khi lưới canh `ask_queue` bị bỏ hẳn
 //    (21/08/2026): nó là bằng chứng duy nhất còn lại rằng dòng kẹt KHÔNG rơi
 //    vào im lặng — client nhặt lại, hoặc `takePendingQueue` đánh `het_han` kèm
 //    `baoHetHan` báo host.
@@ -411,7 +411,7 @@ test('H1 — tách nhưng chỗ gọi QUÊN enqueueQuestion: vẫn có tin đi r
   assert.equal(vaoNhom.length, 1, 'thiếu một phụ thuộc mà im lặng = lời nhắc bốc hơi');
   assert.equal(ra.duPhong, 1);
   assert.equal(hangDoi(db).length, 0, 'không có đường tạo hàng đợi thì đừng để lại phiên mồ côi');
-  assert.equal(doc(db).cho_model_tu_ms, null,
+  assert.equal(doc(db).model_wait_since_ms, null,
     'token treo lửng = nhịp sau lưới bù thêm một tin nữa cho lượt đã gửi rồi');
 
   closeDb(db);

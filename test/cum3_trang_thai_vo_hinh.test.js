@@ -11,7 +11,7 @@
  *    **có dữ liệu mà không có đường ra**. Nên mỗi bài phải hỏi đúng một câu:
  *    *"thứ này có TỚI ĐƯỢC MẮT ANH không?"* — trả về của tool, nội dung DM,
  *    chữ trong `so_nhac.md`. ⛔ Một bài chỉ khẳng định "DB có cột đó" là bài
- *    GIẢ: đúng cái tình trạng trước khi vá (`msg_id_da_gui` ghi 2 lần, đọc 0 lần).
+ *    GIẢ: đúng cái tình trạng trước khi vá (`sent_msg_id` ghi 2 lần, đọc 0 lần).
  * ═══════════════════════════════════════════════════════════════════════
  */
 import assert from 'node:assert/strict';
@@ -68,7 +68,7 @@ function nhacDaChot(db, v = {}) {
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma, ...v,
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
-  return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+  return db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 }
 
 function dungTool(db) {
@@ -151,7 +151,7 @@ test('T3a-2 ★★★ quá TTL -> het_han VÀ CÓ DM host (đánh dấu rồi im
   });
 
   assert.equal(
-    db.prepare('SELECT trang_thai t FROM hang_doi_hoi WHERE request_id = ?').get('r-cu').t,
+    db.prepare('SELECT status t FROM ask_queue WHERE request_id = ?').get('r-cu').t,
     TRANG_THAI_HANG_DOI.HET_HAN,
   );
   assert.equal(notifyHost.length, 1, 'quá hạn mà KHÔNG báo -> anh không bao giờ biết câu hỏi đã rơi');
@@ -166,7 +166,7 @@ test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', as
   const { db } = dbTam();
   const nhac = nhacDaChot(db, { chuKyPhut: 3 });
   // Token quyền gửi — production đặt trước khi tạo hàng đợi (xem `runner.js`).
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
+  db.prepare('UPDATE schedules SET model_wait_since_ms = $t WHERE id = $id')
     .run({ t: Date.now(), id: String(nhac.id) });
   enqueueQuestion(db, {
     requestId: 'r-doi', chatIdHoi: NHOM, msgId: `nhac:${nhac.id}:0`, userId: HOST,
@@ -187,10 +187,10 @@ test('T3a-3 ★★★ ĐẨY BÙ HAI LẦN KHÔNG SINH HAI CÂU TRẢ LỜI', as
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// T3b — A8: cuộc đua cờ do_tro_ly_tao. VIẾT THEO ĐÚNG THỨ TỰ THUA.
+// T3b — A8: cuộc đua cờ made_by_assistant. VIẾT THEO ĐÚNG THỨ TỰ THUA.
 // ═══════════════════════════════════════════════════════════════════════
 
-test('T3b ★★★ echo của listener ghi TRƯỚC -> cờ do_tro_ly_tao VẪN phải là 1', () => {
+test('T3b ★★★ echo của listener ghi TRƯỚC -> cờ made_by_assistant VẪN phải là 1', () => {
   // ⛔ CẤM viết bài theo thứ tự THẮNG (ghiLai trước, echo sau): bài đó ĐANG XANH
   // SẴN trên code hỏng, tức xanh giả. 35,3 % tin thật của bot rơi vào thứ tự THUA.
   const { db } = dbTam();
@@ -205,8 +205,8 @@ test('T3b ★★★ echo của listener ghi TRƯỚC -> cờ do_tro_ly_tao VẪN
     msgId: 'm-bot', userId: BOT, tenLucGui: null, noiDung: 'Dạ em đây ạ', tuToi: true,
   }), { doTroLyTao: true });
 
-  const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m-bot');
-  assert.equal(Number(r.do_tro_ly_tao), 1,
+  const r = db.prepare('SELECT * FROM messages WHERE msg_id = ?').get('m-bot');
+  assert.equal(Number(r.made_by_assistant), 1,
     'cờ phụ thuộc vào AI GHI TRƯỚC -> 35,3 % tin của bot mất cờ (đo thật trên DB 21/08 00:28)');
 
   // Hệ quả phải hết theo: bot không được coi là thành viên nhóm.
@@ -220,8 +220,8 @@ test('T3b-2 ★★ thứ tự THẮNG vẫn phải đúng (đối chứng — n�
   const { db } = dbTam();
   writeMessage(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: null, tuToi: true }), { doTroLyTao: true });
   writeMessage(db, tinGia({ msgId: 'm-b2', userId: BOT, tenLucGui: 'Hảis Assistant', tuToi: true }));
-  const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m-b2');
-  assert.equal(Number(r.do_tro_ly_tao), 1, 'echo tới sau KHÔNG được xoá cờ');
+  const r = db.prepare('SELECT * FROM messages WHERE msg_id = ?').get('m-b2');
+  assert.equal(Number(r.made_by_assistant), 1, 'echo tới sau KHÔNG được xoá cờ');
   closeDb(db);
 });
 
@@ -229,7 +229,7 @@ test('T3b-2 ★★ thứ tự THẮNG vẫn phải đúng (đối chứng — n�
 // T3c — B1: "đã dành chỗ mà chưa rõ đã gửi"
 // ═══════════════════════════════════════════════════════════════════════
 
-test('T3c ★★★ claimSending rồi CHẾT trước writeSendOutcome -> trang_thai VÀ so_nhac.md phải NÓI RA', () => {
+test('T3c ★★★ claimSending rồi CHẾT trước writeSendOutcome -> status VÀ so_nhac.md phải NÓI RA', () => {
   const { db, thuMuc } = dbTam();
   createSchedule(db, {
     chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'gửi báo giá',
@@ -239,10 +239,10 @@ test('T3c ★★★ claimSending rồi CHẾT trước writeSendOutcome -> trang
   confirmSchedule(db, { id: 'MOT1', ma: 'MOT1', nguoiDat: HOST });
 
   // Mô phỏng ĐÚNG cửa sổ chết: dành chỗ xong, tiến trình bị kill -> KHÔNG có catch nào.
-  assert.equal(claimSending(db, db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='MOT1'").get().id), true);
+  assert.equal(claimSending(db, db.prepare("SELECT id FROM schedules WHERE confirm_code='MOT1'").get().id), true);
 
   const treo = claimedButUnsent(db);
-  assert.equal(treo.length, 1, 'trạng thái này VÔ HÌNH: msg_id_da_gui ghi 2 lần, đọc 0 lần');
+  assert.equal(treo.length, 1, 'trạng thái này VÔ HÌNH: sent_msg_id ghi 2 lần, đọc 0 lần');
   assert.equal(treo[0].ma, 'MOT1');
 
   // ★ Phải TỚI ĐƯỢC MẮT ANH — không chỉ tồn tại trong DB.
@@ -271,7 +271,7 @@ test('T3c ★★★ claimSending rồi CHẾT trước writeSendOutcome -> trang
 test('T3d ★★★ bộ chạy trả về `loi` -> phải có đường ra tới host (2 nhịp liên tiếp)', async () => {
   const { db } = dbTam();
   const nhac = nhacDaChot(db, { chuKyPhut: 1 });
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(nhac.id);
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(nhac.id);
 
   // Bộ đếm `loi` phải THẬT SỰ nhích khi gửi hỏng — không có nó thì index.js
   // không có gì để tiêu thụ.
@@ -286,12 +286,12 @@ test('T3d ★★★ bộ chạy trả về `loi` -> phải có đường ra tớ
 });
 
 test('T3d-2 ★★★ _baoHetLuot KHÔNG được nói "đã nhắc đủ N lần" khi chưa có bằng chứng gửi', async () => {
-  // 🔴 Sổ sách nói dối lần thứ hai: `so_lan_da_nhac` đếm LƯỢT DÀNH CHỖ, không
+  // 🔴 Sổ sách nói dối lần thứ hai: `remind_count` đếm LƯỢT DÀNH CHỖ, không
   // phải TIN ĐÃ TỚI NƠI. Bot bị kick thì mỗi nhịp vẫn tiêu một lượt rồi gửi hỏng,
   // và host nhận đúng câu "đã nhắc đủ 10 lần" cho việc CHƯA AI ĐƯỢC NHẮC.
   const { db } = dbTam();
   const nhac = nhacDaChot(db, { chuKyPhut: 1, tranSoLan: 1 });
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(nhac.id);
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(nhac.id);
 
   const dm = [];
   await runFollowUpTick({
@@ -328,7 +328,7 @@ test('T3e ★★★ so_nhac.md in ĐÚNG nhịp phút + trần, và cảnh báo 
   assert.doesNotMatch(txt, /nhịp \*\*1 ngày\*\*/, 'không được in nhịp ngày cho lời nhắc nhịp phút');
 
   // Bất biến vỡ = đúng ca CGKJ trên DB thật: đã chốt sổ mà sổ vẫn báo đang theo đuổi.
-  db.prepare("UPDATE lich_hen SET trang_thai = 'da_gui' WHERE ma_xac_nhan = 'NHAC'").run();
+  db.prepare("UPDATE schedules SET status = 'da_gui' WHERE confirm_code = 'NHAC'").run();
   assert.equal(brokenInvariantReminders(db).length, 1);
   writeReminderBook(db, f);
   txt = fs.readFileSync(f, 'utf8');

@@ -62,10 +62,10 @@ async function main() {
     const { DatabaseSync } = await import('node:sqlite');
     const db = new DatabaseSync(db2, { readOnly: true });
     dong = db.prepare(
-      `SELECT request_id, ts_tao, noi_dung, chi_nghe
-         FROM hang_doi_hoi
-        WHERE chat_id_hoi = ? AND trang_thai IN ('da_day', 'dang_xu_ly')
-        ORDER BY ts_tao DESC LIMIT 5`,
+      `SELECT request_id, ts_created, content, listen_only
+         FROM ask_queue
+        WHERE asking_chat_id = ? AND status IN ('da_day', 'dang_xu_ly')
+        ORDER BY ts_created DESC LIMIT 5`,
     ).all(chat);
     db.close();
   } catch { thoatIm(); }

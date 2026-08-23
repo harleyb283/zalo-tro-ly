@@ -3,7 +3,7 @@
  * v3 — BỘ CHẠY LỊCH HẸN. Đánh thức mỗi `NHIP_KIEM_MS`, gửi lịch tới hạn.
  *
  * 🔴 MỘT LỊCH GỬI ĐÚNG MỘT LẦN. Cơ chế: `claimSending()` đổi trạng thái bằng
- *    `UPDATE ... WHERE trang_thai = 'da_len_lich'` và chỉ đi tiếp khi
+ *    `UPDATE ... WHERE status = 'da_len_lich'` và chỉ đi tiếp khi
  *    `changes === 1`. Tức là DÀNH CHỖ TRƯỚC khi gọi mạng. Nếu gửi trước rồi
  *    mới đánh dấu thì daemon chết giữa chừng = gửi lại lần nữa lúc khởi động,
  *    và người trong nhóm nhận hai tin nhắc giống hệt nhau.
@@ -100,10 +100,10 @@ export function isSplitMode(p = {}, env = process.env, argv = process.argv) {
  * ═══ LƯỚI CANH OUTBOX KẸT (bước 5) ═══
  *
  * 🔴 CÔNG TẮC RIÊNG `ZTL_LUOI_OUTBOX`, MẶC ĐỊNH BẬT.
- * Lưới này canh một SỰ THẬT KHÁCH QUAN — có dòng `hang_doi_gui` nằm ở
+ * Lưới này canh một SỰ THẬT KHÁCH QUAN — có dòng `send_queue` nằm ở
  * `'cho'`/`'dang_gui'` quá lâu ⇒ **không có chỗ nào để đoán sai**, nên bật mặc
  * định là an toàn.
- * ⚠️ Đây từng là "lưới thứ hai": pack có một lưới nữa canh `hang_doi_hoi` còn
+ * ⚠️ Đây từng là "lưới thứ hai": pack có một lưới nữa canh `ask_queue` còn
  * `'da_day'`, nhưng nó phải ĐOÁN *"câu này có cần trả lời không"* và đoán sai
  * thật (đi giục trả lời cả tiếng "ok" của host) ⇒ **anh chốt bỏ hẳn 21/08/2026**,
  * thay bằng cách A (mọi tin trong nhóm đều tạo một lượt nên trợ lý luôn theo kịp).
@@ -127,7 +127,7 @@ export function isSplitMode(p = {}, env = process.env, argv = process.argv) {
  *     const xepHang = typeof kho?.xepHangGuiRa === 'function' ? ... : null;
  * mà `kho.xepHangGuiRa` CHỈ được truyền ở MỘT trong hai chỗ gọi `registerTools` —
  * nhánh client (chế độ tách). Nhánh một-tiến-trình không truyền ⇒ `xepHang` là
- * `null` ⇒ `reply` gửi thẳng như cũ, không dòng nào rơi vào `hang_doi_gui`.
+ * `null` ⇒ `reply` gửi thẳng như cũ, không dòng nào rơi vào `send_queue`.
  * ⚠️ Đây là điều em ĐỌC MÃ NGUỒN xác nhận, ⛔ chưa chạy thật ở chế độ tách.
  * Bài O5 canh phần thuộc về lưới: outbox rỗng ⇒ im tuyệt đối.
  * Tắt bằng ZTL_LUOI_OUTBOX=0.
@@ -173,7 +173,7 @@ async function _chayLuoiOutbox(p, bayGio) {
  * ═══ 🔴 ĐÓNG PHIÊN MODEL ĐÃ BỊ LƯỚI GIÀNH MẤT ═══
  *
  * Lưới an toàn vừa gửi câu dự phòng ⇒ phiên model của lượt đó đã VÔ NGHĨA.
- * Không đóng thì nó nằm trong `hang_doi_hoi` tới hết `queueTtlMs` (30 phút), rồi
+ * Không đóng thì nó nằm trong `ask_queue` tới hết `queueTtlMs` (30 phút), rồi
  * bị đánh `het_han` và **host nhận một tin báo động GIẢ**: *"quá 30 phút nên em
  * không trả lời muộn nữa"* — cho một lời nhắc đã được gửi tới nơi đàng hoàng.
  *
@@ -189,10 +189,10 @@ async function _chayLuoiOutbox(p, bayGio) {
 function _dongPhienModelBiGianh(db, idNhac) {
   try {
     const ds = db.prepare(
-      "SELECT request_id FROM hang_doi_hoi WHERE trang_thai = $cho AND msg_id LIKE $mau",
+      "SELECT request_id FROM ask_queue WHERE status = $cho AND msg_id LIKE $mau",
     ).all({ cho: TRANG_THAI_HANG_DOI.CHO, mau: `nhac:${idNhac}:%` });
     for (const r of ds) {
-      db.prepare('UPDATE hang_doi_hoi SET trang_thai = $tt WHERE request_id = $rid')
+      db.prepare('UPDATE ask_queue SET status = $tt WHERE request_id = $rid')
         .run({ tt: TRANG_THAI_HANG_DOI.DA_TRA_LOI, rid: r.request_id });
     }
     return ds.length;
@@ -264,7 +264,7 @@ async function _baoHetLuot(p, d, cho) {
   const tran = cho.tranSoLan ?? '?';
 
   // ═══ 🔴 B2 — CÂU NÀY TỪNG NÓI DỐI, VÀ NÓI DỐI ĐÚNG CHỖ ĐAU NHẤT ═══
-  // Bản cũ: *"Đã nhắc đủ N lần và DỪNG"*. Nhưng `so_lan_da_nhac` đếm **LƯỢT ĐÃ
+  // Bản cũ: *"Đã nhắc đủ N lần và DỪNG"*. Nhưng `remind_count` đếm **LƯỢT ĐÃ
   // DÀNH CHỖ**, KHÔNG phải **TIN ĐÃ GỬI TỚI NƠI**. Bot bị kick / mất mạng thì
   // mỗi nhịp vẫn tiêu một lượt rồi gửi hỏng, và host nhận đúng câu "đã nhắc đủ
   // 10 lần" cho một việc CHƯA AI ĐƯỢC NHẮC LẦN NÀO. Sổ sách nói dối lần thứ hai,
@@ -272,17 +272,17 @@ async function _baoHetLuot(p, d, cho) {
   //
   // ✅ Nay nói ĐÚNG thứ đếm được: "dùng hết N LƯỢT" (lượt thì đếm chắc chắn).
   // ⚠️ Và khai thẳng chỗ KHÔNG biết: pack không có cột đếm số tin gửi thành công.
-  // `msg_id_da_gui` chỉ được đặt ở đường DỰ PHÒNG — đường model gửi qua `reply`
+  // `sent_msg_id` chỉ được đặt ở đường DỰ PHÒNG — đường model gửi qua `reply`
   // KHÔNG đặt nó. Nên `NULL` chỉ chứng minh "không có BẰNG CHỨNG nào đã gửi",
   // ⛔ KHÔNG chứng minh "chưa gửi lần nào". Viết câu đúng mức đó, không hơn:
   // nói quá lên một lần là lần sau anh thôi tin cả những cảnh báo đúng.
-  const chuaCoBangChung = !d.msg_id_da_gui;
+  const chuaCoBangChung = !d.sent_msg_id;
 
   try {
     await p.sendHostDm(
       p.api,
       p.dmHostChatId,
-      `⏹️ Đã dùng hết ${tran} lượt nhắc và DỪNG: "${d.noi_dung}"\n`
+      `⏹️ Đã dùng hết ${tran} lượt nhắc và DỪNG: "${d.content}"\n`
       + 'Dừng vì HẾT LƯỢT, KHÔNG phải vì việc đã xong. '
       + 'Muốn nhắc tiếp thì anh đặt lại, hoặc nới trần bằng followup_adjust.'
       + (chuaCoBangChung
@@ -324,7 +324,7 @@ export async function runOneTick(p) {
   if (!ds.length) return ra;
 
   for (const l of ds) {
-    const tre = bayGio - Number(l.gui_luc_ms);
+    const tre = bayGio - Number(l.send_at_ms);
     const qd = decideLateness(tre);
 
     // ── Quá trần trễ: KHÔNG GỬI VÀO NHÓM, báo riêng host ────────────────
@@ -336,8 +336,8 @@ export async function runOneTick(p) {
         );
         ra.quaHan += 1;
         const loiNhan =
-          `⏰ Lịch [${l.ma_xac_nhan ?? l.id}] lẽ ra gửi lúc ${formatVn(Number(l.gui_luc_ms), l.mui_gio)} `
-          + `nhưng em vừa dậy lúc ${formatVn(bayGio, l.mui_gio)}.\n`
+          `⏰ Lịch [${l.confirm_code ?? l.id}] lẽ ra gửi lúc ${formatVn(Number(l.send_at_ms), l.timezone)} `
+          + `nhưng em vừa dậy lúc ${formatVn(bayGio, l.timezone)}.\n`
           + 'Em KHÔNG gửi vào nhóm (nhắc muộn còn tệ hơn không nhắc). '
           + 'Anh muốn gửi bây giờ thì bảo em.';
         if (p.dmHostChatId && p.sendHostDm) {
@@ -360,8 +360,8 @@ export async function runOneTick(p) {
     }
 
     try {
-      const laDm = String(l.loai_dich) === 'DM';
-      const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(l.chat_id_dich));
+      const laDm = String(l.target_kind) === 'DM';
+      const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(l.target_chat_id));
       /** @type {string[]} */
       let tagUserIds = [];
       try {
@@ -371,7 +371,7 @@ export async function runOneTick(p) {
       }
 
       const nd = buildReminderText({
-        noiDung: String(l.noi_dung),
+        noiDung: String(l.content),
         tienTo: qd.tienTo,
         dsNguoi,
         tagUserIds,
@@ -381,10 +381,10 @@ export async function runOneTick(p) {
       }
 
       const kq = laDm
-        ? await p.sendHostDm(p.api, String(l.chat_id_dich), nd.text, {
+        ? await p.sendHostDm(p.api, String(l.target_chat_id), nd.text, {
             ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           })
-        : await p.sendToGroup(p.api, String(l.chat_id_dich), nd.text, {
+        : await p.sendToGroup(p.api, String(l.target_chat_id), nd.text, {
             dsNguoi, ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
           });
 
@@ -432,7 +432,7 @@ export async function runFollowUpTick(p) {
   const ra = { daNhac: 0, giaoModel: 0, duPhong: 0, loi: 0 };
 
   // 🔴 ĐẶT TRƯỚC MỌI `return` — kể cả nhánh "không đọc được lời nhắc" ngay dưới.
-  // Lưới câu hỏi không liên quan gì tới bảng `lich_hen`; để nó sau một `return`
+  // Lưới câu hỏi không liên quan gì tới bảng `schedules`; để nó sau một `return`
   // sớm là tự tay dựng một đường hỏng câm mới.
   await _chayLuoiOutbox(p, bayGio);
 
@@ -453,12 +453,12 @@ export async function runFollowUpTick(p) {
     const treo = stalledModelReminders(p.db, bayGio);
     for (const d of treo) {
       const tran = modelWaitCapMs(parseCadence(d));
-      if (bayGio - Number(d.cho_model_tu_ms) < tran) continue;   // chưa tới trần của CHÍNH dòng này
+      if (bayGio - Number(d.model_wait_since_ms) < tran) continue;   // chưa tới trần của CHÍNH dòng này
       // Dành chỗ trước khi gọi mạng, cùng nguyên tắc với `claimReminderTurn`:
-      // `WHERE cho_model_tu_ms = $cu` để hai nhịp chồng nhau không cùng gửi bù.
+      // `WHERE model_wait_since_ms = $cu` để hai nhịp chồng nhau không cùng gửi bù.
       const daNhan = p.db.prepare(
-        'UPDATE lich_hen SET cho_model_tu_ms = NULL WHERE id = $id AND cho_model_tu_ms = $cu',
-      ).run({ id: d.id, cu: Number(d.cho_model_tu_ms) });
+        'UPDATE schedules SET model_wait_since_ms = NULL WHERE id = $id AND model_wait_since_ms = $cu',
+      ).run({ id: d.id, cu: Number(d.model_wait_since_ms) });
       if (Number(daNhan.changes) !== 1) continue;
       _log(`lời nhắc ${d.id}: model im quá ${Math.round(tran / 1000)} giây (trần theo nhịp) -> gửi câu dự phòng`);
       // eslint-disable-next-line no-await-in-loop
@@ -481,7 +481,7 @@ export async function runFollowUpTick(p) {
     ra.daNhac += 1;
 
     // 🔴 CHẠM TRẦN -> BÁO HOST. Lượt này vẫn gửi (trần 10 = nhắc đủ 10 lần),
-    // nhưng sau đó lời nhắc đã tự đóng với `ly_do_dong = HET_LUOT`.
+    // nhưng sau đó lời nhắc đã tự đóng với `close_reason = HET_LUOT`.
     // ⛔ Im lặng tắt là host tưởng việc đã xong — đúng thứ nguy hiểm nhất của
     // tính năng này. Gửi SAU khi đã dành chỗ xong nên không chặn luồng nhắc.
     if (cho.hetLuot) {
@@ -498,7 +498,7 @@ export async function runFollowUpTick(p) {
     // Hôm nay chưa rò vì `reminderContext` tự giới hạn đúng một nhóm. NHƯNG lúc đó
     // `boTichLuy[requestId]` RỖNG ⇒ ai nới bối cảnh sau này (vd "xem người này có
     // nhắc việc đó ở nhóm khác không" — cải tiến rất tự nhiên) thì `leak_guard`
-    // thấy nguồn = ∅ ⊆ {chat_id_hoi} và CHO GỬI THẲNG vào nhóm. Lá chắn thất bại
+    // thấy nguồn = ∅ ⊆ {asking_chat_id} và CHO GỬI THẲNG vào nhóm. Lá chắn thất bại
     // IM LẶNG, đúng ca nó sinh ra để chặn.
     //
     // ✅ Cách làm: BỌC `queryHistory` để hứng `nguonChatIds` do CHÍNH TẦNG TRUY VẤN
@@ -514,7 +514,7 @@ export async function runFollowUpTick(p) {
       }
       : undefined;
     const boiCanh = reminderContext(p.db, d, { bayGioMs: bayGio, truyVan: truyVanCoVet });
-    const nguonLa = [...nguonDaCham].filter((c) => c !== String(d.chat_id_dich));
+    const nguonLa = [...nguonDaCham].filter((c) => c !== String(d.target_chat_id));
 
     // 🔴 A3 — TRA TÊN NGƯỜI PHỤ TRÁCH **LÚC GỬI**, không dùng chuỗi đóng băng.
     // Gói dữ kiện cũ chỉ nói "Tag thẳng người phụ trách" mà KHÔNG cho tên, KHÔNG
@@ -526,7 +526,7 @@ export async function runFollowUpTick(p) {
 
     // 🔴 FAIL-CLOSED. Bối cảnh có chạm nhóm KHÁC mà KHÔNG có đường khai nguồn
     // (`p.recordSources` chưa được nối) ⇒ TUYỆT ĐỐI KHÔNG giao model. Rơi xuống câu
-    // dự phòng do code dựng — câu đó chỉ dùng `d.noi_dung` của chính dòng nhắc nên
+    // dự phòng do code dựng — câu đó chỉ dùng `d.content` của chính dòng nhắc nên
     // không thể mang dữ liệu nhóm khác ra ngoài.
     // ⛔ Không có nhánh "không chắc thì cứ gửi": đó đúng là thứ `leak_guard` cấm.
     // ═══ 🔴 CHẾ ĐỘ TÁCH: GIAO VIỆC QUA HÀNG ĐỢI, KHÔNG QUA NOTIFICATION ═══
@@ -535,12 +535,12 @@ export async function runFollowUpTick(p) {
     // phòng ⇒ MỌI lời nhắc thành máy móc — đúng thứ chặn việc bật chế độ tách.
     //
     // Thứ model thật sự cần KHÔNG phải cái notification, mà là **dòng
-    // `hang_doi_hoi`**. `enqueueQuestion` đã ghi nó ở trạng thái `'cho'`; client (pane
+    // `ask_queue`**. `enqueueQuestion` đã ghi nó ở trạng thái `'cho'`; client (pane
     // Claude) nhặt bằng `pushPendingQueue` rồi tự bơm vào phiên của nó.
     // ⇒ Ở chế độ tách ta vẫn đi nhánh (a), chỉ BỎ lời gọi notify.
     //
     // 🔴 LƯỚI AN TOÀN KHÔNG SUY SUYỂN — đây là điều kiện để làm việc này:
-    // `cho_model_tu_ms` vẫn được đặt y như cũ, nên nhánh (b2) ở đầu hàm vẫn gửi
+    // `model_wait_since_ms` vẫn được đặt y như cũ, nên nhánh (b2) ở đầu hàm vẫn gửi
     // câu dự phòng khi quá `modelWaitCapMs()`. Không client nào nhặt ⇒ vẫn có
     // tin đi ra. ⛔ Không đổi giọng văn lấy sự im lặng.
     const coClient = isSplitMode(p);
@@ -561,25 +561,25 @@ export async function runFollowUpTick(p) {
         // ★ KHAI NGUỒN TRƯỚC KHI ĐẨY — khai sau thì có một khoảnh khắc model đã
         // cầm dữ liệu mà `leak_guard` chưa biết gì.
         if (typeof p.recordSources === 'function') {
-          p.recordSources(requestId, [...nguonDaCham, String(d.chat_id_dich)]);
+          p.recordSources(requestId, [...nguonDaCham, String(d.target_chat_id)]);
         }
         // 🔴 THỨ TỰ CÓ CHỦ ĐÍCH: đặt TOKEN trước, tạo hàng đợi sau.
-        // `cho_model_tu_ms` là quyền gửi của lượt này (xem `claimReminderSend`).
+        // `model_wait_since_ms` là quyền gửi của lượt này (xem `claimReminderSend`).
         // Đặt SAU thì có một khe: chết giữa hai lệnh ⇒ tồn tại một phiên nhắc
         // KHÔNG có token ⇒ model trả lời bị từ chối, mà lưới an toàn cũng không
         // bắn (nó chỉ nhặt dòng có token) ⇒ lượt nhắc mất ÂM THẦM.
         // Đặt TRƯỚC thì khe đó lệch về phía an toàn: có token mà chưa có phiên
         // ⇒ tới trần, lưới gửi câu dự phòng. Thà thừa một câu dự phòng còn hơn
         // im lặng bỏ rơi một việc thật.
-        p.db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
+        p.db.prepare('UPDATE schedules SET model_wait_since_ms = $t WHERE id = $id')
           .run({ t: Math.floor(bayGio), id: d.id });
         p.enqueueQuestion(p.db, {
           requestId,
-          // chat_id_hoi = nhóm ĐÍCH: `reply` gửi vào đúng đây, và luật chống
+          // asking_chat_id = nhóm ĐÍCH: `reply` gửi vào đúng đây, và luật chống
           // rò chéo vẫn tính nguồn trên chính nhóm đó.
-          chatIdHoi: String(d.chat_id_dich),
-          msgId: `nhac:${d.id}:${d.so_lan_da_nhac ?? 0}`,
-          userId: String(d.nguoi_dat ?? ''),
+          chatIdHoi: String(d.target_chat_id),
+          msgId: `nhac:${d.id}:${d.remind_count ?? 0}`,
+          userId: String(d.created_by ?? ''),
           noiDung: _tomTatDuKien(d, boiCanh, phuTrach),
           tsTao: new Date(bayGio).toISOString(),
         });
@@ -588,7 +588,7 @@ export async function runFollowUpTick(p) {
           // eslint-disable-next-line no-await-in-loop
           await p.guiThongBao({
             requestId,
-            chatId: String(d.chat_id_dich),
+            chatId: String(d.target_chat_id),
             tenHoiThoai: null,
             nguoiHoi: null,
             noiDung: _tomTatDuKien(d, boiCanh, phuTrach),
@@ -597,7 +597,7 @@ export async function runFollowUpTick(p) {
         } else {
           // Chế độ TÁCH: không có ai để notify. Dòng hàng đợi vừa tạo đang ở
           // `'cho'` — client nhặt bằng `pushPendingQueue`. ⛔ KHÔNG được coi đây là
-          // thất bại: `cho_model_tu_ms` đã đặt nên nhánh (b2) vẫn bù đúng hạn.
+          // thất bại: `model_wait_since_ms` đã đặt nên nhánh (b2) vẫn bù đúng hạn.
           _log(
             `lời nhắc ${d.id}: chế độ TÁCH -> để hàng đợi ${requestId} ở 'cho' cho client nhặt`
             + `; không ai nhặt trong ${Math.round(modelWaitCapMs(parseCadence(d)) / 1000)}s thì code gửi câu dự phòng`,
@@ -629,10 +629,10 @@ export async function runFollowUpTick(p) {
  * tại thời điểm gọi. Không tra ra ⇒ trả `null`, ⛔ CẤM bịa tên.
  */
 function _tenPhuTrach(p, d) {
-  const uid = d?.nguoi_phu_trach ? String(d.nguoi_phu_trach) : null;
-  if (!uid || String(d.loai_dich) === 'DM') return null;
+  const uid = d?.owner ? String(d.owner) : null;
+  if (!uid || String(d.target_kind) === 'DM') return null;
   try {
-    const ds = p.groupMembers(p.db, String(d.chat_id_dich)) ?? [];
+    const ds = p.groupMembers(p.db, String(d.target_chat_id)) ?? [];
     const ten = ds.find((n) => String(n.uid) === uid)?.ten ?? null;
     return ten ? { uid, ten: String(ten) } : { uid, ten: null };
   } catch (e) {
@@ -644,7 +644,7 @@ function _tenPhuTrach(p, d) {
 function _tomTatDuKien(d, bc, phuTrach = null) {
   const p = [
     '[LỜI NHẮC THEO ĐUỔI — viết một câu nhắc cho nhóm, ĐỪNG lặp lại câu hôm trước]',
-    `Việc: ${d.noi_dung}`,
+    `Việc: ${d.content}`,
     `Đã nhắc: ${bc.soLanDaNhac} lần · đặt từ ${bc.soNgayTuKhiDat} ngày trước`,
   ];
   if (bc.nhacLanTruocMs) p.push(`Lần nhắc trước: ${new Date(bc.nhacLanTruocMs).toISOString()}`);
@@ -697,8 +697,8 @@ async function _guiNhac(p, d, bayGioMs) {
     // Phép thử đột biến 21/08/2026: vô hiệu hoá đúng dòng `if` này thì CẢ 11 bài
     // của cụm 1 vẫn XANH. Lý do: mọi đường vào `_guiNhac` đều đã bị chặn trước đó
     // bởi một phép dành chỗ nguyên tử —
-    //   · đường (b1): `claimReminderTurn` khoá `trang_thai_td` + `trang_thai`
-    //   · đường (b2): CAS `WHERE cho_model_tu_ms = $cu`, mà `closeFollowUp`/`adjustCadence`
+    //   · đường (b1): `claimReminderTurn` khoá `follow_up_status` + `status`
+    //   · đường (b2): CAS `WHERE model_wait_since_ms = $cu`, mà `closeFollowUp`/`adjustCadence`
     //     đều xoá cột đó ⇒ CAS hỏng trước khi tới đây
     // ⇒ Đây là PHÒNG THỦ NHIỀU LỚP thật sự: dư thừa CHỪNG NÀO các lớp trên còn
     //   nguyên. Giữ lại vì nó rẻ (một `SELECT` ba cột) và vì lớp trên có thể bị
@@ -709,14 +709,14 @@ async function _guiNhac(p, d, bayGioMs) {
       _log(`lời nhắc ${d.id}: vừa bị đóng/tạm dừng trước khi gửi -> BỎ lượt này`);
       return false;
     }
-    const laDm = String(d.loai_dich) === 'DM';
-    const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(d.chat_id_dich));
+    const laDm = String(d.target_kind) === 'DM';
+    const dsNguoi = laDm ? [] : p.groupMembers(p.db, String(d.target_chat_id));
     let tagUserIds = [];
     try {
       tagUserIds = d.tag_user_ids ? JSON.parse(d.tag_user_ids) : [];
     } catch { tagUserIds = []; }
-    if (d.nguoi_phu_trach && !tagUserIds.includes(String(d.nguoi_phu_trach))) {
-      tagUserIds.push(String(d.nguoi_phu_trach));
+    if (d.owner && !tagUserIds.includes(String(d.owner))) {
+      tagUserIds.push(String(d.owner));
     }
 
     const bc = reminderContext(p.db, d, { bayGioMs, truyVan: p.queryHistory });
@@ -730,11 +730,11 @@ async function _guiNhac(p, d, bayGioMs) {
     }
 
     const kq = laDm
-      ? await p.sendHostDm(p.api, String(d.chat_id_dich), nd.text, { ghiLai: p.ghiLai, uidTroLy: p.uidTroLy })
-      : await p.sendToGroup(p.api, String(d.chat_id_dich), nd.text, {
+      ? await p.sendHostDm(p.api, String(d.target_chat_id), nd.text, { ghiLai: p.ghiLai, uidTroLy: p.uidTroLy })
+      : await p.sendToGroup(p.api, String(d.target_chat_id), nd.text, {
         dsNguoi, ghiLai: p.ghiLai, uidTroLy: p.uidTroLy,
       });
-    p.db.prepare('UPDATE lich_hen SET msg_id_da_gui = $m, cho_model_tu_ms = NULL WHERE id = $id')
+    p.db.prepare('UPDATE schedules SET sent_msg_id = $m, model_wait_since_ms = NULL WHERE id = $id')
       .run({ m: kq?.msgId ? String(kq.msgId) : null, id: d.id });
     return true;
   } catch (e) {

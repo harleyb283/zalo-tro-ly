@@ -80,7 +80,7 @@ function main() {
       .prepare("SELECT name, tbl_name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%' ORDER BY tbl_name, name")
       .all();
     const journal = db.prepare('PRAGMA journal_mode').get();
-    const phienBan = db.prepare("SELECT gia_tri FROM meta WHERE khoa='schema_version'").get();
+    const phienBan = db.prepare("SELECT value FROM meta WHERE name='schema_version'").get();
 
     // Đếm cột thật của từng bảng — bằng chứng bảng không rỗng ruột.
     const soCot = {};
@@ -91,7 +91,7 @@ function main() {
     const ketQua = {
       duongDanDb,
       journalMode: journal?.journal_mode ?? null,
-      schemaVersionTrongDb: phienBan?.gia_tri ?? null,
+      schemaVersionTrongDb: phienBan?.value ?? null,
       schemaVersionMongDoi: PHIEN_BAN_SCHEMA,
       soBang: bang.length,
       bang: bang.map((b) => ({ ten: b.name, soCot: soCot[b.name] })),

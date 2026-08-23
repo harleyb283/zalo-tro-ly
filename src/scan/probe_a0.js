@@ -128,7 +128,7 @@ export async function runProbeA0(p) {
   } catch (e) {
     const ra = {
       chay_luc: new Date().toISOString(),
-      goi_duoc: false, so_tin: 0, so_goi_mang: 0,
+      goi_duoc: false, so_tin: 0, net_call_count: 0,
       ket_luan: KET_LUAN_A0.CHUA_SAN_SANG,
       nhom_loi: NHOM_LOI_A0.CHUA_CHAM_MANG,
       y_nghia_nhom: errorGroupMeaning(NHOM_LOI_A0.CHUA_CHAM_MANG),
@@ -157,7 +157,7 @@ async function _chayA0(p) {
     so_tin: 0,
     msg_id_nho_nhat: null,
     msg_id_lon_nhat: null,
-    so_goi_mang: 0,
+    net_call_count: 0,
     so_lan_thu_goi: 0,
     doi_phien_ms: 0,
     cut_trang: false,
@@ -220,7 +220,7 @@ async function _chayA0(p) {
     ra.so_tin = kq.tin.length;
     ra.msg_id_nho_nhat = kq.minMsgId;
     ra.msg_id_lon_nhat = kq.maxMsgId;
-    ra.so_goi_mang = so.soGoiMang || kq.soGoi;
+    ra.net_call_count = so.soGoiMang || kq.soGoi;
     ra.so_lan_thu_goi = kq.soGoi;
     ra.http_ma = so.httpMa;
     ra.http_ok = so.httpOk;
@@ -238,8 +238,8 @@ async function _chayA0(p) {
       );
       const daThuHoi = p.db
         .prepare(
-          `SELECT msg_id FROM tin_nhan
-            WHERE chat_id = $c AND da_thu_hoi = 1
+          `SELECT msg_id FROM messages
+            WHERE chat_id = $c AND recalled = 1
               AND CAST(msg_id AS INTEGER) BETWEEN CAST($lo AS INTEGER) AND CAST($hi AS INTEGER)`,
         )
         .all({ c: String(p.chatId), lo: kq.minMsgId, hi: kq.maxMsgId })
@@ -263,7 +263,7 @@ async function _chayA0(p) {
     ra.goi_duoc = false;
     // Số lượt đã CHẠM MẠNG THẬT — do sổ chẩn đoán giữ, cộng ngay trước
     // `utils.request`. KHÔNG lấy từ số lần gọi hàm (bản cũ đếm nhầm chỗ đó).
-    ra.so_goi_mang = Number(so.soGoiMang) || 0;
+    ra.net_call_count = Number(so.soGoiMang) || 0;
     ra.so_lan_thu_goi = Number(e?.soLanThuGoi ?? 0) || 0;
 
     // ★ BÓC LỖI RA HẾT. `loi: "Lỗi không xác định"` là nguyên văn error_message
@@ -275,15 +275,15 @@ async function _chayA0(p) {
     ra.bien_the = so.bienThe ?? BIEN_THE_THAM_SO.CHUAN;
 
     ra.nhom_loi = classifyErrorGroup({
-      soGoiMang: ra.so_goi_mang,
+      soGoiMang: ra.net_call_count,
       loiKetNoi: so.loiKetNoi,
       httpMa: so.httpMa,
       loiMa: ra.loi_ma,
       thanPhanHoi: so.thanPhanHoi,
     });
 
-    ra.ket_luan = ra.so_goi_mang > 0 ? KET_LUAN_A0.DO : KET_LUAN_A0.CHUA_SAN_SANG;
-    if (ra.so_goi_mang === 0) {
+    ra.ket_luan = ra.net_call_count > 0 ? KET_LUAN_A0.DO : KET_LUAN_A0.CHUA_SAN_SANG;
+    if (ra.net_call_count === 0) {
       ra.loi += ' | CHƯA GỌI MẠNG LẦN NÀO -> KHÔNG phải bằng chứng endpoint hỏng.';
     }
 
@@ -295,7 +295,7 @@ async function _chayA0(p) {
       // runProbeA0() ném, và anh mất luôn kết quả của lượt CHUẨN đã đo xong.
       // Phần phụ tuyệt đối không được kéo phần chính xuống theo.
       try {
-        ra.bo_bien_the = await _chayBoBienThe(p, ra, bayGio, ra.so_goi_mang);
+        ra.bo_bien_the = await _chayBoBienThe(p, ra, bayGio, ra.net_call_count);
         if (ra.bo_bien_the.some((x) => x.goi_duoc)) {
           // Có biến thể LẤY ĐƯỢC TIN THẬT trong khi bộ chuẩn hỏng ⇒ hết đoán.
           ra.nhom_loi = NHOM_LOI_A0.THAM_SO_SAI_DA_CHUNG_MINH;
@@ -316,7 +316,7 @@ async function _chayA0(p) {
 /**
  * ★ Hai trường tồn tại để KHÔNG AI đọc nhầm file này lần nữa.
  *
- * Ngày 20/08/2026 lượt A0 đầu ra `ket_luan: "DO"` với `so_goi_mang: 0`, và
+ * Ngày 20/08/2026 lượt A0 đầu ra `ket_luan: "DO"` với `net_call_count: 0`, và
  * Router suýt kết luận "endpoint chết ⇒ dừng hẳn phương án A". Thực tế chưa hề
  * có lời gọi mạng nào — file đó KHÔNG nói được gì về endpoint cả.
  *
@@ -327,7 +327,7 @@ async function _chayA0(p) {
  */
 function _chotBangChung(ra) {
   try { ra.tong_ket = _tongKet(ra); } catch { ra.tong_ket = null; }
-  ra.co_bang_chung_ve_endpoint = ra.so_goi_mang > 0;
+  ra.co_bang_chung_ve_endpoint = ra.net_call_count > 0;
   if (!ra.nhom_loi) {
     ra.nhom_loi = ra.co_bang_chung_ve_endpoint ? null : NHOM_LOI_A0.CHUA_CHAM_MANG;
   }
@@ -397,7 +397,7 @@ function _msgIdMoiNhat(db, chatId) {
   try {
     const r = db
       ?.prepare(
-        'SELECT msg_id FROM tin_nhan WHERE chat_id = $c '
+        'SELECT msg_id FROM messages WHERE chat_id = $c '
           + 'ORDER BY CAST(msg_id AS INTEGER) DESC LIMIT 1',
       )
       .get({ c: String(chatId) });
@@ -460,7 +460,7 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
     const kq = {
       bien_the: bt, bo_qua: false, ...hoSo,
       con_tro_dung: conTroDau,
-      goi_duoc: false, so_tin: 0, so_goi_mang: 0,
+      goi_duoc: false, so_tin: 0, net_call_count: 0,
       loi: null, loi_ma: null, http_ma: null, than_phan_hoi: null, nhom_loi: null,
     };
     try {
@@ -476,7 +476,7 @@ async function _chayBoBienThe(p, ra, bayGio, daTieu) {
       kq.loi = mo.loi;
       kq.loi_ma = mo.loi_ma;
     }
-    kq.so_goi_mang = so2.soGoiMang;
+    kq.net_call_count = so2.soGoiMang;
     kq.http_ma = so2.httpMa;
     kq.than_phan_hoi = so2.thanPhanHoi;
     kq.nhom_loi = kq.goi_duoc
@@ -543,7 +543,7 @@ function _ghiRa(duongDanRa, ra) {
     ensureParentDir(f);
     fs.writeFileSync(f, JSON.stringify(ra, null, 2), { encoding: 'utf8', mode: 0o600 });
     try { fs.chmodSync(f, 0o600); } catch { /* nuốt */ }
-    _log(`đã ghi ${f} — kết luận: ${ra.ket_luan} (so_goi_mang=${ra.so_goi_mang})`);
+    _log(`đã ghi ${f} — kết luận: ${ra.ket_luan} (net_call_count=${ra.net_call_count})`);
   } catch (e) {
     _log(`KHÔNG ghi được file kết quả: ${e?.message ?? e}`);
   }
@@ -560,8 +560,8 @@ export function pickTestGroup(db) {
     const r = db
       .prepare(
         `SELECT t.chat_id, MAX(t.ts_zalo) m
-           FROM tin_nhan t JOIN hoi_thoai h ON h.chat_id = t.chat_id AND h.duoc_nghe = 1
-          WHERE h.loai = 'GROUP'
+           FROM messages t JOIN conversations h ON h.chat_id = t.chat_id AND h.listened = 1
+          WHERE h.kind = 'GROUP'
           GROUP BY t.chat_id ORDER BY m DESC LIMIT 1`,
       )
       .get();

@@ -64,20 +64,20 @@ function nhacDaChot(db) {
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma: 'NHAC',
   });
   confirmSchedule(db, { id: 'NHAC', ma: 'NHAC', nguoiDat: HOST });
-  const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('NHAC');
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
+  const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('NHAC');
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(d.id);
   return d;
 }
 
 /** Bối cảnh CHẠM NHÓM KHÁC — ca "ai đó nới bối cảnh" mà B5 sinh ra để chặn. */
 const chamNhomKhac = () => ({
-  rows: [{ chat_id: NHOM_KHAC, user_id: TRONG, noi_dung: 'chuyện của nhóm B', ts_zalo: 1 }],
+  rows: [{ chat_id: NHOM_KHAC, user_id: TRONG, content: 'chuyện của nhóm B', ts_zalo: 1 }],
   nguonChatIds: [NHOM_KHAC],
 });
 
 /** Bối cảnh SẠCH — chỉ chạm đúng nhóm đích. */
 const chiNhomMinh = () => ({
-  rows: [{ chat_id: NHOM, user_id: TRONG, noi_dung: 'ừ', ts_zalo: 1 }],
+  rows: [{ chat_id: NHOM, user_id: TRONG, content: 'ừ', ts_zalo: 1 }],
   nguonChatIds: [NHOM],
 });
 
@@ -155,7 +155,7 @@ test('N4 ★★★ CHIỀU (a) bối cảnh SẠCH -> VẪN giao model + leak_gu
   assert.equal(ra.giaoModel, 1);
   assert.equal(ra.duPhong, 0, 'không được rơi xuống câu dự phòng khi bối cảnh sạch');
 
-  const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
+  const rid = db.prepare('SELECT request_id FROM ask_queue LIMIT 1').get().request_id;
   const qd = decideReplyRoute({
     requestId: rid, chatIdHoi: NHOM, nguon: getSources(bo, rid), tonTaiHangDoi: true,
   });
@@ -179,7 +179,7 @@ test('N5 ★★★ CHIỀU (b) bối cảnh chạm nhóm LẠ -> leak_guard BẬ
   assert.equal(ra.duPhong, 0);
 
   // ...nhưng đáp án của nó KHÔNG được đi thẳng vào nhóm.
-  const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
+  const rid = db.prepare('SELECT request_id FROM ask_queue LIMIT 1').get().request_id;
   const nguon = getSources(bo, rid);
   assert.ok(nguon.includes(NHOM_KHAC),
     `sổ nguồn là [${nguon}] — thiếu nhóm B thì leak_guard tưởng đáp án sạch`);
@@ -209,7 +209,7 @@ test('N7 ★★★ HẾT LƯỢT phải DM được host — `dmHostChatId` có 
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma: 'HET', tranSoLan: 1,
   });
   confirmSchedule(db, { id: 'HET', ma: 'HET', nguoiDat: HOST });
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE ma_xac_nhan = ?').run('HET');
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE confirm_code = ?').run('HET');
 
   const dm = [];
   await runFollowUpTick({

@@ -73,7 +73,7 @@ function taoNhac(db, v = {}) {
     nguoiDat: HOST, chatIdDat: NHOM, ma, ...v,
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
-  return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+  return db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 }
 
 /**
@@ -118,11 +118,11 @@ function dungTool(db, { hosts = [{ userId: HOST, ten: 'Anh', dmChatId: 'dm-host'
 }
 
 function phienNhac(db, idNhac, requestId = 'req-nhac') {
-  // ⚠️ PHẢI đặt `cho_model_tu_ms` — production luôn đặt nó TRƯỚC khi tạo hàng đợi
+  // ⚠️ PHẢI đặt `model_wait_since_ms` — production luôn đặt nó TRƯỚC khi tạo hàng đợi
   // (`runner.js`). Đó là TOKEN quyền gửi: thiếu nó thì `reply` từ chối, và từ
   // chối là ĐÚNG (nghĩa là lưới an toàn đã gửi câu dự phòng rồi). Helper dựng
   // thiếu token là dựng một trạng thái production KHÔNG tạo ra được.
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE id = $id')
+  db.prepare('UPDATE schedules SET model_wait_since_ms = $t WHERE id = $id')
     .run({ t: Date.now(), id: String(idNhac) });
   enqueueQuestion(db, {
     requestId, chatIdHoi: NHOM, msgId: `nhac:${idNhac}:0`,
@@ -153,8 +153,8 @@ test('T2a ★★★ dat_nhac_theo_duoi nhận tagUserIds + nguoiPhuTrach -> DB c
   });
   assert.equal(kq.ok, true, JSON.stringify(kq));
 
-  const d = db.prepare('SELECT * FROM lich_hen WHERE id = ?').get(kq.duLieu.id);
-  assert.equal(String(d.nguoi_phu_trach), TRONG, 'nguoi_phu_trach không được lưu');
+  const d = db.prepare('SELECT * FROM schedules WHERE id = ?').get(kq.duLieu.id);
+  assert.equal(String(d.owner), TRONG, 'owner không được lưu');
   assert.deepEqual(JSON.parse(d.tag_user_ids), [HOST],
     'tag_user_ids RỖNG = đúng lỗi cũ: tool có tham số mà không truyền xuống');
 
@@ -187,7 +187,7 @@ test('T2a-2 ★★★ THIẾU cả hai -> câu xác nhận PHẢI cảnh báo "K
 test('T2b ★★★ đường (a): gói gửi model chứa TÊN HIỂN THỊ và UID người phụ trách', async () => {
   const db = dbTam();
   const nhac = taoNhac(db, { chuKyPhut: 3, nguoiPhuTrach: TRONG });
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(nhac.id);
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(nhac.id);
 
   const goi = [];
   await runFollowUpTick({

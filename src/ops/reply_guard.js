@@ -45,7 +45,7 @@ export function decideBlock(p = {}) {
   const cuaSo = Number.isFinite(p.cuaSoMs) ? Number(p.cuaSoMs) : RECENT_WINDOW_MS;
 
   const con = (p.dong ?? []).filter((r) => {
-    const moc = Date.parse(String(r?.ts_tao ?? ''));
+    const moc = Date.parse(String(r?.ts_created ?? ''));
     if (!Number.isFinite(moc)) return false;      // ⛔ không đọc được mốc ⇒ ⛔ không chặn
     return bayGio - moc <= cuaSo && bayGio - moc >= 0;
   });
@@ -56,9 +56,9 @@ export function decideBlock(p = {}) {
     soCau: con.length,
     ds: con.map((r) => ({
       requestId: String(r.request_id ?? ''),
-      luc: String(r.ts_tao ?? '').slice(11, 19),
-      trich: String(r.noi_dung ?? '').replace(/\s+/g, ' ').slice(0, 70),
-      chiNghe: Number(r.chi_nghe) === 1,
+      luc: String(r.ts_created ?? '').slice(11, 19),
+      trich: String(r.content ?? '').replace(/\s+/g, ' ').slice(0, 70),
+      chiNghe: Number(r.listen_only) === 1,
     })),
   };
 }

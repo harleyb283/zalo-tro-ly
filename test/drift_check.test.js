@@ -174,17 +174,17 @@ test('C1b ★ CẮT TRANG -> THU HẸP biên về trang cuối lấy trọn', ()
 // D. CHỐT 2 — phải vắng 2 lượt LIÊN TIẾP (chạy trên DB thật)
 // ═══════════════════════════════════════════════════════════════════════
 
-test('D1 ★ vắng LẦN ĐẦU -> chỉ NGHI_NGO, CHƯA đánh dấu da_thu_hoi', () => {
+test('D1 ★ vắng LẦN ĐẦU -> chỉ NGHI_NGO, CHƯA đánh dấu recalled', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   const kq = applyScanResult(db, {
     chatId: NHOM, vangMat: ['200'], hienDien: [],
     bayGioIso: new Date(GIO).toISOString(), bayGioMs: GIO, quetTruocMs: GIO - 1000,
   });
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='200'").get();
   assert.equal(kq.soNghiNgo, 1);
   assert.equal(kq.soXacNhan, 0);
-  assert.equal(Number(r.da_thu_hoi), 0, 'một lần vắng CHƯA đủ để nói ra');
-  assert.equal(r.thu_hoi_do_tin_cay, DO_TIN_CAY.NGHI_NGO);
+  assert.equal(Number(r.recalled), 0, 'một lần vắng CHƯA đủ để nói ra');
+  assert.equal(r.recall_confidence, DO_TIN_CAY.NGHI_NGO);
   closeDb(db);
 });
 
@@ -193,17 +193,17 @@ test('D2 ★ vắng LẦN HAI liên tiếp -> mới nâng lên SUY_RA + ghi sự
   const chung = { chatId: NHOM, vangMat: ['200'], hienDien: [], bayGioMs: GIO, quetTruocMs: GIO - 1000 };
   applyScanResult(db, { ...chung, bayGioIso: new Date(GIO).toISOString() });
   const kq = applyScanResult(db, { ...chung, bayGioIso: new Date(GIO + 1000).toISOString() });
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='200'").get();
   assert.equal(kq.soXacNhan, 1);
-  assert.equal(Number(r.da_thu_hoi), 1);
-  assert.equal(r.thu_hoi_nguon, NGUON_THU_HOI.DOI_CHIEU);
-  assert.equal(r.thu_hoi_do_tin_cay, DO_TIN_CAY.SUY_RA);
-  assert.equal(r.noi_dung, 'tin 200', 'UPDATE chứ KHÔNG DELETE — nội dung phải còn');
-  const sk = db.prepare("SELECT * FROM su_kien_thu_hoi WHERE msg_id_dich='200'").get();
-  assert.equal(sk.nguon, NGUON_THU_HOI.DOI_CHIEU);
+  assert.equal(Number(r.recalled), 1);
+  assert.equal(r.recall_source, NGUON_THU_HOI.DOI_CHIEU);
+  assert.equal(r.recall_confidence, DO_TIN_CAY.SUY_RA);
+  assert.equal(r.content, 'tin 200', 'UPDATE chứ KHÔNG DELETE — nội dung phải còn');
+  const sk = db.prepare("SELECT * FROM recall_events WHERE target_msg_id='200'").get();
+  assert.equal(sk.source, NGUON_THU_HOI.DOI_CHIEU);
   assert.equal(sk.event_id, `dc:${NHOM}:200`, 'khoá tự dựng phải có tiền tố dc:');
-  assert.equal(Number(sk.khoang_tu_ms), GIO - 1000, 'phải lưu CẬN DƯỚI của khoảng');
-  assert.equal(sk.nguoi_thu_hoi, '555', 'người thu hồi = người GỬI (Zalo chỉ cho thu hồi tin mình)');
+  assert.equal(Number(sk.range_from_ms), GIO - 1000, 'phải lưu CẬN DƯỚI của khoảng');
+  assert.equal(sk.recaller_id, '555', 'người thu hồi = người GỬI (Zalo chỉ cho thu hồi tin mình)');
   closeDb(db);
 });
 
@@ -219,22 +219,22 @@ test('D3 ★ xuất hiện LẠI -> XOÁ dấu nghi ngờ, không cộng dồn q
     chatId: NHOM, vangMat: [], hienDien: ['200'],
     bayGioIso: new Date(GIO + 1).toISOString(), bayGioMs: GIO + 1, quetTruocMs: GIO,
   });
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='200'").get();
   assert.equal(kq.soXoaNghi, 1);
-  assert.equal(Number(r.vang_mat_so_lan), 0);
-  assert.equal(r.vang_mat_lan_dau, null);
+  assert.equal(Number(r.absent_count), 0);
+  assert.equal(r.absent_first_ms, null);
   closeDb(db);
 });
 
 test('D4 ★ tin đã CHAC_CHAN (SU_KIEN) thì applyScanResult không đụng, kể cả bị ép', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
-  db.exec("UPDATE tin_nhan SET da_thu_hoi=1, thu_hoi_nguon='SU_KIEN', thu_hoi_do_tin_cay='CHAC_CHAN' WHERE msg_id='200'");
+  db.exec("UPDATE messages SET recalled=1, recall_source='SU_KIEN', recall_confidence='CHAC_CHAN' WHERE msg_id='200'");
   const chung = { chatId: NHOM, vangMat: ['200'], hienDien: [], bayGioMs: GIO, quetTruocMs: null };
   applyScanResult(db, { ...chung, bayGioIso: 'x' });
   applyScanResult(db, { ...chung, bayGioIso: 'y' });
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='200'").get();
-  assert.equal(r.thu_hoi_nguon, NGUON_THU_HOI.SU_KIEN, 'KHÔNG được hạ cấp xuống DOI_CHIEU');
-  assert.equal(r.thu_hoi_do_tin_cay, 'CHAC_CHAN');
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='200'").get();
+  assert.equal(r.recall_source, NGUON_THU_HOI.SU_KIEN, 'KHÔNG được hạ cấp xuống DOI_CHIEU');
+  assert.equal(r.recall_confidence, 'CHAC_CHAN');
   closeDb(db);
 });
 
@@ -259,8 +259,8 @@ test('E1 ★ query trả kèm nguồn: DOI_CHIEU KHÔNG được nói một mố
 test('E2 nguồn SU_KIEN thì được nói mốc chính xác', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
   db.exec(
-    "UPDATE tin_nhan SET da_thu_hoi=1, thu_hoi_nguon='SU_KIEN', "
-    + `thu_hoi_do_tin_cay='CHAC_CHAN', thu_hoi_luc=${GIO} WHERE msg_id='200'`,
+    "UPDATE messages SET recalled=1, recall_source='SU_KIEN', "
+    + `recall_confidence='CHAC_CHAN', recalled_at=${GIO} WHERE msg_id='200'`,
   );
   const r = queryHistory(db, { chatId: NHOM }).rows.find((x) => String(x.msg_id) === '200');
   assert.equal(r._thu_hoi.chacChanThoiDiem, true);
@@ -326,9 +326,9 @@ test('F4 ★ lỗi mạng -> ghi LOI_MANG, KHÔNG kết luận tin nào bị thu
   them(db, '200', bayGio - 100_000);
   const api = { custom() {}, [HISTORY_API_NAME]: async () => { throw new Error('mạng hỏng'); } };
   const kq = await runScanPass({ db, api, bayGioMs: bayGio, nghi: async () => {} });
-  const nk = db.prepare('SELECT * FROM doi_chieu_lich_su ORDER BY id DESC LIMIT 1').get();
-  assert.equal(nk.ket_qua, 'LOI_MANG');
-  assert.equal(Number(db.prepare('SELECT count(*) c FROM tin_nhan WHERE da_thu_hoi=1').get().c), 0);
+  const nk = db.prepare('SELECT * FROM history_audit ORDER BY id DESC LIMIT 1').get();
+  assert.equal(nk.result, 'LOI_MANG');
+  assert.equal(Number(db.prepare('SELECT count(*) c FROM messages WHERE recalled=1').get().c), 0);
   assert.equal(kq.tong.soXacNhan, 0);
   closeDb(db);
 });
@@ -400,7 +400,7 @@ test('H2 ★ A0 CHE nội dung tin của người thật, chỉ giữ độ dài
 
 test('H3 messagesInWindow trả kèm nguồn hiện tại (để thi hành chốt 4)', () => {
   const db = dbTam(); moNghe(db); them(db, '200', GIO);
-  db.exec("UPDATE tin_nhan SET thu_hoi_nguon='SU_KIEN' WHERE msg_id='200'");
+  db.exec("UPDATE messages SET recall_source='SU_KIEN' WHERE msg_id='200'");
   const ds = messagesInWindow(db, NHOM, GIO - 1000);
   assert.equal(ds[0].nguonHienTai, 'SU_KIEN');
   closeDb(db);
@@ -484,20 +484,20 @@ test('I8 ★★ A0 chưa sẵn sàng -> CHUA_SAN_SANG, TUYỆT ĐỐI không ph�
   });
   assert.equal(ra.ket_luan, KET_LUAN_A0.CHUA_SAN_SANG);
   assert.notEqual(ra.ket_luan, KET_LUAN_A0.DO);
-  assert.equal(ra.so_goi_mang, 0);
+  assert.equal(ra.net_call_count, 0);
   assert.equal(ra.co_bang_chung_ve_endpoint, false);
   assert.match(ra.doc_the_nao, /KHÔNG nói gì về endpoint/);
   assert.equal(JSON.parse(fs.readFileSync(f, 'utf8')).ket_luan, KET_LUAN_A0.CHUA_SAN_SANG);
 });
 
-test('I9 ★★ lời gọi mạng ĐẦU TIÊN hỏng -> so_goi_mang = 1 và ket_luan = DO', async () => {
+test('I9 ★★ lời gọi mạng ĐẦU TIÊN hỏng -> net_call_count = 1 và ket_luan = DO', async () => {
   // Chiều ngược lại của I8, quan trọng ngang: endpoint chết THẬT thì phải hiện
   // ra là DO kèm bằng chứng, đừng để nó trông giống "chưa thử".
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ztl-a0b-'));
   RAC.push(d);
   const f = path.join(d, 'probe_a0.json');
   // ⚠️ ĐỒ GIẢ PHẢI GIẢ CHO ĐÚNG (sửa 20/08/2026): trước đây nó chỉ ném, còn
-  // `so_goi_mang` thì tầng trên tự suy ra từ SỐ LẦN GỌI HÀM — nên một lỗi xảy ra
+  // `net_call_count` thì tầng trên tự suy ra từ SỐ LẦN GỌI HÀM — nên một lỗi xảy ra
   // TRƯỚC khi chạm mạng cũng bị đếm thành "đã gọi 1 lần". Giờ con số do sổ chẩn
   // đoán giữ, nên đồ giả muốn nói "404 từ máy chủ" thì phải chạm sổ y như hàng
   // thật. Khẳng định bên dưới KHÔNG đổi một chữ nào.
@@ -510,7 +510,7 @@ test('I9 ★★ lời gọi mạng ĐẦU TIÊN hỏng -> so_goi_mang = 1 và ke
     },
   };
   const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
-  assert.equal(ra.so_goi_mang, 1, 'đã chạm mạng 1 lần -> con số phải nói đúng');
+  assert.equal(ra.net_call_count, 1, 'đã chạm mạng 1 lần -> con số phải nói đúng');
   assert.equal(ra.ket_luan, KET_LUAN_A0.DO);
   assert.equal(ra.co_bang_chung_ve_endpoint, true);
   assert.match(ra.loi, /404/);
@@ -545,7 +545,7 @@ test('I11 A0 chạy được thật khi phiên sẵn sàng + vẫn CHE nội dun
   };
   const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
   assert.equal(ra.ket_luan, KET_LUAN_A0.XANH);
-  assert.equal(ra.so_goi_mang, 1);
+  assert.equal(ra.net_call_count, 1);
   assert.equal(ra.co_bang_chung_ve_endpoint, true);
   assert.ok(!JSON.stringify(ra).includes('riêng tư của người ta'), 'nội dung phải bị che');
 });
@@ -574,7 +574,7 @@ test('J1 ★★ CHỖ NUỐT LỖI: ZaloApiError có .code -> phải giữ, khô
 });
 
 test('J2 ★ lỗi là object KHÔNG có message -> JSON.stringify ra, không "[object Object]"', () => {
-  const mo = describeError({ error_code: 216, ghi_chu: 'khong co message' });
+  const mo = describeError({ error_code: 216, note: 'khong co message' });
   assert.ok(!String(mo.loi).includes('[object Object]'), 'rơi về chuỗi mặc định là mất sạch');
   assert.match(mo.loi, /216/);
   assert.match(mo.loi_json, /216/);
@@ -662,7 +662,7 @@ test('J12 đọc thân hỏng -> KHÔNG ném, phép đo chính vẫn phải ch�
   assert.equal(than.dang, 'KHONG_DOC_DUOC');
 });
 
-test('J13 ★★ ném TRƯỚC khi chạm mạng -> so_goi_mang = 0 và KHÔNG được là DO', async () => {
+test('J13 ★★ ném TRƯỚC khi chạm mạng -> net_call_count = 0 và KHÔNG được là DO', async () => {
   // 🔴 BUG THẬT bản trước: `e.soGoi = soGoi + 1` đếm SỐ LẦN GỌI HÀM, nên lỗi
   // xảy ra trước khi bắn request (thiếu base URL, encodeAES rỗng) vẫn bị ghi
   // thành "đã chạm mạng 1 lần" -> co_bang_chung_ve_endpoint = true -> đúng cái
@@ -677,7 +677,7 @@ test('J13 ★★ ném TRƯỚC khi chạm mạng -> so_goi_mang = 0 và KHÔNG �
     [HISTORY_API_NAME]: async () => { throw new Error('encodeAES trả rỗng'); },
   };
   const ra = await runProbeA0({ api, db: null, chatId: NHOM, duongDanRa: f, nghi: async () => {} });
-  assert.equal(ra.so_goi_mang, 0);
+  assert.equal(ra.net_call_count, 0);
   assert.equal(ra.co_bang_chung_ve_endpoint, false);
   assert.notEqual(ra.ket_luan, KET_LUAN_A0.DO, 'chưa bắn request nào mà báo DO là vu oan endpoint');
   assert.equal(ra.nhom_loi, NHOM_LOI_A0.CHUA_CHAM_MANG);
@@ -768,11 +768,11 @@ test('J21 ★★ ĐƯỜNG QUÉT THẬT cũng phải ghi mã lỗi, không chỉ
     },
   };
   await runScanPass({ db, api, bayGioMs: bayGio, nghi: async () => {}, notifyHost: () => {} });
-  const nk = db.prepare('SELECT * FROM doi_chieu_lich_su ORDER BY id DESC LIMIT 1').get();
-  assert.equal(nk.ket_qua, 'LOI_MANG');
-  assert.match(nk.ghi_chu, /ma=114/, 'mã lỗi Zalo là thứ DUY NHẤT phân biệt được nguyên nhân');
-  assert.match(nk.ghi_chu, /http=200/);
-  assert.match(nk.ghi_chu, /ENDPOINT_SONG_LOI_GIAO_THUC/, 'phải nói luôn nhóm, khỏi tra chỗ khác');
+  const nk = db.prepare('SELECT * FROM history_audit ORDER BY id DESC LIMIT 1').get();
+  assert.equal(nk.result, 'LOI_MANG');
+  assert.match(nk.note, /ma=114/, 'mã lỗi Zalo là thứ DUY NHẤT phân biệt được nguyên nhân');
+  assert.match(nk.note, /http=200/);
+  assert.match(nk.note, /ENDPOINT_SONG_LOI_GIAO_THUC/, 'phải nói luôn nhóm, khỏi tra chỗ khác');
   closeDb(db);
 });
 

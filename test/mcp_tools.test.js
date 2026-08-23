@@ -57,16 +57,16 @@ function dungTool(ghiDe = {}) {
 
   const mac = {
     dong: {
-      request_id: REQ, chat_id_hoi: CHAT_HOI, msg_id: 'm1', user_id: 'u-host',
-      noi_dung: 'anh ơi', ts_tao: '2026-08-20T10:00:00.000Z',
-      trang_thai: TRANG_THAI_HANG_DOI.DA_DAY,
+      request_id: REQ, asking_chat_id: CHAT_HOI, msg_id: 'm1', user_id: 'u-host',
+      content: 'anh ơi', ts_created: '2026-08-20T10:00:00.000Z',
+      status: TRANG_THAI_HANG_DOI.DA_DAY,
     },
     nguon: [CHAT_HOI],
     rows: [{
       chat_id: CHAT_HOI, msg_id: 'm1', cli_msg_id: null, user_id: 'u1',
-      ten_luc_gui: 'Người A', msg_type: 'chat.text', noi_dung: 'báo giá bên A',
-      content_raw: null, ts_zalo: 1755678901234, ts_ghi: 'x', tu_toi: 0,
-      co_tag_host: 1, da_thu_hoi: 0, thu_hoi_boi: null, thu_hoi_luc: null, do_tro_ly_tao: 0,
+      name_at_send: 'Người A', msg_type: 'chat.text', content: 'báo giá bên A',
+      content_raw: null, ts_zalo: 1755678901234, ts_saved: 'x', from_me: 0,
+      has_host_tag: 1, recalled: 0, recalled_by: null, recalled_at: null, made_by_assistant: 0,
     }],
   };
 
@@ -173,7 +173,7 @@ test('A3 request_id LẠ cũng chặn tra_loi -> KHÔNG gửi tin nào', async (
 
 test('A4 câu hỏi đã HẾT HẠN -> từ chối cả đọc lẫn gửi', async () => {
   const t = dungTool({
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'u-host', trang_thai: TRANG_THAI_HANG_DOI.HET_HAN },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'u-host', status: TRANG_THAI_HANG_DOI.HET_HAN },
   });
   assert.equal((await t.goi(TEN_TOOL.LICH_SU, { request_id: REQ })).kq.ma, MA_LOI.HANG_DOI_HET_HAN);
   const r = await t.goi(TEN_TOOL.TRA_LOI, { request_id: REQ, text: 'muộn rồi' });
@@ -200,7 +200,7 @@ test('B1 trả tin đã rút gọn + nguonChatIds, KHÔNG trả nguyên dòng DB
   assert.deepEqual(Object.keys(tin).sort(),
     ['chatId', 'daThuHoi', 'msgType', 'nguoiGui', 'noiDung', 'tenHoiThoai', 'thoiGian', 'thuHoi']);
   assert.equal(tin.content_raw, undefined, 'cột nội bộ KHÔNG được lọt ra prompt');
-  assert.equal(tin.thu_hoi_nguon, undefined, 'cột DB thô KHÔNG được lọt ra prompt');
+  assert.equal(tin.recall_source, undefined, 'cột DB thô KHÔNG được lọt ra prompt');
   assert.equal(tin.thoiGian, new Date(1755678901234).toISOString());
 });
 
@@ -384,12 +384,12 @@ test('D4 vẫn phải có request_id (không có cửa hậu nào bỏ qua khoá
   assert.equal((await t.goi(TEN_TOOL.NHAN_RIENG_HOST, { text: 'x' })).kq.ma, MA_LOI.THIEU_REQUEST_ID);
 });
 
-// ═══ E. trang_thai + lưới lỗi ═══
+// ═══ E. status + lưới lỗi ═══
 // ⚠️ Bản cũ của E1 tên là "KHÔNG cần request_id" và assert người gọi trần vẫn
 // thấy đủ 4 số liệu kho. Đó chính là chỗ rò: quy mô kho (bao nhiêu nhóm, bao
 // nhiêu tin) không phải việc của người ngoài. Tool vẫn CHO GỌI TRẦN (giữ
 // đường giám sát), nhưng gọi trần = không định danh được = NGƯỜI NGOÀI.
-test('E1 trang_thai gọi TRẦN (không request_id) -> CHỈ sức khoẻ, KHÔNG số liệu kho', async () => {
+test('E1 status gọi TRẦN (không request_id) -> CHỈ sức khoẻ, KHÔNG số liệu kho', async () => {
   const t = dungTool();
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, {});
   assert.equal(kq.ok, true, 'vẫn phải trả lời được — không gác cả tool');
@@ -403,7 +403,7 @@ test('E1 trang_thai gọi TRẦN (không request_id) -> CHỈ sức khoẻ, KHÔ
 test('E1b HOST gọi -> thấy ĐẦY ĐỦ như cũ', async () => {
   const t = dungTool({
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: 'u-host', dmChatId: 'dm1' }], groups: [] },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'u-host', trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'u-host', status: TRANG_THAI_HANG_DOI.DA_DAY },
   });
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ });
   assert.equal(kq.duLieu.soTinDaLuu, 12);
@@ -429,7 +429,7 @@ test('E4 lỗi ngoài dự kiến -> KetQuaTool sạch, KHÔNG ném ra client, K
   const t = dungTool({
     storeStats: () => { throw new Error('/Users/nguoidung/bí-mật.js:12 vỡ'); },
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: 'u-host', dmChatId: 'dm1' }], groups: [] },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'u-host', trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'u-host', status: TRANG_THAI_HANG_DOI.DA_DAY },
   });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ }));
   assert.equal(kq.ok, false);
@@ -579,11 +579,11 @@ function toolNhac(ghiDe = {}) {
       hosts: [{ userId: HOST_UID, dmChatId: 'dm1' }],
       groups: [{ chatId: CHAT_HOI, ten: 'Nhóm A' }],
     },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: ghiDe.nguoiGui ?? HOST_UID, trang_thai: 'da_day' },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: ghiDe.nguoiGui ?? HOST_UID, status: 'da_day' },
     nhac: {
       createFollowUp: (_db, p) => { daGoi.tao.push(p); return { id: 'nhac-1', mocDauMs: Date.now() + 3600_000 }; },
-      adjustCadence: (_db, p) => { daGoi.chinh.push(p); return p.isHost ? { ok: true, dong: { id: p.id, chu_ky_ngay: p.chuKyNgay ?? 1, gio_nhac: '08:00', trang_thai_td: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
-      closeFollowUp: (_db, p) => { daGoi.dong.push(p); return p.isHost ? { ok: true, dong: { id: p.id, trang_thai_td: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      adjustCadence: (_db, p) => { daGoi.chinh.push(p); return p.isHost ? { ok: true, dong: { id: p.id, cycle_days: p.chuKyNgay ?? 1, remind_time: '08:00', follow_up_status: 'dang_theo_duoi' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
+      closeFollowUp: (_db, p) => { daGoi.dong.push(p); return p.isHost ? { ok: true, dong: { id: p.id, follow_up_status: 'da_xong' } } : { ok: false, ly: 'KHONG_PHAI_HOST' }; },
       listFollowUps: (_db, p) => { daGoi.xem.push(p); return []; },
       ...(ghiDe.nhac ?? {}),
     },
@@ -686,7 +686,7 @@ test('I10 4 tool nhắc đều đi qua cửa request_id (fail-closed như mọi 
 // ═══════════════════════════════════════════════════════════════════════
 // J. GÁC HOST CHO ĐƯỜNG ĐỌC XUYÊN NHÓM
 //
-// 🔴 `lich_hen` là bảng CHUNG cho mọi nhóm. Tool nào liệt kê nó mà không gác
+// 🔴 `schedules` là bảng CHUNG cho mọi nhóm. Tool nào liệt kê nó mà không gác
 //    host là mở một đường rò chéo nhóm KHÔNG đi qua `history` — tức LÁCH được
 //    lớp chống rò chính của cả pack.
 // ═══════════════════════════════════════════════════════════════════════
@@ -710,8 +710,8 @@ test('J3 🔴 câu từ chối KHÔNG rò số lượng, KHÔNG rò tên nhóm �
     nguoiGui: 'nguoi-la',
     nhac: {
       listFollowUps: () => [
-        { id: 'a', noi_dung: 'việc nhóm KHÁC', ma_xac_nhan: 'AAAA', chu_ky_ngay: 1 },
-        { id: 'b', noi_dung: 'việc nhóm KHÁC nữa', ma_xac_nhan: 'BBBB', chu_ky_ngay: 1 },
+        { id: 'a', content: 'việc nhóm KHÁC', confirm_code: 'AAAA', cycle_days: 1 },
+        { id: 'b', content: 'việc nhóm KHÁC nữa', confirm_code: 'BBBB', cycle_days: 1 },
       ],
     },
   });
@@ -733,28 +733,28 @@ test('J4 ★ xem_lich CÙNG HỌ LỖI — cũng phải gác host', async () => 
   };
   const host = dungTool({
     ...chung,
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: HOST_UID, trang_thai: 'da_day' },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: HOST_UID, status: 'da_day' },
   });
   assert.equal((await host.goi(TEN_TOOL_LICH.XEM_LICH, { request_id: REQ })).kq.ok, true);
   assert.equal(goi.length, 1);
 
   const la = dungTool({
     ...chung,
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'nguoi-la', trang_thai: 'da_day' },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'nguoi-la', status: 'da_day' },
   });
   const { kq } = await la.goi(TEN_TOOL_LICH.XEM_LICH, { request_id: REQ });
-  assert.equal(kq.ok, false, 'lich_hen là bảng CHUNG — liệt kê tự do là đọc được lịch nhóm khác');
+  assert.equal(kq.ok, false, 'schedules là bảng CHUNG — liệt kê tự do là đọc được lịch nhóm khác');
   assert.equal(goi.length, 1, 'phải chặn TRƯỚC khi đọc DB');
 });
 
 test('J5 mọi tool ĐỌC DANH SÁCH xuyên nhóm đều gác host (chống sót lần sau)', async () => {
   // Bài này canh cả HỌ, không canh từng cái: thêm tool liệt kê mới mà quên gác
   // thì đỏ ngay. `history` KHÔNG nằm đây vì nó đã có tầng chống rò riêng
-  // (JOIN duoc_nghe + nguonChatIds).
+  // (JOIN listened + nguonChatIds).
   for (const ten of [TN.XEM_NHAC, TEN_TOOL_LICH.XEM_LICH]) {
     const t = dungTool({
       cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: HOST_UID, dmChatId: 'dm1' }], groups: [] },
-      dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'nguoi-la', trang_thai: 'da_day' },
+      dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'nguoi-la', status: 'da_day' },
       nhac: { listFollowUps: () => [] },
       lich: { listSchedules: () => [] },
     });
@@ -779,7 +779,7 @@ const KHO_CAM = ['soTinDaLuu', 'soThuHoiMoCoi', 'soHangDoiCho', 'soNhomDangNghe'
 function toolTrangThai(nguoiGui) {
   return dungTool({
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: 'u-host', dmChatId: 'dm1' }], groups: [] },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: nguoiGui, trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: nguoiGui, status: TRANG_THAI_HANG_DOI.DA_DAY },
     docSucKhoe: () => ({
       trangThai: 'OK',
       // Cố ý nhét đủ thứ nhạy cảm vào `lyDo` — nó là CHUỖI TỰ DO, ghi từ nhiều
@@ -828,7 +828,7 @@ test('K3 🔴 sucKhoe cho người ngoài KHÔNG rò gián tiếp: tên nhóm / 
 test('K4 người ngoài VẪN biết được trợ lý sống hay chết (không gác cả tool)', async () => {
   const t = dungTool({
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: 'u-host', dmChatId: 'dm1' }], groups: [] },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'nguoi-la', trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'nguoi-la', status: TRANG_THAI_HANG_DOI.DA_DAY },
     docSucKhoe: () => ({ trangThai: 'LISTENER_CHET', lyDo: 'ws đóng ở nhóm X', tuLuc: 'x', soLanThuLai: 3 }),
   });
   const { kq } = await t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ });
@@ -849,7 +849,7 @@ test('K5 HOST vẫn thấy đủ 4 số liệu + sucKhoe nguyên vẹn', async (
 test('K6 đọc sức khoẻ HỎNG -> người ngoài nhận sucKhoe=null, tool KHÔNG chết', async () => {
   const t = dungTool({
     docSucKhoe: () => { throw new Error('không đọc được health.json'); },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: 'nguoi-la', trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: 'nguoi-la', status: TRANG_THAI_HANG_DOI.DA_DAY },
   });
   const { kq } = await imLang(() => t.goi(TEN_TOOL.TRANG_THAI, { request_id: REQ }));
   assert.equal(kq.ok, true);
@@ -870,13 +870,13 @@ const U_KHAC = 'nguoi-khac';
 
 function lichGia(v = {}) {
   return {
-    id: `id-${v.ma_xac_nhan ?? 'A1B2'}`,
-    ma_xac_nhan: 'A1B2',
-    noi_dung: 'nhắc họp',
-    gui_luc_ms: 1_800_000_000_000,
-    mui_gio: '+07:00',
-    trang_thai: 'cho_xac_nhan',
-    nguoi_dat: U_TOI,
+    id: `id-${v.confirm_code ?? 'A1B2'}`,
+    confirm_code: 'A1B2',
+    content: 'nhắc họp',
+    send_at_ms: 1_800_000_000_000,
+    timezone: '+07:00',
+    status: 'cho_xac_nhan',
+    created_by: U_TOI,
     ...v,
   };
 }
@@ -887,23 +887,23 @@ function toolChot(kho_, nguoiGui = U_TOI) {
   const daHuy = [];
   const t = dungTool({
     cauHinh: { cauTrungTinh: 'x', hosts: [{ userId: U_TOI, dmChatId: 'dm1' }], groups: [] },
-    dong: { request_id: REQ, chat_id_hoi: CHAT_HOI, user_id: nguoiGui, trang_thai: TRANG_THAI_HANG_DOI.DA_DAY },
+    dong: { request_id: REQ, asking_chat_id: CHAT_HOI, user_id: nguoiGui, status: TRANG_THAI_HANG_DOI.DA_DAY },
     lich: {
       listSchedules: (_db, p) => kho_.filter(
-        (d) => d.trang_thai === p.trangThai && (!p.nguoiDat || d.nguoi_dat === p.nguoiDat),
+        (d) => d.status === p.trangThai && (!p.nguoiDat || d.created_by === p.nguoiDat),
       ),
       confirmSchedule: (_db, p) => {
-        const d = kho_.find((x) => x.ma_xac_nhan === p.ma || x.id === p.id);
+        const d = kho_.find((x) => x.confirm_code === p.ma || x.id === p.id);
         if (!d) return { ok: false, ly: 'KHONG_TIM_THAY' };
-        if (d.nguoi_dat !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
-        daChot.push(d.ma_xac_nhan);
+        if (d.created_by !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
+        daChot.push(d.confirm_code);
         return { ok: true, dong: d };
       },
       cancelSchedule: (_db, p) => {
-        const d = kho_.find((x) => x.ma_xac_nhan === p.id || x.id === p.id);
+        const d = kho_.find((x) => x.confirm_code === p.id || x.id === p.id);
         if (!d) return { ok: false, ly: 'KHONG_TIM_THAY' };
-        if (d.nguoi_dat !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
-        daHuy.push(d.ma_xac_nhan);
+        if (d.created_by !== p.nguoiDat) return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
+        daHuy.push(d.confirm_code);
         return { ok: true, dong: d };
       },
     },
@@ -928,8 +928,8 @@ test('L2 0 lịch chờ -> NÓI RÕ, không im lặng', async () => {
 
 test('L3 🔴 ≥2 lịch chờ -> HỎI LẠI, TUYỆT ĐỐI không tự chốt cái nào', async () => {
   const t = toolChot([
-    lichGia({ ma_xac_nhan: 'A1B2', noi_dung: 'nhắc họp' }),
-    lichGia({ ma_xac_nhan: 'C3D4', noi_dung: 'nhắc gửi báo cáo', id: 'id-C3D4' }),
+    lichGia({ confirm_code: 'A1B2', content: 'nhắc họp' }),
+    lichGia({ confirm_code: 'C3D4', content: 'nhắc gửi báo cáo', id: 'id-C3D4' }),
   ]);
   const { kq } = await t.goi(TEN_TOOL_LICH.DAT_LICH_CHOT, { request_id: REQ });
   assert.equal(kq.ok, false);
@@ -942,8 +942,8 @@ test('L3 🔴 ≥2 lịch chờ -> HỎI LẠI, TUYỆT ĐỐI không tự chố
 
 test('L4 có ≥2 lịch nhưng GÕ KÈM MÃ -> vẫn chốt đúng cái đó', async () => {
   const t = toolChot([
-    lichGia({ ma_xac_nhan: 'A1B2' }),
-    lichGia({ ma_xac_nhan: 'C3D4', id: 'id-C3D4' }),
+    lichGia({ confirm_code: 'A1B2' }),
+    lichGia({ confirm_code: 'C3D4', id: 'id-C3D4' }),
   ]);
   const { kq } = await t.goi(TEN_TOOL_LICH.DAT_LICH_CHOT, { request_id: REQ, maXacNhan: 'c3d4' });
   assert.equal(kq.ok, true, 'mã vẫn phải dùng được — chỉ bỏ BẮT BUỘC, không bỏ mã');
@@ -952,7 +952,7 @@ test('L4 có ≥2 lịch nhưng GÕ KÈM MÃ -> vẫn chốt đúng cái đó', 
 
 test('L5 🔴 "ok" TRỐNG KHÔNG chốt được lịch của NGƯỜI KHÁC', async () => {
   // Kho có đúng 1 lịch chờ, nhưng của người khác đặt.
-  const t = toolChot([lichGia({ nguoi_dat: U_KHAC })], U_TOI);
+  const t = toolChot([lichGia({ created_by: U_KHAC })], U_TOI);
   const { kq } = await t.goi(TEN_TOOL_LICH.DAT_LICH_CHOT, { request_id: REQ });
   assert.equal(kq.ok, false);
   assert.match(kq.thongDiep, /Không có lịch nào đang chờ/,
@@ -968,7 +968,7 @@ test('L6 "huỷ" TRỐNG cũng theo đúng 3 ca đó', async () => {
   const khong = toolChot([]);
   assert.equal((await khong.goi(TEN_TOOL_LICH.HUY_LICH, { request_id: REQ })).kq.ok, false);
 
-  const nhieu = toolChot([lichGia(), lichGia({ ma_xac_nhan: 'C3D4', id: 'id-C3D4' })]);
+  const nhieu = toolChot([lichGia(), lichGia({ confirm_code: 'C3D4', id: 'id-C3D4' })]);
   assert.equal((await nhieu.goi(TEN_TOOL_LICH.HUY_LICH, { request_id: REQ })).kq.ok, false);
   assert.deepEqual(nhieu.daHuy, [], 'huỷ nhầm cũng mất việc y như chốt nhầm');
 });
@@ -1019,8 +1019,8 @@ test('M1 ★ nhịp phút: mốc kế tiếp đúng N phút, KHÔNG neo giờ, K
 });
 
 test('M2 nhịp phút THẮNG nhịp ngày — chỉ MỘT chỗ quyết định', () => {
-  assert.deepEqual(TD.parseCadence({ chu_ky_phut: 5, chu_ky_ngay: 3 }), { laPhut: true, phut: 5, ngay: 0 });
-  assert.deepEqual(TD.parseCadence({ chu_ky_phut: null, chu_ky_ngay: 3 }), { laPhut: false, phut: null, ngay: 3 });
+  assert.deepEqual(TD.parseCadence({ cycle_minutes: 5, cycle_days: 3 }), { laPhut: true, phut: 5, ngay: 0 });
+  assert.deepEqual(TD.parseCadence({ cycle_minutes: null, cycle_days: 3 }), { laPhut: false, phut: null, ngay: 3 });
 });
 
 test('M3 🔴 trần mặc định: nhịp DÀY có trần, nhịp thưa/ngày KHÔNG', () => {
@@ -1102,7 +1102,7 @@ test('M10 🔴 nhịp NGÀY giữ nguyên câu cũ và KHÔNG bị gắn trần'
   assert.match(kq.duLieu.cauXacNhan, /LẶP LẠI tới khi anh bảo xong/);
 });
 
-test('M11 🔴 gio_nhac phải là CHUỖI "HH:MM" — object là INSERT ném ở tận DB', async () => {
+test('M11 🔴 remind_time phải là CHUỖI "HH:MM" — object là INSERT ném ở tận DB', async () => {
   // Bug thật: `parseReminderHour()` trả OBJECT {gio,phut}, lấy thẳng làm giá trị cột
   // ⇒ câu xác nhận in "[object Object]" và node:sqlite không bind được object
   // ⇒ nhắc theo đuổi nhịp NGÀY chưa từng tạo nổi trên hệ thật.

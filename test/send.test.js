@@ -300,14 +300,14 @@ test('C11 styles được truyền sang sendMessage; không có style thì bỏ 
   assert.equal(api.goi[1].noiDung.styles, undefined);
 });
 
-test('C12 sendImage đính kèm ảnh; chú thích vào contentRaw vì schema cấm noi_dung', async () => {
+test('C12 sendImage đính kèm ảnh; chú thích vào contentRaw vì schema cấm content', async () => {
   const api = apiGia();
   const daGhi = [];
   await sendImage(api, '111', '/tmp/bang.png', 'bảng tuần này', { ghiLai: (t) => daGhi.push(t) });
   assert.equal(api.goi[0].noiDung.attachments, '/tmp/bang.png');
   const t = daGhi[0];
   assert.equal(t.msgType, 'chat.image');
-  assert.equal(t.noiDung, null, 'schema: msg_type != chat.text thì noi_dung PHẢI null');
+  assert.equal(t.noiDung, null, 'schema: msg_type != chat.text thì content PHẢI null');
   assert.equal(JSON.parse(t.contentRaw).chuThich, 'bảng tuần này');
   assert.equal(JSON.parse(t.contentRaw)._doTroLyTao, true);
 });
@@ -515,7 +515,7 @@ test('G9 tổng độ dài mention KHÔNG vượt độ dài tin (zca-js sẽ N�
 // ═══════════════════════════════════════════════════════════════════════
 // H. GHI LẠI CHÍNH CÂU TRẢ LỜI CỦA TRỢ LÝ  (bug đo thật 20/08/2026)
 //
-// 🔴 `SELECT * FROM tin_nhan WHERE do_tro_ly_tao=1` ra RỖNG trong khi trợ lý
+// 🔴 `SELECT * FROM messages WHERE made_by_assistant=1` ra RỖNG trong khi trợ lý
 //    đã trả lời thật trong nhóm ⇒ đọc lại kho chỉ thấy câu hỏi, không thấy
 //    câu trả lời. Nguyên nhân: 4 chỗ gọi trong `mcp/tools.js` không truyền
 //    `ghiLai`. `send.js` CÓ kêu cảnh báo, nhưng cảnh báo ở stderr của tiến

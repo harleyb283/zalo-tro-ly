@@ -101,7 +101,7 @@ export function localTimeToEpoch(nam, thang, ngay, gio, phut, muiGio = GIOI_HAN_
  *
  * 🔴 KHÁC `parseReminderHour()` — cái đó trả OBJECT `{gio, phut}` để tính toán.
  * Bug thật 20/08/2026: `_datNhacTheoDuoi` lấy thẳng kết quả `parseReminderHour()`
- * làm giá trị `gio_nhac` ⇒ (a) câu xác nhận in "lúc [object Object]",
+ * làm giá trị `remind_time` ⇒ (a) câu xác nhận in "lúc [object Object]",
  * (b) `node:sqlite` KHÔNG bind được object nên INSERT NÉM ⇒ nhắc theo đuổi
  * NHỊP NGÀY chưa từng tạo nổi trên hệ thật. Hai hàm tên gần giống nhau, trả
  * hai kiểu khác nhau — dùng nhầm là hỏng ở tận DB.
@@ -118,7 +118,7 @@ export function normalizeReminderHour(s) {
 export function parseReminderHour(s) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(s ?? '').trim());
   if (!m || +m[1] > 23 || +m[2] > 59) {
-    if (s) _log(`gio_nhac='${s}' không hợp lệ -> dùng ${NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}`);
+    if (s) _log(`remind_time='${s}' không hợp lệ -> dùng ${NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}`);
     const d = /^(\d{1,2}):(\d{2})$/.exec(NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH);
     return { gio: +d[1], phut: +d[2] };
   }
@@ -131,20 +131,20 @@ export function parseReminderHour(s) {
  *
  * 🔴 VÌ SAO GIỮ HAI CỘT chứ không quy hết về phút (quyết định 20/08/2026):
  * hai chế độ KHÁC BẢN CHẤT, không phải khác đơn vị.
- *   · `chu_ky_ngay` + `gio_nhac` = lịch theo NGÀY, NEO vào giờ địa phương và
+ *   · `cycle_days` + `remind_time` = lịch theo NGÀY, NEO vào giờ địa phương và
  *     có luật chừa Chủ Nhật. "Mỗi ngày 8h sáng" KHÔNG bằng "cứ 1440 phút" —
  *     nó phải rơi đúng 8h, chứ không phải "8h cộng thêm khoảng trễ lần trước".
- *   · `chu_ky_phut` = đếm N phút KỂ TỪ LẦN NHẮC TRƯỚC, không neo giờ nào.
+ *   · `cycle_minutes` = đếm N phút KỂ TỪ LẦN NHẮC TRƯỚC, không neo giờ nào.
  * Ép chung một số là mất thông tin, và mất im lặng.
  *
- * LUẬT ƯU TIÊN — CHỈ MỘT, khai ở đây: `chu_ky_phut` khác NULL thì nó THẮNG.
+ * LUẬT ƯU TIÊN — CHỈ MỘT, khai ở đây: `cycle_minutes` khác NULL thì nó THẮNG.
  * Nhờ vậy không có "hai cơ chế đá nhau": chỉ có MỘT chỗ quyết định.
  *
- * @param {any} dong dòng `lich_hen` (hoặc object cùng hình dạng)
+ * @param {any} dong dòng `schedules` (hoặc object cùng hình dạng)
  * @returns {{laPhut: boolean, phut: number|null, ngay: number}}
  */
 export function parseCadence(dong) {
-  const phutTho = dong?.chu_ky_phut ?? dong?.chuKyPhut;
+  const phutTho = dong?.cycle_minutes ?? dong?.chuKyPhut;
   if (phutTho !== null && phutTho !== undefined && Number.isFinite(Number(phutTho))) {
     const phut = Math.trunc(Number(phutTho));
     if (phut > 0) return { laPhut: true, phut, ngay: 0 };
@@ -153,7 +153,7 @@ export function parseCadence(dong) {
     1,
     Math.min(
       NHAC_THEO_DUOI.CHU_KY_NGAY_TOI_DA,
-      Math.trunc(Number(dong?.chu_ky_ngay ?? dong?.chuKyNgay) || NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH),
+      Math.trunc(Number(dong?.cycle_days ?? dong?.chuKyNgay) || NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH),
     ),
   );
   return { laPhut: false, phut: null, ngay };
@@ -223,9 +223,9 @@ export function nextReminderAt(tuMs, cfg = {}) {
   // Nhật thì nhảy sang thứ Hai — lệch hoàn toàn thứ anh dặn. Nhịp phút để
   // đuổi một việc GẤP trong ngày; tổng thời gian đã bị TRẦN SỐ LẦN khống chế
   // nên không cần luật lịch nào nữa.
-  // `gio_nhac` cũng KHÔNG dùng ở nhánh này — hai cơ chế không đá nhau vì
+  // `remind_time` cũng KHÔNG dùng ở nhánh này — hai cơ chế không đá nhau vì
   // `parseCadence()` chỉ chọn đúng MỘT nhánh.
-  const nhip = parseCadence({ chu_ky_phut: cfg.chuKyPhut, chu_ky_ngay: cfg.chuKyNgay });
+  const nhip = parseCadence({ cycle_minutes: cfg.chuKyPhut, cycle_days: cfg.chuKyNgay });
   if (nhip.laPhut) return Math.floor(tuMs) + nhip.phut * 60_000;
 
   const muiGio = cfg.muiGio ?? GIOI_HAN_LICH.MUI_GIO_MAC_DINH;
@@ -272,7 +272,7 @@ export function createFollowUp(db, p) {
   // Nhịp phút (nếu có) THẮNG nhịp ngày — luật ưu tiên khai ở `parseCadence()`.
   const chuKyPhut = p.chuKyPhut === null || p.chuKyPhut === undefined
     ? null : Math.trunc(Number(p.chuKyPhut));
-  const nhip = parseCadence({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKy });
+  const nhip = parseCadence({ cycle_minutes: chuKyPhut, cycle_days: chuKy });
   // Trần: host khai gì dùng nấy; không khai thì lấy mặc định THEO NHỊP.
   const tranSoLan = p.tranSoLan === undefined ? defaultAttemptCap(nhip)
     : (p.tranSoLan === null ? null : Math.trunc(Number(p.tranSoLan)));
@@ -282,12 +282,12 @@ export function createFollowUp(db, p) {
   });
 
   db.prepare(
-    `INSERT INTO lich_hen
-       (id, chat_id_dich, loai_dich, noi_dung, tag_user_ids, gui_luc_ms, mui_gio,
-        dien_giai_goc, dien_giai_xac_nhan, nguoi_dat, chat_id_dat, trang_thai,
-        ma_xac_nhan, so_lan_thu, ts_tao, ts_cap_nhat,
-        la_theo_duoi, trang_thai_td, chu_ky_ngay, gio_nhac, bo_chu_nhat,
-        so_lan_da_nhac, nguoi_phu_trach, chu_ky_phut, tran_so_lan)
+    `INSERT INTO schedules
+       (id, target_chat_id, target_kind, content, tag_user_ids, send_at_ms, timezone,
+        raw_phrasing, confirm_phrasing, created_by, creator_chat_id, status,
+        confirm_code, attempt_count, ts_created, ts_updated,
+        is_follow_up, follow_up_status, cycle_days, remind_time, skip_sunday,
+        remind_count, owner, cycle_minutes, max_reminds)
      VALUES ($id, $dich, $loai, $nd, $tag, $luc, $mg, $goc, $xn, $nguoi, $dat,
              $tt, $ma, 0, $ts, $ts, 1, $ttd, $ck, $gn, $bcn, 0, $pt, $ckp, $tran)`,
   ).run({
@@ -320,13 +320,13 @@ export function createFollowUp(db, p) {
 export function dueFollowUps(db, bayGioMs) {
   return db
     .prepare(
-      `SELECT * FROM lich_hen
-        WHERE la_theo_duoi = 1
-          AND trang_thai = $tt
-          AND trang_thai_td = $ttd
-          AND gui_luc_ms <= $now
-          AND (tam_dung_toi_ms IS NULL OR tam_dung_toi_ms <= $now)
-        ORDER BY gui_luc_ms ASC LIMIT 20`,
+      `SELECT * FROM schedules
+        WHERE is_follow_up = 1
+          AND status = $tt
+          AND follow_up_status = $ttd
+          AND send_at_ms <= $now
+          AND (paused_until_ms IS NULL OR paused_until_ms <= $now)
+        ORDER BY send_at_ms ASC LIMIT 20`,
     )
     .all({ tt: TRANG_THAI_LICH.DA_LEN_LICH, ttd: TRANG_THAI_TD.DANG_THEO_DUOI, now: Math.floor(bayGioMs) });
 }
@@ -340,12 +340,12 @@ export function dueFollowUps(db, bayGioMs) {
  *
  * 🔴 VÌ SAO KHÔNG DÙNG THẲNG `NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS` (10 phút):
  * nhịp phút cho phép xuống tận 1 phút. Mỗi lượt `claimReminderTurn` lại ghi đè
- * `cho_model_tu_ms = bayGio`, nên với nhịp 3 phút thì mốc đó được LÀM MỚI mỗi 3
+ * `model_wait_since_ms = bayGio`, nên với nhịp 3 phút thì mốc đó được LÀM MỚI mỗi 3
  * phút và KHÔNG BAO GIỜ đuổi kịp ngưỡng 10 phút ⇒ **lưới dự phòng chưa từng bắn
  * một lần nào**. Mà lưới đó chính là thứ chú thích ở `runner.js` gọi là "giữ cho
  * tính năng không hỏng câm": Claude rớt thì lời nhắc BIẾN MẤT ÂM THẦM.
  * Hệ quả kèm theo: mỗi nhịp lại đẩy thêm một hàng đợi + một notification cho cùng
- * một lời nhắc (nhắc chồng nhắc), và `so_lan_da_nhac` tăng cho cả lượt CHƯA GỬI GÌ
+ * một lời nhắc (nhắc chồng nhắc), và `remind_count` tăng cho cả lượt CHƯA GỬI GÌ
  * nên trần 10 lần bị đốt trong 30 phút dù có thể chưa nhắn nổi một tin.
  *
  * 🔴 BẤT BIẾN hàm này giữ: **trần chờ LUÔN NHỎ HƠN nhịp**. Nhờ `Math.min` với
@@ -373,9 +373,9 @@ export const MIN_MODEL_WAIT_MS = modelWaitCapMs({
  * Các lượt ĐÃ GIAO MODEL mà model còn im — ứng viên cho câu dự phòng.
  *
  * 🔴 BA điều kiện trạng thái (A6) — bản cũ KHÔNG có cái nào:
- *   · `trang_thai_td = 'dang_theo_duoi'` — host bảo XONG rồi thì đừng nhắc nữa
- *   · `trang_thai = 'da_len_lich'`       — dòng đã chốt sổ thì đừng nhắc nữa
- *   · `tam_dung_toi_ms`                  — host giãn nhịp BẰNG LỜI thì phải im
+ *   · `follow_up_status = 'dang_theo_duoi'` — host bảo XONG rồi thì đừng nhắc nữa
+ *   · `status = 'da_len_lich'`       — dòng đã chốt sổ thì đừng nhắc nữa
+ *   · `paused_until_ms`                  — host giãn nhịp BẰNG LỜI thì phải im
  * Thiếu ba cái này thì bộ quét trở thành đường vòng qua chính van xả: host đóng
  * hoặc tạm dừng xong, ≤10 phút sau trợ lý vẫn nhắn vào nhóm có người thật.
  *
@@ -388,14 +388,14 @@ export function stalledModelReminders(db, bayGioMs) {
   const now = Math.floor(bayGioMs);
   return db
     .prepare(
-      `SELECT * FROM lich_hen
-        WHERE la_theo_duoi = 1
-          AND cho_model_tu_ms IS NOT NULL
-          AND cho_model_tu_ms <= $han
-          AND trang_thai = $tt
-          AND trang_thai_td = $ttd
-          AND (tam_dung_toi_ms IS NULL OR tam_dung_toi_ms <= $now)
-        ORDER BY cho_model_tu_ms ASC LIMIT 20`,
+      `SELECT * FROM schedules
+        WHERE is_follow_up = 1
+          AND model_wait_since_ms IS NOT NULL
+          AND model_wait_since_ms <= $han
+          AND status = $tt
+          AND follow_up_status = $ttd
+          AND (paused_until_ms IS NULL OR paused_until_ms <= $now)
+        ORDER BY model_wait_since_ms ASC LIMIT 20`,
     )
     .all({
       han: now - MIN_MODEL_WAIT_MS,
@@ -406,7 +406,7 @@ export function stalledModelReminders(db, bayGioMs) {
 }
 
 /**
- * ═══ 🔴 TOKEN GỬI — `cho_model_tu_ms` KHÔNG chỉ là "mốc bắt đầu chờ" ═══
+ * ═══ 🔴 TOKEN GỬI — `model_wait_since_ms` KHÔNG chỉ là "mốc bắt đầu chờ" ═══
  *
  * Nó là **quyền gửi** của MỘT lượt nhắc, và chỉ MỘT bên được cầm:
  *   · model gửi qua `reply`  → giành token ở đây
@@ -428,12 +428,12 @@ export function stalledModelReminders(db, bayGioMs) {
  */
 export function claimReminderSend(db, idNhac) {
   const d = db
-    .prepare('SELECT cho_model_tu_ms FROM lich_hen WHERE id = $id AND la_theo_duoi = 1')
+    .prepare('SELECT model_wait_since_ms FROM schedules WHERE id = $id AND is_follow_up = 1')
     .get({ id: String(idNhac) });
-  const cu = d?.cho_model_tu_ms;
+  const cu = d?.model_wait_since_ms;
   if (cu === null || cu === undefined) return { ok: false, mocCu: null };
   const kq = db
-    .prepare('UPDATE lich_hen SET cho_model_tu_ms = NULL WHERE id = $id AND cho_model_tu_ms = $cu')
+    .prepare('UPDATE schedules SET model_wait_since_ms = NULL WHERE id = $id AND model_wait_since_ms = $cu')
     .run({ id: String(idNhac), cu: Number(cu) });
   return { ok: Number(kq.changes) === 1, mocCu: Number(cu) };
 }
@@ -444,13 +444,13 @@ export function claimReminderSend(db, idNhac) {
  * ⚠️ Trả về mốc **CŨ**, không phải `Date.now()`: thời gian đã chờ phải được giữ
  * nguyên, để lưới an toàn bắn ngay như đáng lẽ nó phải bắn, chứ không bị lùi
  * thêm một trần nữa.
- * `WHERE cho_model_tu_ms IS NULL` để không ghi đè lên mốc của một lượt MỚI mà
+ * `WHERE model_wait_since_ms IS NULL` để không ghi đè lên mốc của một lượt MỚI mà
  * nhịp sau vừa dành chỗ trong lúc lời gọi mạng đang treo.
  */
 export function releaseReminderSend(db, idNhac, mocCu) {
   if (mocCu === null || mocCu === undefined) return false;
   const kq = db
-    .prepare('UPDATE lich_hen SET cho_model_tu_ms = $cu WHERE id = $id AND cho_model_tu_ms IS NULL')
+    .prepare('UPDATE schedules SET model_wait_since_ms = $cu WHERE id = $id AND model_wait_since_ms IS NULL')
     .run({ id: String(idNhac), cu: Number(mocCu) });
   return Number(kq.changes) === 1;
 }
@@ -458,14 +458,14 @@ export function releaseReminderSend(db, idNhac, mocCu) {
 /**
  * Ghi BẰNG CHỨNG đã gửi cho đường model.
  *
- * 🔴 Trước bản này chỉ đường DỰ PHÒNG ghi `msg_id_da_gui`; đường model thì không.
+ * 🔴 Trước bản này chỉ đường DỰ PHÒNG ghi `sent_msg_id`; đường model thì không.
  * Hậu quả: lời nhắc do model gửi thành công 10 lượt vẫn để lại cột NULL, nên câu
  * báo hết lượt kèm cảnh báo *"em KHÔNG có bằng chứng tin nào đã gửi"* — báo động
  * giả. Cảnh báo giả lặp lại vài lần là lần sau host thôi tin cả cảnh báo đúng.
  */
 export function writeReminderProof(db, idNhac, msgId) {
   const kq = db
-    .prepare('UPDATE lich_hen SET msg_id_da_gui = $m WHERE id = $id AND la_theo_duoi = 1')
+    .prepare('UPDATE schedules SET sent_msg_id = $m WHERE id = $id AND is_follow_up = 1')
     .run({ m: msgId ? String(msgId) : null, id: String(idNhac) });
   return Number(kq.changes) === 1;
 }
@@ -479,7 +479,7 @@ export function writeReminderProof(db, idNhac, msgId) {
  * nhiều so với một tin nhắn không rút lại được.
  *
  * ═══ 🔴 CÂU HỎI ĐÚNG LÀ "HOST CÓ BẢO DỪNG KHÔNG", KHÔNG PHẢI "CÒN ĐANG CHẠY KHÔNG" ═══
- * Bản đầu của hàm này đòi `trang_thai_td === 'dang_theo_duoi'` và suýt gây HỒI QUY:
+ * Bản đầu của hàm này đòi `follow_up_status === 'dang_theo_duoi'` và suýt gây HỒI QUY:
  * `claimReminderTurn()` đóng dòng NGAY khi chạm trần (`HET_LUOT`) rồi caller mới gửi,
  * nên lượt CUỐI CÙNG sẽ bị chính lớp canh này chặn ⇒ trần 10 hoá thành nhắc 9 lần,
  * phá đúng chú thích *"trần 10 nghĩa là nhắc đủ 10 lần rồi mới thôi, không phải 9"*.
@@ -489,44 +489,44 @@ export function writeReminderProof(db, idNhac, msgId) {
  *   · `tam_dung`   -> CHẶN. Van xả — thứ DUY NHẤT ngăn nhắc mãi khi không có trần.
  *   · `HET_LUOT`   -> CHO QUA. Đây chính là lượt vừa chạm trần, nó PHẢI được gửi.
  * Dòng đóng bằng `HET_LUOT` từ lượt TRƯỚC không lọt tới đây được: cả `dueFollowUps`
- * lẫn `stalledModelReminders` đều đòi `trang_thai_td = 'dang_theo_duoi'`.
+ * lẫn `stalledModelReminders` đều đòi `follow_up_status = 'dang_theo_duoi'`.
  */
 export function isStillFollowingUp(db, id, bayGioMs) {
   const d = db
     .prepare(
-      `SELECT trang_thai, trang_thai_td, ly_do_dong, tam_dung_toi_ms
-         FROM lich_hen WHERE id = $id`,
+      `SELECT status, follow_up_status, close_reason, paused_until_ms
+         FROM schedules WHERE id = $id`,
     )
     .get({ id: String(id) });
   if (!d) return false;
 
   // Van xả: host giãn nhịp / tạm ngưng BẰNG LỜI.
-  if (d.trang_thai_td === TRANG_THAI_TD.TAM_DUNG) return false;
-  if (d.tam_dung_toi_ms !== null && d.tam_dung_toi_ms !== undefined
-      && Number(d.tam_dung_toi_ms) > Math.floor(bayGioMs)) return false;
+  if (d.follow_up_status === TRANG_THAI_TD.TAM_DUNG) return false;
+  if (d.paused_until_ms !== null && d.paused_until_ms !== undefined
+      && Number(d.paused_until_ms) > Math.floor(bayGioMs)) return false;
 
   // Đã đóng: chỉ cho qua đúng ca "lượt vừa chạm trần".
-  if (d.trang_thai_td === TRANG_THAI_TD.DA_XONG) {
-    return d.ly_do_dong === LY_DO_DONG.HET_LUOT;
+  if (d.follow_up_status === TRANG_THAI_TD.DA_XONG) {
+    return d.close_reason === LY_DO_DONG.HET_LUOT;
   }
 
   // Còn đang theo đuổi: vòng đời của dòng phải chưa bị chốt sổ (`da_huy`, `loi`…).
-  return d.trang_thai === TRANG_THAI_LICH.DA_LEN_LICH;
+  return d.status === TRANG_THAI_LICH.DA_LEN_LICH;
 }
 
 /**
  * ★ DÀNH CHỖ TRƯỚC KHI GỬI — đẩy mốc sang lần kế tiếp NGAY, trong một lệnh.
  *
- * 🔴 `WHERE gui_luc_ms = $cu` là thứ bảo đảm hai nhịp timer chồng nhau (hoặc
+ * 🔴 `WHERE send_at_ms = $cu` là thứ bảo đảm hai nhịp timer chồng nhau (hoặc
  * daemon vừa restart) KHÔNG gửi hai tin vào nhóm người thật. Chỉ đi tiếp khi
  * `changes === 1`. Khác lịch một lần ở chỗ: KHÔNG đổi trạng thái (lời nhắc còn
  * sống để nhắc tiếp), chỉ dời mốc.
  *
- * 🔴 `AND trang_thai = $tt` — nửa còn lại của LUẬT ĐỐI XỨNG với `claimSending`:
+ * 🔴 `AND status = $tt` — nửa còn lại của LUẬT ĐỐI XỨNG với `claimSending`:
  * mọi cột mà `dueFollowUps()` lọc thì lệnh dành chỗ này cũng phải lọc. Thiếu nó
- * thì ca ngược lại xảy ra: `runOneTick` (hoặc `cancelSchedule`) đã lật `trang_thai` trong
+ * thì ca ngược lại xảy ra: `runOneTick` (hoặc `cancelSchedule`) đã lật `status` trong
  * lúc `runFollowUpTick` đang `await`, mà lệnh này vẫn cho qua vì nó chỉ nhìn
- * `gui_luc_ms` — tức là gửi một lời nhắc thuộc dòng đã bị người khác chốt sổ.
+ * `send_at_ms` — tức là gửi một lời nhắc thuộc dòng đã bị người khác chốt sổ.
  * Ảnh tĩnh `ds` chụp TRƯỚC nên không thấy; chỉ `WHERE` của chính `UPDATE` này
  * mới nguyên tử. Xem chú thích dài ở `schedule.js: claimSending`.
  *
@@ -534,23 +534,23 @@ export function isStillFollowingUp(db, id, bayGioMs) {
  */
 export function claimReminderTurn(db, dong, bayGioMs) {
   const ke = nextReminderAt(bayGioMs, {
-    chuKyNgay: dong.chu_ky_ngay,
-    chuKyPhut: dong.chu_ky_phut,
-    gioNhac: dong.gio_nhac,
-    boChuNhat: Number(dong.bo_chu_nhat) === 1,
-    muiGio: dong.mui_gio,
+    chuKyNgay: dong.cycle_days,
+    chuKyPhut: dong.cycle_minutes,
+    gioNhac: dong.remind_time,
+    boChuNhat: Number(dong.skip_sunday) === 1,
+    muiGio: dong.timezone,
   });
   const kq = db
     .prepare(
-      `UPDATE lich_hen
-          SET gui_luc_ms = $ke, nhac_lan_cuoi_ms = $now,
-              so_lan_da_nhac = so_lan_da_nhac + 1, ts_cap_nhat = $ts
-        WHERE id = $id AND gui_luc_ms = $cu
-          AND trang_thai_td = $ttd AND trang_thai = $tt AND la_theo_duoi = 1`,
+      `UPDATE schedules
+          SET send_at_ms = $ke, last_remind_ms = $now,
+              remind_count = remind_count + 1, ts_updated = $ts
+        WHERE id = $id AND send_at_ms = $cu
+          AND follow_up_status = $ttd AND status = $tt AND is_follow_up = 1`,
     )
     .run({
       ke, now: Math.floor(bayGioMs), ts: new Date().toISOString(),
-      id: String(dong.id), cu: Number(dong.gui_luc_ms),
+      id: String(dong.id), cu: Number(dong.send_at_ms),
       ttd: TRANG_THAI_TD.DANG_THEO_DUOI, tt: TRANG_THAI_LICH.DA_LEN_LICH,
     });
   if (Number(kq.changes) !== 1) return { ok: false, mocKeTiepMs: null, hetLuot: false };
@@ -562,14 +562,14 @@ export function claimReminderTurn(db, dong, bayGioMs) {
   // ⛔ KHÔNG dùng LY_DO_DONG.HOST_DONG ở đây: host nhìn vào phải biết nó tắt
   // vì HẾT LƯỢT chứ không phải vì ai đó đã xong việc. Im lặng tắt là bỏ rơi
   // một việc thật mà không ai hay.
-  const tran = dong.tran_so_lan;
-  const daNhac = Number(dong.so_lan_da_nhac ?? 0) + 1;
+  const tran = dong.max_reminds;
+  const daNhac = Number(dong.remind_count ?? 0) + 1;
   const hetLuot = tran !== null && tran !== undefined && daNhac >= Number(tran);
   if (hetLuot) {
     db.prepare(
-      `UPDATE lich_hen
-          SET trang_thai_td = $ttd, trang_thai = $tt, ly_do_dong = $ly,
-              dong_luc_ms = $luc, ts_cap_nhat = $ts
+      `UPDATE schedules
+          SET follow_up_status = $ttd, status = $tt, close_reason = $ly,
+              closed_at_ms = $luc, ts_updated = $ts
         WHERE id = $id`,
     ).run({
       ttd: TRANG_THAI_TD.DA_XONG,
@@ -600,40 +600,40 @@ export function adjustCadence(db, p) {
     // kỳ ai bị nhắc cũng tự tắt được lời nhắc của chính mình.
     return { ok: false, ly: 'KHONG_PHAI_HOST' };
   }
-  const dong = db.prepare('SELECT * FROM lich_hen WHERE id = $k OR ma_xac_nhan = $k')
+  const dong = db.prepare('SELECT * FROM schedules WHERE id = $k OR confirm_code = $k')
     .get({ k: String(p.id ?? '') });
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
-  if (Number(dong.la_theo_duoi) !== 1) return { ok: false, ly: 'KHONG_PHAI_THEO_DUOI' };
-  if (dong.trang_thai_td === TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'DA_XONG' };
+  if (Number(dong.is_follow_up) !== 1) return { ok: false, ly: 'KHONG_PHAI_THEO_DUOI' };
+  if (dong.follow_up_status === TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'DA_XONG' };
 
   const bayGio = p.bayGioMs ?? Date.now();
   const dat = { id: dong.id, ts: new Date().toISOString() };
-  const cot = ['ts_cap_nhat = $ts'];
+  const cot = ['ts_updated = $ts'];
 
   if (p.chuKyPhut !== undefined) {
     // null = bỏ nhịp phút, quay về nhịp ngày. Đây là đường DUY NHẤT để đổi
     // chế độ, và nó phải rõ ràng chứ không suy từ việc có/không có tham số.
     dat.ckp = p.chuKyPhut === null ? null : Math.trunc(Number(p.chuKyPhut));
-    cot.push('chu_ky_phut = $ckp');
+    cot.push('cycle_minutes = $ckp');
   }
   if (p.tranSoLan !== undefined) {
     dat.tran = p.tranSoLan === null ? null : Math.trunc(Number(p.tranSoLan));
-    cot.push('tran_so_lan = $tran');
+    cot.push('max_reminds = $tran');
   }
   if (p.chuKyNgay !== undefined && p.chuKyNgay !== null) {
     const ck = Math.trunc(Number(p.chuKyNgay));
     if (!Number.isFinite(ck) || ck < 1 || ck > NHAC_THEO_DUOI.CHU_KY_NGAY_TOI_DA) {
       return { ok: false, ly: 'CHU_KY_LA', chiTiet: `chu kỳ phải trong 1..${NHAC_THEO_DUOI.CHU_KY_NGAY_TOI_DA} ngày` };
     }
-    cot.push('chu_ky_ngay = $ck'); dat.ck = ck;
+    cot.push('cycle_days = $ck'); dat.ck = ck;
   }
   if (p.gioNhac !== undefined && p.gioNhac !== null) {
     const g = parseReminderHour(p.gioNhac);
-    cot.push('gio_nhac = $gn'); dat.gn = `${String(g.gio).padStart(2, '0')}:${String(g.phut).padStart(2, '0')}`;
+    cot.push('remind_time = $gn'); dat.gn = `${String(g.gio).padStart(2, '0')}:${String(g.phut).padStart(2, '0')}`;
   }
   if (p.tamDungToiMs !== undefined) {
-    cot.push('tam_dung_toi_ms = $td'); dat.td = p.tamDungToiMs === null ? null : Math.floor(p.tamDungToiMs);
-    cot.push('trang_thai_td = $ttd');
+    cot.push('paused_until_ms = $td'); dat.td = p.tamDungToiMs === null ? null : Math.floor(p.tamDungToiMs);
+    cot.push('follow_up_status = $ttd');
     dat.ttd = p.tamDungToiMs ? TRANG_THAI_TD.TAM_DUNG : TRANG_THAI_TD.DANG_THEO_DUOI;
   }
 
@@ -641,25 +641,25 @@ export function adjustCadence(db, p) {
   // ở lượt trước là RÁC: nó dựng theo nhịp cũ / trước khi host bảo giãn ra. Không
   // xoá thì bộ quét treo vẫn bắn câu dự phòng cho lượt đó — tức trợ lý vẫn nhắn
   // dù host vừa bảo giãn hoặc tạm dừng. Chính van xả bị vô hiệu bởi lưới dự phòng.
-  cot.push('cho_model_tu_ms = NULL');
+  cot.push('model_wait_since_ms = NULL');
 
-  db.prepare(`UPDATE lich_hen SET ${cot.join(', ')} WHERE id = $id`).run(dat);
+  db.prepare(`UPDATE schedules SET ${cot.join(', ')} WHERE id = $id`).run(dat);
 
   // Dời mốc kế tiếp theo nhịp MỚI ngay, đừng để lượt sau vẫn chạy theo nhịp cũ.
-  const moi = db.prepare('SELECT * FROM lich_hen WHERE id = $id').get({ id: dong.id });
-  if (moi.trang_thai_td === TRANG_THAI_TD.DANG_THEO_DUOI) {
+  const moi = db.prepare('SELECT * FROM schedules WHERE id = $id').get({ id: dong.id });
+  if (moi.follow_up_status === TRANG_THAI_TD.DANG_THEO_DUOI) {
     // 🔴 `chuKyPhut` BẮT BUỘC có mặt (A4). Thiếu nó thì `parseCadence()` bên trong
-    // `nextReminderAt` thấy `chu_ky_phut === undefined` và rơi xuống NHÁNH NGÀY —
+    // `nextReminderAt` thấy `cycle_minutes === undefined` và rơi xuống NHÁNH NGÀY —
     // tức host bảo "3 phút một lần" thì cột DB ghi đúng 3 nhưng mốc kế tiếp nhảy
     // sang 08:00 hôm sau, mà tool VẪN BÁO OK. Van xả hỏng NGƯỢC với ý người dùng:
     // host siết nhịp lại thì nó tự giãn ra một ngày, và không có dấu hiệu nào.
     // `createFollowUp()` ở trên CÓ truyền — hai chỗ gọi cùng một hàm phải giống nhau.
     const ke = nextReminderAt(bayGio, {
-      chuKyNgay: moi.chu_ky_ngay, chuKyPhut: moi.chu_ky_phut, gioNhac: moi.gio_nhac,
-      boChuNhat: Number(moi.bo_chu_nhat) === 1, muiGio: moi.mui_gio,
+      chuKyNgay: moi.cycle_days, chuKyPhut: moi.cycle_minutes, gioNhac: moi.remind_time,
+      boChuNhat: Number(moi.skip_sunday) === 1, muiGio: moi.timezone,
     });
-    db.prepare('UPDATE lich_hen SET gui_luc_ms = $ke WHERE id = $id').run({ ke, id: dong.id });
-    moi.gui_luc_ms = ke;
+    db.prepare('UPDATE schedules SET send_at_ms = $ke WHERE id = $id').run({ ke, id: dong.id });
+    moi.send_at_ms = ke;
   }
   return { ok: true, dong: moi };
 }
@@ -673,25 +673,25 @@ export function adjustCadence(db, p) {
  */
 export function closeFollowUp(db, { id, nguoiDong, isHost, bayGioMs }) {
   if (!isHost) return { ok: false, ly: 'KHONG_PHAI_HOST' };
-  const dong = db.prepare('SELECT * FROM lich_hen WHERE id = $k OR ma_xac_nhan = $k')
+  const dong = db.prepare('SELECT * FROM schedules WHERE id = $k OR confirm_code = $k')
     .get({ k: String(id ?? '') });
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
-  if (dong.trang_thai_td === TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'DA_XONG' };
+  if (dong.follow_up_status === TRANG_THAI_TD.DA_XONG) return { ok: false, ly: 'DA_XONG' };
 
   db.prepare(
-    `UPDATE lich_hen
-        SET trang_thai_td = $ttd, trang_thai = $tt, dong_boi = $boi,
-            dong_luc_ms = $luc, ly_do_dong = $ly, ts_cap_nhat = $ts,
-            cho_model_tu_ms = NULL
+    `UPDATE schedules
+        SET follow_up_status = $ttd, status = $tt, closed_by = $boi,
+            closed_at_ms = $luc, close_reason = $ly, ts_updated = $ts,
+            model_wait_since_ms = NULL
       WHERE id = $id`,
   ).run({
-    // 🔴 `cho_model_tu_ms = NULL` (A6): host vừa bảo XONG. Còn để lại mốc chờ
+    // 🔴 `model_wait_since_ms = NULL` (A6): host vừa bảo XONG. Còn để lại mốc chờ
     // model thì bộ quét treo vẫn bắn câu dự phòng ≤10 phút sau — trợ lý nhắc
     // người thật về một việc ĐÃ ĐÓNG. Đóng mà vẫn nhắn là hỏng theo kiểu tệ
     // nhất: host tin là đã tắt, người trong nhóm vẫn bị làm phiền.
     ttd: TRANG_THAI_TD.DA_XONG,
     // `da_gui` là giá trị HỢP LỆ duy nhất còn lại trong CHECK để đánh dấu "vòng
-    // đời đã khép". Ý nghĩa thật nằm ở `trang_thai_td` + `ly_do_dong`.
+    // đời đã khép". Ý nghĩa thật nằm ở `follow_up_status` + `close_reason`.
     tt: TRANG_THAI_LICH.DA_GUI,
     boi: String(nguoiDong ?? ''),
     luc: Math.floor(bayGioMs ?? Date.now()),
@@ -699,7 +699,7 @@ export function closeFollowUp(db, { id, nguoiDong, isHost, bayGioMs }) {
     ts: new Date().toISOString(),
     id: dong.id,
   });
-  return { ok: true, dong: db.prepare('SELECT * FROM lich_hen WHERE id = $id').get({ id: dong.id }) };
+  return { ok: true, dong: db.prepare('SELECT * FROM schedules WHERE id = $id').get({ id: dong.id }) };
 }
 
 /**
@@ -709,14 +709,14 @@ export function closeFollowUp(db, { id, nguoiDong, isHost, bayGioMs }) {
  * TRƯỚC khi gọi mạng (đúng — gửi trước rồi mới đánh dấu thì daemon chết giữa
  * chừng là gửi lại lần nữa vào nhóm người thật). Nhưng nếu tiến trình chết
  * GIỮA `claimSending()` và `writeSendOutcome()` thì dòng nằm lại `da_gui` với
- * `msg_id_da_gui = NULL` và `ly_do_loi = NULL` — KHÔNG có gì phân biệt nó với
+ * `sent_msg_id = NULL` và `error_reason = NULL` — KHÔNG có gì phân biệt nó với
  * một lịch đã gửi thành công.
  *
  * ⛔ Chú thích ở `runner.js` nói "host đọc `schedule_list` thấy trạng thái lỗi rồi
  * tự quyết" — nhánh đó CHỈ chạy khi `catch` bắt được. Bị `kill`, máy sập, OOM
  * thì KHÔNG có `catch` nào cả.
  *
- * 🔴 Đo trước khi vá: `grep msg_id_da_gui src/ bin/` ra ĐÚNG 2 kết quả, CẢ HAI
+ * 🔴 Đo trước khi vá: `grep sent_msg_id src/ bin/` ra ĐÚNG 2 kết quả, CẢ HAI
  * đều là `UPDATE`; trong `test/` ra RỖNG. Hai lần GHI, KHÔNG một lần ĐỌC —
  * dữ liệu có mà không có đường ra thì cũng như không có.
  *
@@ -729,19 +729,19 @@ export function claimedButUnsent(db) {
   try {
     return db
       .prepare(
-        `SELECT id, ma_xac_nhan, noi_dung, la_theo_duoi, ts_cap_nhat
-           FROM lich_hen
-          WHERE trang_thai = $tt AND msg_id_da_gui IS NULL AND ly_do_loi IS NULL
-            AND ly_do_dong IS NULL
-          ORDER BY ts_cap_nhat DESC LIMIT 50`,
+        `SELECT id, confirm_code, content, is_follow_up, ts_updated
+           FROM schedules
+          WHERE status = $tt AND sent_msg_id IS NULL AND error_reason IS NULL
+            AND close_reason IS NULL
+          ORDER BY ts_updated DESC LIMIT 50`,
       )
       .all({ tt: TRANG_THAI_LICH.DA_GUI })
       .map((r) => ({
         id: String(r.id),
-        ma: r.ma_xac_nhan ? String(r.ma_xac_nhan) : null,
-        noiDung: String(r.noi_dung ?? ''),
-        laTheoDuoi: Number(r.la_theo_duoi) === 1,
-        tsCapNhat: String(r.ts_cap_nhat ?? ''),
+        ma: r.confirm_code ? String(r.confirm_code) : null,
+        noiDung: String(r.content ?? ''),
+        laTheoDuoi: Number(r.is_follow_up) === 1,
+        tsCapNhat: String(r.ts_updated ?? ''),
       }));
   } catch (e) {
     _log(`không đọc được danh sách "đã dành chỗ chưa rõ đã gửi": ${e?.message ?? e}`);
@@ -760,12 +760,12 @@ export function brokenInvariantReminders(db) {
   try {
     return db
       .prepare(
-        `SELECT id, ma_xac_nhan, noi_dung FROM lich_hen
-          WHERE la_theo_duoi = 1 AND trang_thai_td = $ttd AND trang_thai = $tt
+        `SELECT id, confirm_code, content FROM schedules
+          WHERE is_follow_up = 1 AND follow_up_status = $ttd AND status = $tt
           LIMIT 50`,
       )
       .all({ ttd: TRANG_THAI_TD.DANG_THEO_DUOI, tt: TRANG_THAI_LICH.DA_GUI })
-      .map((r) => ({ id: String(r.id), ma: r.ma_xac_nhan ? String(r.ma_xac_nhan) : null, noiDung: String(r.noi_dung ?? '') }));
+      .map((r) => ({ id: String(r.id), ma: r.confirm_code ? String(r.confirm_code) : null, noiDung: String(r.content ?? '') }));
   } catch (e) {
     _log(`không dò được bất biến sổ nhắc: ${e?.message ?? e}`);
     return [];
@@ -776,9 +776,9 @@ export function brokenInvariantReminders(db) {
 export function listFollowUps(db, { trangThaiTd, soLuong = 50 } = {}) {
   return db
     .prepare(
-      `SELECT * FROM lich_hen
-        WHERE la_theo_duoi = 1 AND ($ttd IS NULL OR trang_thai_td = $ttd)
-        ORDER BY gui_luc_ms ASC LIMIT $n`,
+      `SELECT * FROM schedules
+        WHERE is_follow_up = 1 AND ($ttd IS NULL OR follow_up_status = $ttd)
+        ORDER BY send_at_ms ASC LIMIT $n`,
     )
     .all({ ttd: trangThaiTd ?? null, n: Math.max(1, Math.min(200, Number(soLuong) || 50)) });
 }
@@ -798,28 +798,28 @@ export function listFollowUps(db, { trangThaiTd, soLuong = 50 } = {}) {
  *
  * Dùng lại `queryHistory` của query.js (đường đọc DUY NHẤT, có khai nguồn cho
  * luật chống rò chéo) — CỐ Ý không viết bộ đọc thứ hai. Và giới hạn đúng MỘT
- * nhóm (`chat_id_dich`), nên không có chuyện lôi dữ liệu nhóm khác vào câu nhắc.
+ * nhóm (`target_chat_id`), nên không có chuyện lôi dữ liệu nhóm khác vào câu nhắc.
  *
  * @param {any} db
- * @param {any} dong dòng lich_hen
+ * @param {any} dong dòng schedules
  * @param {{bayGioMs?: number, truyVan?: Function}} [t]
  */
 export function reminderContext(db, dong, t = {}) {
   const bayGio = t.bayGioMs ?? Date.now();
-  const chatId = String(dong.chat_id_dich);
-  const uid = dong.nguoi_phu_trach ? String(dong.nguoi_phu_trach) : null;
+  const chatId = String(dong.target_chat_id);
+  const uid = dong.owner ? String(dong.owner) : null;
 
-  const tuMs = dong.nhac_lan_cuoi_ms
-    ? Number(dong.nhac_lan_cuoi_ms)
-    : Math.max(Number(dong.ts_tao ? Date.parse(dong.ts_tao) : bayGio), bayGio - NHAC_THEO_DUOI.CUA_SO_BOI_CANH_MS);
+  const tuMs = dong.last_remind_ms
+    ? Number(dong.last_remind_ms)
+    : Math.max(Number(dong.ts_created ? Date.parse(dong.ts_created) : bayGio), bayGio - NHAC_THEO_DUOI.CUA_SO_BOI_CANH_MS);
 
   const boiCanh = {
-    soLanDaNhac: Number(dong.so_lan_da_nhac ?? 0),
-    nhacLanTruocMs: dong.nhac_lan_cuoi_ms ? Number(dong.nhac_lan_cuoi_ms) : null,
-    soNgayTuLanNhacTruoc: dong.nhac_lan_cuoi_ms
-      ? Math.floor((bayGio - Number(dong.nhac_lan_cuoi_ms)) / 86_400_000)
+    soLanDaNhac: Number(dong.remind_count ?? 0),
+    nhacLanTruocMs: dong.last_remind_ms ? Number(dong.last_remind_ms) : null,
+    soNgayTuLanNhacTruoc: dong.last_remind_ms
+      ? Math.floor((bayGio - Number(dong.last_remind_ms)) / 86_400_000)
       : null,
-    soNgayTuKhiDat: Math.floor((bayGio - Date.parse(dong.ts_tao)) / 86_400_000),
+    soNgayTuKhiDat: Math.floor((bayGio - Date.parse(dong.ts_created)) / 86_400_000),
     nguoiPhuTrachDaNoiGi: [],
     coAiNoiGiTrongNhom: 0,
     // ⚠️ Cố ý KHÔNG có trường "nghi là đã xong". Suy hộ chuyện đó rồi đóng là
@@ -839,9 +839,9 @@ export function reminderContext(db, dong, t = {}) {
     boiCanh.coAiNoiGiTrongNhom = rows.length;
     if (uid) {
       boiCanh.nguoiPhuTrachDaNoiGi = rows
-        .filter((r) => String(r.user_id ?? '') === uid && r.noi_dung)
+        .filter((r) => String(r.user_id ?? '') === uid && r.content)
         .slice(0, 5)
-        .map((r) => ({ luc: Number(r.ts_zalo), noiDung: String(r.noi_dung) }));
+        .map((r) => ({ luc: Number(r.ts_zalo), noiDung: String(r.content) }));
     }
   } catch (e) {
     _log(`không lấy được bối cảnh cho ${dong.id}: ${e?.message ?? e}`);
@@ -863,7 +863,7 @@ export function fallbackReminderText(dong, boiCanh) {
   if (boiCanh.soLanDaNhac === 0) p.push('Em nhắc lần đầu:');
   else p.push(`Em nhắc lần ${boiCanh.soLanDaNhac + 1}`
     + (boiCanh.soNgayTuKhiDat > 0 ? ` (đã ${boiCanh.soNgayTuKhiDat} ngày)` : '') + ':');
-  p.push(String(dong.noi_dung));
+  p.push(String(dong.content));
   if (boiCanh.nguoiPhuTrachDaNoiGi.length > 0) {
     p.push('— em thấy anh/chị có nhắn lại nhưng chưa chốt ngày giúp em.');
   }
@@ -895,8 +895,8 @@ export function fallbackReminderText(dong, boiCanh) {
 function _moTaNhip(d) {
   const nhip = parseCadence(d);
   if (nhip.laPhut) return `nhịp **${nhip.phut} phút** một lần (tính từ lần nhắc trước)`;
-  return `nhịp **${nhip.ngay} ngày** lúc **${d.gio_nhac ?? NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}**`
-    + (Number(d.bo_chu_nhat) === 1 ? ' (chừa CN)' : '');
+  return `nhịp **${nhip.ngay} ngày** lúc **${d.remind_time ?? NHAC_THEO_DUOI.GIO_NHAC_MAC_DINH}**`
+    + (Number(d.skip_sunday) === 1 ? ' (chừa CN)' : '');
 }
 
 export function writeReminderBook(db, duongDan, t = {}) {
@@ -904,8 +904,8 @@ export function writeReminderBook(db, duongDan, t = {}) {
   let ds;
   try {
     ds = db.prepare(
-      `SELECT * FROM lich_hen WHERE la_theo_duoi = 1
-        ORDER BY (trang_thai_td = 'da_xong'), gui_luc_ms ASC LIMIT 200`,
+      `SELECT * FROM schedules WHERE is_follow_up = 1
+        ORDER BY (follow_up_status = 'da_xong'), send_at_ms ASC LIMIT 200`,
     ).all();
   } catch (e) {
     _log(`không đọc được sổ nhắc: ${e?.message ?? e}`);
@@ -933,32 +933,32 @@ export function writeReminderBook(db, duongDan, t = {}) {
     dong.push('');
   }
 
-  const dangChay = ds.filter((d) => d.trang_thai_td !== TRANG_THAI_TD.DA_XONG);
-  const xong = ds.filter((d) => d.trang_thai_td === TRANG_THAI_TD.DA_XONG);
+  const dangChay = ds.filter((d) => d.follow_up_status !== TRANG_THAI_TD.DA_XONG);
+  const xong = ds.filter((d) => d.follow_up_status === TRANG_THAI_TD.DA_XONG);
 
   dong.push(`## Đang theo đuổi (${dangChay.length})`, '');
   if (dangChay.length === 0) dong.push('_Không có lời nhắc nào đang chạy._', '');
   for (const d of dangChay) {
-    const tam = d.trang_thai_td === TRANG_THAI_TD.TAM_DUNG;
+    const tam = d.follow_up_status === TRANG_THAI_TD.TAM_DUNG;
     dong.push(
-      `- **${d.noi_dung}**`,
-      // 🔴 A10 — ĐỌC NHỊP QUA `parseCadence()`, KHÔNG hardcode `chu_ky_ngay`.
+      `- **${d.content}**`,
+      // 🔴 A10 — ĐỌC NHỊP QUA `parseCadence()`, KHÔNG hardcode `cycle_days`.
       // Bản cũ luôn in "nhịp N ngày lúc HH:MM" kể cả khi nhịp là PHÚT, và không
-      // bao giờ in `tran_so_lan`. File thật sinh lúc 00:02 ngày 21/08 ghi
+      // bao giờ in `max_reminds`. File thật sinh lúc 00:02 ngày 21/08 ghi
       // "nhịp 1 ngày lúc 08:00" trong khi DB là 3 PHÚT / trần 10 lần.
       // Sổ này là thứ anh liếc để tự kiểm — nó nói sai thì việc kiểm thành vô nghĩa.
-      `  - nhóm: \`${d.chat_id_dich}\` · đã nhắc **${d.so_lan_da_nhac}** lần`
+      `  - nhóm: \`${d.target_chat_id}\` · đã nhắc **${d.remind_count}** lần`
       + ` · ${_moTaNhip(d)}`
-      + (Number(d.tran_so_lan) > 0 ? ` · trần **${d.tran_so_lan}** lần` : ' · **không trần**'),
-      `  - lần tới: ${new Date(Number(d.gui_luc_ms)).toISOString()}${tam ? ' — ⏸ ĐANG TẠM DỪNG' : ''}`
+      + (Number(d.max_reminds) > 0 ? ` · trần **${d.max_reminds}** lần` : ' · **không trần**'),
+      `  - lần tới: ${new Date(Number(d.send_at_ms)).toISOString()}${tam ? ' — ⏸ ĐANG TẠM DỪNG' : ''}`
       // 🔴 Bất biến vỡ: dòng đã chốt sổ mà sổ vẫn ghi "đang theo đuổi". Đây đúng
       // dấu vết của lỗi A1 (bộ chạy một lần cướp lời nhắc). Phải HIỆN RA ở sổ,
       // vì trước đây nó im lặng và anh tưởng lời nhắc vẫn đang chạy.
-      + (String(d.trang_thai) === TRANG_THAI_LICH.DA_GUI
-        ? '\n  - 🔴 **BẤT THƯỜNG**: dòng này đã chốt sổ (`trang_thai=da_gui`) nhưng vẫn nằm ở'
+      + (String(d.status) === TRANG_THAI_LICH.DA_GUI
+        ? '\n  - 🔴 **BẤT THƯỜNG**: dòng này đã chốt sổ (`status=da_gui`) nhưng vẫn nằm ở'
           + ' mục đang theo đuổi ⇒ nó **SẼ KHÔNG BAO GIỜ NHẮC NỮA**. Báo Router.'
         : ''),
-      `  - mã: \`${d.ma_xac_nhan ?? d.id}\` · nguyên văn anh nói: _"${d.dien_giai_goc}"_`,
+      `  - mã: \`${d.confirm_code ?? d.id}\` · nguyên văn anh nói: _"${d.raw_phrasing}"_`,
       '',
     );
   }
@@ -966,8 +966,8 @@ export function writeReminderBook(db, duongDan, t = {}) {
   if (xong.length) {
     dong.push(`## Đã xong (${xong.length})`, '');
     for (const d of xong) {
-      dong.push(`- ~~${d.noi_dung}~~ — đóng bởi \`${d.dong_boi ?? '?'}\``
-        + ` lúc ${d.dong_luc_ms ? new Date(Number(d.dong_luc_ms)).toISOString() : '?'}`);
+      dong.push(`- ~~${d.content}~~ — đóng bởi \`${d.closed_by ?? '?'}\``
+        + ` lúc ${d.closed_at_ms ? new Date(Number(d.closed_at_ms)).toISOString() : '?'}`);
     }
     dong.push('');
   }

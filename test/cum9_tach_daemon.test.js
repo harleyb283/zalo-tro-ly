@@ -32,6 +32,7 @@ import {
 import {
   sweepStale, recordSources, getSources, decideReplyRoute, createSourceLedger, clearSession,
 } from '../src/policy/leak_guard.js';
+import { haCapTenV11 } from './_ha_cap_ten.js';
 
 const NHOM = '9990000000001';
 const NHOM_B = '9990000000002';
@@ -79,6 +80,10 @@ test('★★★ M1 DB TRẮNG và DB CŨ ĐÃ MIGRATE phải ra CÙNG MỘT cấ
   // v7 đi — đúng hình dạng một DB đang chạy trước lượt nâng cấp này.
   const pCu = path.join(thuMucTam(), 'kho', 'b.db');
   const cu = openDb(pCu);
+  // 🔴 Hạ TÊN về tiếng Việt trước: từ v12 `schema.sql` sinh tên tiếng Anh, mà
+  // các bước migrate cũ gọi đúng tên tiếng Việt. Thiếu bước này thì "DB v6"
+  // ⛔ không trung thực và cả bài đo nhầm.
+  assert.ok(haCapTenV11(cu).bang > 0, 'không hạ được tên ⇒ tiền đề sai');
   cu.exec('DROP TABLE IF EXISTS hang_doi_gui');       // v7
   cu.exec('DROP TABLE IF EXISTS nguon_phien');        // v7
   // v8 thêm CỘT vào bảng đã có ⇒ dựng lại bảng đó ở hình dạng CHƯA có cột,
@@ -130,19 +135,19 @@ test('★★★ M4 CHẠM DB THẬT: kiểu từng cột của hai bảng mới 
     requestId: 'r1', chatIdDich: NHOM, text: 'xin chào', tagUserIds: [HOST],
   });
   assert.equal(typeof dong.id, 'string');
-  assert.equal(typeof dong.chat_id_dich, 'string', 'chat_id là TEXT — số hoá là mất chữ số ID Zalo');
+  assert.equal(typeof dong.target_chat_id, 'string', 'chat_id là TEXT — số hoá là mất chữ số ID Zalo');
   assert.equal(typeof dong.text, 'string');
   assert.equal(typeof dong.tag_user_ids, 'string', 'tag_user_ids là JSON dạng TEXT');
   assert.deepEqual(JSON.parse(dong.tag_user_ids), [HOST]);
-  assert.equal(typeof dong.so_lan_thu, 'number', 'so_lan_thu phải là SỐ, không phải chuỗi');
-  assert.equal(dong.so_lan_thu, 0);
+  assert.equal(typeof dong.attempt_count, 'number', 'attempt_count phải là SỐ, không phải chuỗi');
+  assert.equal(dong.attempt_count, 0);
   assert.equal(dong.msg_id, null);
-  assert.equal(dong.ly_do, null);
-  assert.equal(dong.trang_thai, TRANG_THAI_GUI.CHO);
+  assert.equal(dong.reason, null);
+  assert.equal(dong.status, TRANG_THAI_GUI.CHO);
 
   const bo = createSourceLedger({ db });
   bo.ghiNhan('r1', [NHOM]);
-  const r = db.prepare('SELECT * FROM nguon_phien LIMIT 1').get();
+  const r = db.prepare('SELECT * FROM request_origin LIMIT 1').get();
   assert.equal(typeof r.request_id, 'string');
   assert.equal(typeof r.chat_id, 'string');
   assert.equal(typeof r.ts, 'number', 'ts phải là SỐ — sweepStale so sánh nó với Date.now()');
@@ -157,6 +162,9 @@ test('★★★ M4 CHẠM DB THẬT: kiểu từng cột của hai bảng mới 
 function dbPhienBanCu(v = '6') {
   const p = path.join(thuMucTam(), 'kho', 'cu.db');
   const db = openDb(p);
+  // Hạ cả TÊN, không chỉ số phiên bản: DB đời v6 mang tên tiếng Việt. B1d cho
+  // `migrate()` chạy thật trên nó, nên tiền đề phải đúng tới tên bảng.
+  haCapTenV11(db);
   db.prepare('UPDATE meta SET gia_tri = ? WHERE khoa = ?').run(v, 'schema_version');
   closeDb(db);
   return p;
@@ -187,7 +195,7 @@ test('★★★ B1c DB ĐÚNG phiên bản -> mở được, và KHÔNG migrate 
   closeDb(openDb(p));                       // daemon dựng trước
   const db = openDb(p, { migrate: false }); // client mở sau
   assert.equal(getSchemaVersion(db), PHIEN_BAN_SCHEMA);
-  assert.equal(db.prepare('SELECT count(*) c FROM hang_doi_gui').get().c, 0, 'bảng v7 phải có mặt');
+  assert.equal(db.prepare('SELECT count(*) c FROM send_queue').get().c, 0, 'bảng v7 phải có mặt');
   closeDb(db);
 });
 
@@ -251,7 +259,7 @@ test('★★★ B2b trạng thái ĐẦU không khớp -> KHÔNG nhận được
   });
   assert.equal(claimQuestion(db, 'r1', TRANG_THAI_HANG_DOI.DA_TRA_LOI, TRANG_THAI_HANG_DOI.BO), false);
   assert.equal(
-    db.prepare('SELECT trang_thai t FROM hang_doi_hoi WHERE request_id = ?').get('r1').t,
+    db.prepare('SELECT status t FROM ask_queue WHERE request_id = ?').get('r1').t,
     TRANG_THAI_HANG_DOI.CHO, 'thua CAS mà vẫn ghi đè là hỏng đúng thứ CAS sinh ra để chặn',
   );
   closeDb(db);
@@ -272,7 +280,7 @@ test('★★★ B2d trạng thái lạ -> NÉM ngay ở JS, không để CHECK c
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// B2' — hang_doi_gui (outbox)
+// B2' — send_queue (outbox)
 // ═══════════════════════════════════════════════════════════════════════
 
 test('★★★ B3a HAI bộ chạy cùng nhặt một tin -> ĐÚNG MỘT được gửi', () => {
@@ -281,7 +289,7 @@ test('★★★ B3a HAI bộ chạy cùng nhặt một tin -> ĐÚNG MỘT đư�
   const a = claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   const b = claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   assert.deepEqual([a, b], [true, false]);
-  assert.equal(db.prepare('SELECT so_lan_thu s FROM hang_doi_gui WHERE id = ?').get(id).s, 1,
+  assert.equal(db.prepare('SELECT attempt_count s FROM send_queue WHERE id = ?').get(id).s, 1,
     'đếm lượt thử phải cộng lúc NHẬN — cộng lúc gửi xong thì tiến trình chết giữa chừng là mất lượt');
   closeDb(db);
 });
@@ -293,12 +301,12 @@ test('★★★ B3b gửi xong ghi msg_id; gửi hỏng ghi LÝ DO, ⛔ không �
   writeSendResult(db, a.id, { msgId: '9992000000000000002' });
   writeSendResult(db, b.id, { lyDo: 'mạng rớt' });
 
-  const ra = db.prepare('SELECT * FROM hang_doi_gui WHERE id = ?').get(a.id);
-  assert.equal(ra.trang_thai, TRANG_THAI_GUI.DA_GUI);
-  assert.equal(ra.ly_do, null);
-  const rb = db.prepare('SELECT * FROM hang_doi_gui WHERE id = ?').get(b.id);
-  assert.equal(rb.trang_thai, TRANG_THAI_GUI.LOI);
-  assert.match(rb.ly_do, /mạng rớt/);
+  const ra = db.prepare('SELECT * FROM send_queue WHERE id = ?').get(a.id);
+  assert.equal(ra.status, TRANG_THAI_GUI.DA_GUI);
+  assert.equal(ra.reason, null);
+  const rb = db.prepare('SELECT * FROM send_queue WHERE id = ?').get(b.id);
+  assert.equal(rb.status, TRANG_THAI_GUI.LOI);
+  assert.match(rb.reason, /mạng rớt/);
   assert.equal(rb.msg_id, null, 'gửi hỏng mà ghi msg_id = sổ sách nói dối');
   closeDb(db);
 });
@@ -323,7 +331,7 @@ test("★★★ B3d tin KẸT gồm cả 'cho' lẫn 'dang_gui' quá lâu", () =
   const b = enqueueOutbound(db, { requestId: 'r2', chatIdDich: NHOM, text: 'B' });
   claimOutbound(db, b.id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI);
   const cu = new Date(Date.now() - 600_000).toISOString();
-  db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = ?').run(cu);
+  db.prepare('UPDATE send_queue SET ts_updated = ?').run(cu);
 
   const ket = takeStuckOutbound(db, 120_000);
   assert.deepEqual(ket.map((x) => x.id).sort(), [a.id, b.id].sort());
@@ -336,7 +344,7 @@ test("★★★ B3d tin KẸT gồm cả 'cho' lẫn 'dang_gui' quá lâu", () =
 test('★★ B3e text rỗng -> NÉM (Zalo cũng từ chối tin trống)', () => {
   const db = dbTam();
   assert.throws(() => enqueueOutbound(db, { requestId: 'r', chatIdDich: NHOM, text: '   ' }), /rỗng/);
-  assert.equal(db.prepare('SELECT count(*) c FROM hang_doi_gui').get().c, 0);
+  assert.equal(db.prepare('SELECT count(*) c FROM send_queue').get().c, 0);
   closeDb(db);
 });
 
@@ -398,8 +406,8 @@ test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG tr
   // kết luận sạch rồi gửi thẳng chuyện nhóm khác vào nhóm đang hỏi.
   const db = dbTam();
   const bo = createSourceLedger({ db });
-  db.exec('DROP TABLE nguon_phien');
-  assert.throws(() => bo.lay('r1'), /nguon_phien/i,
+  db.exec('DROP TABLE request_origin');
+  assert.throws(() => bo.lay('r1'), /request_origin/i,
     'nuốt lỗi rồi trả [] = fail-OPEN, đúng cái tật của sổ RAM mà bản này sinh ra để chữa');
   closeDb(db);
 });
@@ -407,8 +415,8 @@ test('★★★ V3 🔴 ĐỌC HỎNG thì NÉM — ⛔ TUYỆT ĐỐI KHÔNG tr
 test('★★★ V3b GHI hỏng cũng NÉM (sổ khuyết một nguồn trông y như sổ sạch)', () => {
   const db = dbTam();
   const bo = createSourceLedger({ db });
-  db.exec('DROP TABLE nguon_phien');
-  assert.throws(() => bo.ghiNhan('r1', [NHOM_B]), /nguon_phien/i);
+  db.exec('DROP TABLE request_origin');
+  assert.throws(() => bo.ghiNhan('r1', [NHOM_B]), /request_origin/i);
   closeDb(db);
 });
 
@@ -418,7 +426,7 @@ test('★★★ V4 ghi cùng một nguồn NHIỀU LẦN -> gộp, không đẻ 
   bo.ghiNhan('r1', [NHOM_B, NHOM_B]);
   bo.ghiNhan('r1', [NHOM_B]);
   assert.deepEqual(getSources(bo, 'r1'), [NHOM_B]);
-  assert.equal(db.prepare('SELECT count(*) c FROM nguon_phien').get().c, 1);
+  assert.equal(db.prepare('SELECT count(*) c FROM request_origin').get().c, 1);
   closeDb(db);
 });
 
@@ -429,7 +437,7 @@ test('★★★ V5 sweepStale xoá theo TUỔI, ⛔ không đụng phiên còn t
   const bo = createSourceLedger({ db });
   bo.ghiNhan('cu', [NHOM_B]);
   bo.ghiNhan('moi', [NHOM_B]);
-  db.prepare('UPDATE nguon_phien SET ts = ? WHERE request_id = ?')
+  db.prepare('UPDATE request_origin SET ts = ? WHERE request_id = ?')
     .run(Date.now() - 7_200_000, 'cu');
 
   assert.equal(sweepStale(bo, 3_600_000), 1);

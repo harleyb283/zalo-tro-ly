@@ -172,12 +172,12 @@ test('★★★ V1 NGHIỆM THU①: yêu cầu duyệt nằm TRÊN ĐĨA, ⛔ kh
   assert.equal(r.duLieu.trangThai, TRANG_THAI_DUYET.CHO_DUYET);
 
   const db2 = openDb(duongDan, { migrate: false });
-  const dong = db2.prepare('SELECT * FROM yeu_cau_duyet WHERE id = $i').get({ i: r.duLieu.id });
+  const dong = db2.prepare('SELECT * FROM approval_requests WHERE id = $i').get({ i: r.duLieu.id });
   assert.ok(dong, '🔴 YÊU CẦU ⛔ KHÔNG XUỐNG ĐĨA — tiến trình zalo-router sẽ không bao giờ thấy');
-  assert.equal(String(dong.chat_id_xin), NHOM, 'phải biết NHÓM NÀO xin');
-  assert.equal(String(dong.nguoi_noi), PHU_TRACH, 'phải biết AI nói');
-  assert.equal(dong.nguyen_van, NGUON.nguonNguyenVan, '🔴 phải là NGUYÊN VĂN, ⛔ không phải bản model tóm lại');
-  assert.equal(dong.trang_thai, TRANG_THAI_DUYET.CHO_DUYET);
+  assert.equal(String(dong.requesting_chat_id), NHOM, 'phải biết NHÓM NÀO xin');
+  assert.equal(String(dong.said_by), PHU_TRACH, 'phải biết AI nói');
+  assert.equal(dong.verbatim, NGUON.nguonNguyenVan, '🔴 phải là NGUYÊN VĂN, ⛔ không phải bản model tóm lại');
+  assert.equal(dong.status, TRANG_THAI_DUYET.CHO_DUYET);
   closeDb(db2);
   closeDb(db);
 });
@@ -253,14 +253,14 @@ test('★★★ V4 NGHIỆM THU③: DUYỆT ⛔ KHÔNG TỰ CHẠY VIỆC', asyn
   assert.equal(d.ok, true, JSON.stringify(d));
 
   // ① Trạng thái dừng ở `da_duyet`, ⛔ KHÔNG nhảy sang `da_lam`.
-  const dong = db.prepare('SELECT trang_thai FROM yeu_cau_duyet WHERE id = $i').get({ i: xin.duLieu.id });
-  assert.equal(dong.trang_thai, TRANG_THAI_DUYET.DA_DUYET);
-  assert.notEqual(dong.trang_thai, TRANG_THAI_DUYET.DA_LAM,
+  const dong = db.prepare('SELECT status FROM approval_requests WHERE id = $i').get({ i: xin.duLieu.id });
+  assert.equal(dong.status, TRANG_THAI_DUYET.DA_DUYET);
+  assert.notEqual(dong.status, TRANG_THAI_DUYET.DA_LAM,
     '🔴 duyệt xong TỰ ĐÁNH DẤU ĐÃ LÀM — hai khái niệm bị gộp');
 
   // ② Việc trong yêu cầu (`đóng lời nhắc NHAC1`) ⛔ KHÔNG được xảy ra.
-  const n = db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id });
-  assert.equal(n.trang_thai_td, 'dang_theo_duoi', '🔴 DUYỆT XONG TỰ CHẠY VIỆC LUÔN');
+  const n = db.prepare('SELECT follow_up_status FROM schedules WHERE id = $i').get({ i: id });
+  assert.equal(n.follow_up_status, 'dang_theo_duoi', '🔴 DUYỆT XONG TỰ CHẠY VIỆC LUÔN');
   assert.equal(daGui.length, truocGui, '🔴 duyệt xong tự bắn tin ra Zalo');
 
   // ③ Lời dặn trả về phải NÓI THẲNG rằng chưa ai làm gì cả.
@@ -302,11 +302,11 @@ test('★★★ V6 NGHIỆM THU④: người KHÔNG PHẢI HOST đóng được 
 
   const vet = readActionTrail(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
   assert.equal(vet.length, 1, '🔴 ĐÓNG VIỆC MÀ ⛔ KHÔNG LƯU AI NÓI — vết là thứ duy nhất thay lớp chặn');
-  assert.equal(String(vet[0].nguon_nguoi), PHU_TRACH, '🔴 vết ⛔ không nói được AI bảo đóng');
-  assert.equal(vet[0].nguon_nguyen_van, NGUON.nguonNguyenVan,
+  assert.equal(String(vet[0].source_user), PHU_TRACH, '🔴 vết ⛔ không nói được AI bảo đóng');
+  assert.equal(vet[0].source_verbatim, NGUON.nguonNguyenVan,
     '🔴 vết lưu bản model tóm lại, ⛔ không phải NGUYÊN VĂN — hết đối chiếu được');
   assert.equal(String(vet[0].chat_id), NHOM);
-  assert.equal(vet[0].ten_tool, TEN_TOOL_NHAC.DONG_NHAC);
+  assert.equal(vet[0].tool_name, TEN_TOOL_NHAC.DONG_NHAC);
 
   assert.equal(daBao.length, 1, '🔴 ⛔ KHÔNG BÁO HOST — anh chỉ biết việc bị đóng khi tự đi soi DB');
   assert.match(daBao[0], new RegExp(PHU_TRACH), 'dòng báo phải nêu AI nói');
@@ -317,15 +317,15 @@ test('★★★ V6 NGHIỆM THU④: người KHÔNG PHẢI HOST đóng được 
 test('★★★ V7 NGHIỆM THU⑥: ĐÓNG = ĐỔI TRẠNG THÁI, ⛔ KHÔNG PHẢI XOÁ (mở lại được)', async () => {
   const { db, id } = dbCoNhac();
   const { goi } = dungTool(db);
-  const truoc = db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n;
+  const truoc = db.prepare('SELECT COUNT(*) n FROM schedules').get().n;
 
   await goi(TEN_TOOL_NHAC.DONG_NHAC, { request_id: phienNghe(db, 'r-d1', id), id, ...NGUON });
 
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n, truoc,
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM schedules').get().n, truoc,
     '🔴 ĐÓNG BẰNG CÁCH XOÁ DÒNG — mất sạch dấu vết, ⛔ không mở lại được');
-  const sau = db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id });
+  const sau = db.prepare('SELECT follow_up_status FROM schedules WHERE id = $i').get({ i: id });
   assert.ok(sau, '🔴 dòng lời nhắc BIẾN MẤT');
-  assert.notEqual(sau.trang_thai_td, 'dang_theo_duoi', 'trạng thái phải ĐỔI');
+  assert.notEqual(sau.follow_up_status, 'dang_theo_duoi', 'trạng thái phải ĐỔI');
 
   // Đảo ngược được ⇒ đúng nghĩa "đổi trạng thái".
   const mo = await goi(TEN_TOOL_GHI.MO_LAI_NHAC, {
@@ -334,7 +334,7 @@ test('★★★ V7 NGHIỆM THU⑥: ĐÓNG = ĐỔI TRẠNG THÁI, ⛔ KHÔNG PH
   });
   assert.equal(mo.ok, true, `🔴 ⛔ KHÔNG MỞ LẠI ĐƯỢC: ${JSON.stringify(mo)}`);
   assert.equal(
-    db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id }).trang_thai_td,
+    db.prepare('SELECT follow_up_status FROM schedules WHERE id = $i').get({ i: id }).follow_up_status,
     'dang_theo_duoi',
   );
   closeDb(db);
@@ -351,10 +351,10 @@ test('★★★ V8 NGHIỆM THU⑤: ghi nhớ mang NGUỒN — "X nói rằng…
   });
   assert.equal(r.ok, true, `🔴 CHẶN LẠI RỒI — anh đã gỡ lớp này: ${JSON.stringify(r)}`);
 
-  const g = db.prepare('SELECT * FROM ghi_nho WHERE id = $i').get({ i: r.duLieu.id });
-  assert.equal(String(g.nguon_nguoi), PHU_TRACH,
+  const g = db.prepare('SELECT * FROM memories WHERE id = $i').get({ i: r.duLieu.id });
+  assert.equal(String(g.source_user), PHU_TRACH,
     '🔴 LƯU NHƯ SỰ THẬT — lần sau trợ lý đọc lại và tưởng chính host đã đồng ý giảm giá');
-  assert.equal(g.nguon_nguyen_van, CAU);
+  assert.equal(g.source_verbatim, CAU);
   assert.equal(daBao.length, 1, '🔴 bộ nhớ nhận thêm câu của người khác mà host ⛔ không hay biết');
 
   // Host tự ghi ⇒ nguồn NULL (⛔ không phải "không rõ" — là "chính chủ nói").
@@ -362,8 +362,8 @@ test('★★★ V8 NGHIỆM THU⑤: ghi nhớ mang NGUỒN — "X nói rằng…
     request_id: phienHost(db, 'r-gn-host'), noiDung: 'anh tự ghi', nguyenVan: 'anh tự ghi',
   });
   assert.equal(rh.ok, true, JSON.stringify(rh));
-  const gh = db.prepare('SELECT * FROM ghi_nho WHERE id = $i').get({ i: rh.duLieu.id });
-  assert.equal(gh.nguon_nguoi, null, 'host tự nói ⇒ nguồn NULL');
+  const gh = db.prepare('SELECT * FROM memories WHERE id = $i').get({ i: rh.duLieu.id });
+  assert.equal(gh.source_user, null, 'host tự nói ⇒ nguồn NULL');
   assert.equal(daBao.length, 1, '🔴 báo host về chính lời host vừa gõ — nhiễu vô ích');
   closeDb(db);
 });
@@ -419,7 +419,7 @@ test('★★★ V10 NGHIỆM THU⑧a: chỉ thị NGƯỜI LẠ CÓ khai nguồn
   assert.equal(r.ok, true, '🔴 lén chặn tiếp quyền nghiệp vụ — anh đã gỡ lớp này');
   const vet = readActionTrail(db, { tenTool: TEN_TOOL_NHAC.DONG_NHAC });
   assert.equal(vet.length, 1, '🔴 chạy mà ⛔ không để lại vết — đúng thứ GĐ5 đánh đổi để có');
-  assert.equal(vet[0].nguon_nguyen_van, CAU, 'nguyên văn câu tiêm phải được lưu NGUYÊN');
+  assert.equal(vet[0].source_verbatim, CAU, 'nguyên văn câu tiêm phải được lưu NGUYÊN');
   closeDb(db);
 });
 
@@ -446,13 +446,13 @@ test('★★★ V12 vết HỎNG ⛔ KHÔNG được kéo đổ việc ĐÃ LÀM
   const { db, id } = dbCoNhac();
   const { goi } = dungTool(db);
   // Bỏ bảng vết đi để tầng ghi vết chắc chắn ném.
-  db.exec('DROP TABLE nhat_ky_hanh_dong');
+  db.exec('DROP TABLE action_log');
   const r = await goi(TEN_TOOL_NHAC.DONG_NHAC, {
     request_id: phienNghe(db, 'r-vet-hong', id), id, ...NGUON,
   });
   assert.equal(r.ok, true, '🔴 vết hỏng kéo đổ luôn việc đã xong ⇒ model sẽ làm lại lần hai');
   assert.notEqual(
-    db.prepare('SELECT trang_thai_td FROM lich_hen WHERE id = $i').get({ i: id }).trang_thai_td,
+    db.prepare('SELECT follow_up_status FROM schedules WHERE id = $i').get({ i: id }).follow_up_status,
     'dang_theo_duoi', 'việc thật sự đã xong',
   );
   closeDb(db);
@@ -469,7 +469,7 @@ test('★★★ V13 `writeActionTrail` NÉM khi thiếu bằng chứng (⛔ khô
     assert.throws(() => writeActionTrail(db, xau), /rỗng/,
       `⛔ ghi được vết thiếu bằng chứng: ${JSON.stringify(xau)}`);
   }
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM nhat_ky_hanh_dong').get().n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM action_log').get().n, 0);
   closeDb(db);
 });
 
@@ -511,7 +511,7 @@ test('★★★ V15 lời gọi HỎNG ⛔ KHÔNG được để lại vết (s�
     ...NGUON,
   });
   assert.equal(r.ok, false, 'ca dựng sai: lời gọi này lẽ ra phải HỎNG');
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM nhat_ky_hanh_dong').get().n, 0,
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM action_log').get().n, 0,
     '🔴 GHI VẾT CHO LỜI GỌI HỎNG — sổ khai việc đã xảy ra trong khi nó chưa');
   assert.deepEqual(daBao, [], '🔴 báo host về một việc ⛔ chưa từng chạy');
   closeDb(db);

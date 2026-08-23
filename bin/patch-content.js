@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 /**
  * ═══════════════════════════════════════════════════════════════════════
- * LẤP LẠI `noi_dung` CHO CÁC DÒNG CŨ BỊ MẤT CHỮ
+ * LẤP LẠI `content` CHO CÁC DÒNG CŨ BỊ MẤT CHỮ
  *
  * Bối cảnh: trước bản vá `webchat` (20/08/2026), mọi tin văn bản bị xếp nhầm
- * loại nên chữ nằm kẹt trong `content_raw._text` mà cột `noi_dung` để trống.
+ * loại nên chữ nằm kẹt trong `content_raw._text` mà cột `content` để trống.
  * Hậu quả: mỗi lần host bảo "tóm tắt nhóm" / "tìm tin về X", trợ lý bỏ sót
  * gần 1/5 hội thoại mà KHÔNG báo lỗi gì — trông y như đã trả lời đủ.
  *
  * 🔴 VÌ SAO LÀ SCRIPT RỜI, KHÔNG PHẢI BƯỚC `MIGRATION_STEPS`:
- *   Việc này KHÔNG đổi cấu trúc — chỉ ghi vào 3 cột ĐÃ CÓ (`noi_dung`,
- *   `msg_type`, `ten_luc_gui`). Thêm một bước migrate thì phải tăng
+ *   Việc này KHÔNG đổi cấu trúc — chỉ ghi vào 3 cột ĐÃ CÓ (`content`,
+ *   `msg_type`, `name_at_send`). Thêm một bước migrate thì phải tăng
  *   `PHIEN_BAN_SCHEMA` trong `src/lib/hang_so.js`, mà file đó đang do pane
  *   khác sửa — hai bên cùng ghi là đè nhau. Đã báo Router; muốn chuyển thành
  *   bước migrate sau này thì bê nguyên 3 câu UPDATE dưới đây, chúng đã
@@ -36,21 +36,21 @@ const MAC_DINH = path.join(os.homedir(), '.zalo-tro-ly', 'lichsu.db');
  * 3 câu vá, mỗi câu một vấn đề độc lập. Thứ tự CÓ Ý NGHĨA: đổ chữ trước, rồi
  * mới sửa `msg_type` theo chữ đã đổ.
  *
- * ⚠️ Điều kiện `noi_dung IS NULL` trong câu 1 là chốt chặn "không đè bản cũ".
+ * ⚠️ Điều kiện `content IS NULL` trong câu 1 là chốt chặn "không đè bản cũ".
  * Đừng bỏ nó đi kể cả khi thấy thừa.
  */
 const CAC_BUOC = [
   {
     ten: 'do-chu',
-    moTa: 'đổ content_raw._text sang noi_dung cho tin văn bản còn rỗng',
-    dem: `SELECT count(*) AS c FROM tin_nhan
-           WHERE noi_dung IS NULL
+    moTa: 'đổ content_raw._text sang content cho tin văn bản còn rỗng',
+    dem: `SELECT count(*) AS c FROM messages
+           WHERE content IS NULL
              AND json_extract(content_raw, '$._msgTypeGoc') IN ('webchat','chat.text')
              AND json_extract(content_raw, '$._text') IS NOT NULL
              AND trim(json_extract(content_raw, '$._text')) != ''`,
-    chay: `UPDATE tin_nhan
-              SET noi_dung = json_extract(content_raw, '$._text')
-            WHERE noi_dung IS NULL
+    chay: `UPDATE messages
+              SET content = json_extract(content_raw, '$._text')
+            WHERE content IS NULL
               AND json_extract(content_raw, '$._msgTypeGoc') IN ('webchat','chat.text')
               AND json_extract(content_raw, '$._text') IS NOT NULL
               AND trim(json_extract(content_raw, '$._text')) != ''`,
@@ -59,37 +59,37 @@ const CAC_BUOC = [
     ten: 'sua-loai',
     moTa: "msg_type 'UNKNOWN' -> 'chat.text' cho đúng dòng vừa có chữ",
     // Nếu để nguyên UNKNOWN thì dòng vừa lấp lại vi phạm spec H (loại khác
-    // text mà có noi_dung) và mọi truy vấn lọc theo loại vẫn bỏ sót nó —
+    // text mà có content) và mọi truy vấn lọc theo loại vẫn bỏ sót nó —
     // tức vá nửa vời, vẫn mất chữ ở tầng đọc.
-    dem: `SELECT count(*) AS c FROM tin_nhan
-           WHERE msg_type = 'UNKNOWN' AND noi_dung IS NOT NULL
+    dem: `SELECT count(*) AS c FROM messages
+           WHERE msg_type = 'UNKNOWN' AND content IS NOT NULL
              AND json_extract(content_raw, '$._msgTypeGoc') IN ('webchat','chat.text')`,
-    chay: `UPDATE tin_nhan SET msg_type = 'chat.text'
-            WHERE msg_type = 'UNKNOWN' AND noi_dung IS NOT NULL
+    chay: `UPDATE messages SET msg_type = 'chat.text'
+            WHERE msg_type = 'UNKNOWN' AND content IS NOT NULL
               AND json_extract(content_raw, '$._msgTypeGoc') IN ('webchat','chat.text')`,
   },
   {
     ten: 'ten-bot',
-    moTa: 'điền ten_luc_gui còn rỗng cho tin do trợ lý tạo',
+    moTa: 'điền name_at_send còn rỗng cho tin do trợ lý tạo',
     // Tên lấy TỪ CHÍNH DB (dòng khác cùng user_id đã có tên) chứ không viết
     // cứng — viết cứng là lần sau đổi tên hiển thị thì sai lặng lẽ.
-    dem: `SELECT count(*) AS c FROM tin_nhan
-           WHERE do_tro_ly_tao = 1 AND ten_luc_gui IS NULL AND user_id IS NOT NULL
-             AND EXISTS (SELECT 1 FROM tin_nhan t2
-                          WHERE t2.user_id = tin_nhan.user_id AND t2.ten_luc_gui IS NOT NULL)`,
-    chay: `UPDATE tin_nhan
-              SET ten_luc_gui = (SELECT t2.ten_luc_gui FROM tin_nhan t2
-                                  WHERE t2.user_id = tin_nhan.user_id
-                                    AND t2.ten_luc_gui IS NOT NULL
+    dem: `SELECT count(*) AS c FROM messages
+           WHERE made_by_assistant = 1 AND name_at_send IS NULL AND user_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM messages t2
+                          WHERE t2.user_id = messages.user_id AND t2.name_at_send IS NOT NULL)`,
+    chay: `UPDATE messages
+              SET name_at_send = (SELECT t2.name_at_send FROM messages t2
+                                  WHERE t2.user_id = messages.user_id
+                                    AND t2.name_at_send IS NOT NULL
                                   ORDER BY t2.ts_zalo DESC LIMIT 1)
-            WHERE do_tro_ly_tao = 1 AND ten_luc_gui IS NULL AND user_id IS NOT NULL`,
+            WHERE made_by_assistant = 1 AND name_at_send IS NULL AND user_id IS NOT NULL`,
   },
 ];
 
 const SOAT = `SELECT count(*) AS tong,
-                     sum(noi_dung IS NOT NULL) AS co_chu,
-                     sum(do_tro_ly_tao = 1 AND ten_luc_gui IS NULL) AS bot_thieu_ten
-                FROM tin_nhan`;
+                     sum(content IS NOT NULL) AS co_chu,
+                     sum(made_by_assistant = 1 AND name_at_send IS NULL) AS bot_thieu_ten
+                FROM messages`;
 
 /**
  * @param {string} duongDan

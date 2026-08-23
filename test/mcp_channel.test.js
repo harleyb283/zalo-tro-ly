@@ -214,7 +214,7 @@ test('C2 inputSchema PHẲNG: request_id CÙNG CẤP với chatId, và là bắt
     assert.deepEqual(t.inputSchema.required.sort(), ['request_id', 'text']);
   }
   const tt = ds.tools.find((t) => t.name === TEN_TOOL.TRANG_THAI);
-  assert.ok(!tt.inputSchema.required?.length, 'trang_thai KHÔNG có tham số');
+  assert.ok(!tt.inputSchema.required?.length, 'status KHÔNG có tham số');
   await imLang(() => kenh.dong());
 });
 
@@ -251,8 +251,8 @@ test('D1 đẩy bù: đẩy được thì chuyển da_day, đẩy hụt thì GI�
     db: {},
     queueTtlMs: 60000,
     takePendingQueue: () => ([
-      { request_id: 'r1', chat_id_hoi: 'c1', user_id: 'u1', noi_dung: 'a', ts_tao: '2026-08-20T10:00:00.000Z' },
-      { request_id: 'r2', chat_id_hoi: 'c2', user_id: 'u2', noi_dung: 'b', ts_tao: '2026-08-20T10:00:01.000Z' },
+      { request_id: 'r1', asking_chat_id: 'c1', user_id: 'u1', content: 'a', ts_created: '2026-08-20T10:00:00.000Z' },
+      { request_id: 'r2', asking_chat_id: 'c2', user_id: 'u2', content: 'b', ts_created: '2026-08-20T10:00:01.000Z' },
     ]),
     updateQueueState: (_db, rid, tt) => { capNhat.push([rid, tt]); return true; },
     guiThongBao: async (p) => p.requestId === 'r1',   // r2 đẩy hụt

@@ -15,6 +15,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { closeDb, migrate, openDb, describeSchema, tightenPermissions } from '../src/store/db.js';
+import { haCapTenV11 } from './_ha_cap_ten.js';
 import { PHIEN_BAN_SCHEMA } from '../src/lib/hang_so.js';
 import {
   updateQueueState,
@@ -81,15 +82,15 @@ function moNghe(db, chatId, ten = 'Nhóm thử') {
 test('A1 openDb dựng đúng 17 bảng / 25 chỉ mục, bật WAL', () => {
   const { db } = dbTam();
   const s = describeSchema(db);
-  // v3 (20/08/2026): +doi_chieu_lich_su, +lich_hen  -> 9 thành 11 bảng.
-  // v6 (21/08/2026): +ghi_nho, +nhat_ky_cong_ghi    -> 11 thành 13 bảng.
-  // v7 (21/08/2026): +hang_doi_gui, +nguon_phien     -> 13 thành 15 bảng.
+  // v3 (20/08/2026): +history_audit, +schedules  -> 9 thành 11 bảng.
+  // v6 (21/08/2026): +memories, +write_gate_log    -> 11 thành 13 bảng.
+  // v7 (21/08/2026): +send_queue, +request_origin     -> 13 thành 15 bảng.
   // Con số ĐỂ CỨNG có chủ đích: nó là canary bắt ca ai đó thêm bảng mà không
   // ai duyệt. Đổi số ở đây phải là hành động CÓ Ý THỨC, không phải nới cho xanh.
   // ⇒ Lần đổi 21/08: Router duyệt trước, thiết kế ở
   //   `60_output/ingest_staging/zalo_tang_tri_nho/thiet_ke.md` mục 5.
   assert.equal(s.bang.length, 17, `bảng: ${s.bang.join(',')}`);
-  // v11 (21/08/2026): +yeu_cau_duyet (đường xin duyệt) và +nhat_ky_hanh_dong
+  // v11 (21/08/2026): +approval_requests (đường xin duyệt) và +action_log
   //   (ghi vết thay lớp chặn vừa gỡ) -> 15 thành 17 bảng;
   //   +idx_duyet_cho, +idx_duyet_chat, +idx_vet_chat, +idx_vet_tool -> 25 chỉ mục.
   assert.equal(s.chiMuc.length, 25);
@@ -120,7 +121,7 @@ test('A3 migrate chạy lại KHÔNG đổi gì (idempotent)', () => {
 
 test('A4 DB lệch schema_version thì NỔ, không im lặng chạy tiếp', () => {
   const { db, duongDan } = dbTam();
-  db.exec("UPDATE meta SET gia_tri = '99' WHERE khoa = 'schema_version'");
+  db.exec("UPDATE meta SET value = '99' WHERE name = 'schema_version'");
   closeDb(db);
   assert.throws(() => openDb(duongDan), /schema_version='99'/);
 });
@@ -146,11 +147,11 @@ test('B2 trùng (chat_id, msg_id) -> bỏ qua, KHÔNG ghi đè bản cũ', () =>
   assert.equal(writeMessage(db, tinGia({ chatId: '111', msgId: 'm1', noiDung: 'bản đè' })), false);
   const { rows } = latestMessages(db, '111', 10);
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].noi_dung, 'bản gốc');
+  assert.equal(rows[0].content, 'bản gốc');
   closeDb(db);
 });
 
-test('B3 spec H — msg_type != chat.text thì noi_dung PHẢI null', () => {
+test('B3 spec H — msg_type != chat.text thì content PHẢI null', () => {
   const { db } = dbTam();
   moNghe(db, '111');
   // Cố tình truyền noiDung cho ảnh: tầng ghi phải tự ép null, không tin
@@ -160,11 +161,11 @@ test('B3 spec H — msg_type != chat.text thì noi_dung PHẢI null', () => {
   writeMessage(db, tinGia({ chatId: '111', msgId: 'chu', msgType: 'chat.text', noiDung: 'giữ nguyên' }));
 
   const sot = db
-    .prepare("SELECT count(*) AS c FROM tin_nhan WHERE msg_type != 'chat.text' AND noi_dung IS NOT NULL")
+    .prepare("SELECT count(*) AS c FROM messages WHERE msg_type != 'chat.text' AND content IS NOT NULL")
     .get().c;
-  assert.equal(Number(sot), 0, 'có tin không phải text mà vẫn còn noi_dung');
+  assert.equal(Number(sot), 0, 'có tin không phải text mà vẫn còn content');
   assert.equal(
-    db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id = 'chu'").get().n,
+    db.prepare("SELECT content AS n FROM messages WHERE msg_id = 'chu'").get().n,
     'giữ nguyên',
   );
   closeDb(db);
@@ -175,16 +176,16 @@ test('B4 boolean và undefined — 2 kiểu node:sqlite KHÔNG bind được', (
   moNghe(db, '111');
   // Chứng minh bẫy có thật, không phải em phòng xa thừa:
   assert.throws(
-    () => db.prepare('INSERT INTO tin_nhan (chat_id,msg_id,msg_type,ts_zalo,ts_ghi,tu_toi) VALUES (?,?,?,?,?,?)')
+    () => db.prepare('INSERT INTO messages (chat_id,msg_id,msg_type,ts_zalo,ts_saved,from_me) VALUES (?,?,?,?,?,?)')
       .run('111', 'x', 'chat.text', 1, 'now', true),
     /cannot be bound/,
   );
   // Còn writeMessage() thì nuốt được cả hai.
   writeMessage(db, tinGia({ chatId: '111', msgId: 'bool', tuToi: true, hasHostMention: true }));
   writeMessage(db, tinGia({ chatId: '111', msgId: 'undef', cliMsgId: undefined, tenLucGui: undefined }));
-  const r = db.prepare("SELECT tu_toi, co_tag_host FROM tin_nhan WHERE msg_id='bool'").get();
-  assert.equal(Number(r.tu_toi), 1);
-  assert.equal(Number(r.co_tag_host), 1);
+  const r = db.prepare("SELECT from_me, has_host_tag FROM messages WHERE msg_id='bool'").get();
+  assert.equal(Number(r.from_me), 1);
+  assert.equal(Number(r.has_host_tag), 1);
   closeDb(db);
 });
 
@@ -203,7 +204,7 @@ test('B5 ID vượt MAX_SAFE_INTEGER giữ nguyên chữ số (lưu TEXT)', () =
 // C. THU HỒI — tiêu chí nghiệm thu M2
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('C1 M2: thu hồi -> da_thu_hoi=1 VÀ nội dung cũ CÒN NGUYÊN, khop_duoc=1', () => {
+test('C1 M2: thu hồi -> recalled=1 VÀ nội dung cũ CÒN NGUYÊN, matched=1', () => {
   const { db } = dbTam();
   moNghe(db, '111');
   writeMessage(db, tinGia({ chatId: '111', msgId: 'goc', noiDung: 'câu nói bị xoá' }));
@@ -219,18 +220,18 @@ test('C1 M2: thu hồi -> da_thu_hoi=1 VÀ nội dung cũ CÒN NGUYÊN, khop_duo
   assert.equal(kq.khopDuoc, true);
   assert.equal(kq.ghepBang, 'msg_id');
 
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='goc'").get();
-  assert.equal(Number(r.da_thu_hoi), 1);
-  assert.equal(r.noi_dung, 'câu nói bị xoá', 'NỘI DUNG BỊ MẤT — đã DELETE thay vì UPDATE?');
-  assert.equal(r.thu_hoi_boi, '555000111');
-  assert.equal(Number(r.thu_hoi_luc), 1_700_000_009_000);
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='goc'").get();
+  assert.equal(Number(r.recalled), 1);
+  assert.equal(r.content, 'câu nói bị xoá', 'NỘI DUNG BỊ MẤT — đã DELETE thay vì UPDATE?');
+  assert.equal(r.recalled_by, '555000111');
+  assert.equal(Number(r.recalled_at), 1_700_000_009_000);
 
   assert.equal(storeStats(db).soTinDaLuu, 1, 'số tin giảm ⇒ đã xoá dòng');
   assert.equal(storeStats(db).soThuHoiMoCoi, 0);
   closeDb(db);
 });
 
-test('C2 M2: ghép sai ID -> vẫn ghi sự kiện MỒ CÔI, khop_duoc=0 (đo được)', () => {
+test('C2 M2: ghép sai ID -> vẫn ghi sự kiện MỒ CÔI, matched=0 (đo được)', () => {
   const { db } = dbTam();
   moNghe(db, '111');
   writeMessage(db, tinGia({ chatId: '111', msgId: 'goc', noiDung: 'còn đây' }));
@@ -249,7 +250,7 @@ test('C2 M2: ghép sai ID -> vẫn ghi sự kiện MỒ CÔI, khop_duoc=0 (đo �
   assert.equal(storeStats(db).soThuHoiMoCoi, 1, 'mất dấu vết ca ghép sai');
   // Tin gốc không bị đụng tới.
   assert.equal(
-    Number(db.prepare("SELECT da_thu_hoi AS d FROM tin_nhan WHERE msg_id='goc'").get().d),
+    Number(db.prepare("SELECT recalled AS d FROM messages WHERE msg_id='goc'").get().d),
     0,
   );
   closeDb(db);
@@ -270,7 +271,7 @@ test('C3 msg_id trượt nhưng cli_msg_id trúng -> ghép bù, báo rõ đườ
   assert.equal(kq.khopDuoc, true);
   assert.equal(kq.ghepBang, 'cli_msg_id', 'phải nói rõ là ghép bằng đường dự phòng');
   assert.equal(
-    db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='goc'").get().n,
+    db.prepare("SELECT content AS n FROM messages WHERE msg_id='goc'").get().n,
     'giữ được',
   );
   closeDb(db);
@@ -287,7 +288,7 @@ test('C4 cùng một sự kiện thu hồi tới 2 lần -> không nhân bản, 
   markRecalled(db, sk);
   const lan2 = markRecalled(db, sk);
   assert.equal(lan2.khopDuoc, true);
-  assert.equal(Number(db.prepare('SELECT count(*) AS c FROM su_kien_thu_hoi').get().c), 1);
+  assert.equal(Number(db.prepare('SELECT count(*) AS c FROM recall_events').get().c), 1);
   closeDb(db);
 });
 
@@ -402,7 +403,7 @@ test('E3 từ khoá tiếng Việt VIẾT HOA vẫn tìm ra (LIKE trần thì TR
 
   // Bằng chứng bẫy có thật: LIKE trần của SQLite chỉ gập hoa/thường ASCII.
   const likeTran = db
-    .prepare("SELECT count(*) AS c FROM tin_nhan WHERE noi_dung LIKE '%BÁO%'")
+    .prepare("SELECT count(*) AS c FROM messages WHERE content LIKE '%BÁO%'")
     .get().c;
   assert.equal(Number(likeTran), 0, 'LIKE trần lẽ ra phải TRƯỢT — bẫy đã biến mất?');
 
@@ -462,8 +463,8 @@ test('F1 hàng đợi sống qua ĐÓNG/MỞ LẠI DB (bền trên đĩa, không
   const db2 = openDb(duongDan);
   const r = getQueueRow(db2, 'req-1');
   assert.ok(r, 'restart là mất câu hỏi ⇒ đang buffer trong RAM');
-  assert.equal(r.trang_thai, 'cho');
-  assert.equal(r.noi_dung, 'anh hỏi gì đó');
+  assert.equal(r.status, 'cho');
+  assert.equal(r.content, 'anh hỏi gì đó');
   closeDb(db2);
 });
 
@@ -475,17 +476,17 @@ test('F2 quá queueTtlMs -> het_han, KHÔNG trả lời muộn', () => {
 
   const con = takePendingQueue(db, 30 * 60 * 1000); // TTL 30 phút
   assert.deepEqual(con.map((r) => r.request_id), ['moi']);
-  assert.equal(getQueueRow(db, 'cu').trang_thai, 'het_han');
-  assert.equal(getQueueRow(db, 'moi').trang_thai, 'cho');
+  assert.equal(getQueueRow(db, 'cu').status, 'het_han');
+  assert.equal(getQueueRow(db, 'moi').status, 'cho');
   closeDb(db);
 });
 
-test('F3 ts_tao không đọc được -> coi là CÒN HẠN, không nuốt mất câu hỏi', () => {
+test('F3 ts_created không đọc được -> coi là CÒN HẠN, không nuốt mất câu hỏi', () => {
   const { db } = dbTam();
   enqueueQuestion(db, hoiGia({ requestId: 'hong', tsTao: 'chiều nay' }));
   const con = takePendingQueue(db, 1);
   assert.deepEqual(con.map((r) => r.request_id), ['hong']);
-  assert.equal(getQueueRow(db, 'hong').trang_thai, 'cho');
+  assert.equal(getQueueRow(db, 'hong').status, 'cho');
   closeDb(db);
 });
 
@@ -502,12 +503,12 @@ test('F4 trạng thái lạ bị chặn bằng lỗi ĐỌC ĐƯỢC, không ph�
 // G. CÁC BẢNG PHỤ + THỐNG KÊ
 // ═══════════════════════════════════════════════════════════════════════════
 
-test('G1 reaction gMsgID=0 (thả từ điện thoại) -> khop_duoc=0, KHÔNG coi là hỏng', () => {
+test('G1 reaction gMsgID=0 (thả từ điện thoại) -> matched=0, KHÔNG coi là hỏng', () => {
   const { db } = dbTam();
   writeReaction(db, { chatId: 'A', msgIdDich: null, userId: 'u1', bieuTuong: '👍', tsZalo: 1 });
   writeReaction(db, { chatId: 'A', msgIdDich: '0', userId: 'u1', bieuTuong: '❤️', tsZalo: 2 });
   writeReaction(db, { chatId: 'A', msgIdDich: 'm1', userId: 'u1', bieuTuong: '😀', tsZalo: 3 });
-  const c = db.prepare('SELECT count(*) AS c FROM reaction WHERE khop_duoc = 0').get().c;
+  const c = db.prepare('SELECT count(*) AS c FROM reaction WHERE matched = 0').get().c;
   assert.equal(Number(c), 2, 'gMsgID = 0 phải bị coi là mồ côi như null');
   closeDb(db);
 });
@@ -516,25 +517,25 @@ test('G2 upsert hội thoại/người KHÔNG xoá trắng tên đã biết', ()
   const { db } = dbTam();
   moNghe(db, 'A', 'Tên đầy đủ');
   upsertConversation(db, { chatId: 'A', loai: 'GROUP', ten: null, duocNghe: true });
-  assert.equal(db.prepare("SELECT ten AS t FROM hoi_thoai WHERE chat_id='A'").get().t, 'Tên đầy đủ');
+  assert.equal(db.prepare("SELECT name AS t FROM conversations WHERE chat_id='A'").get().t, 'Tên đầy đủ');
 
   upsertPerson(db, { userId: 'u1', tenHienThi: 'Người A', isHost: true });
   upsertPerson(db, { userId: 'u1', tenHienThi: null, isHost: true });
-  const n = db.prepare("SELECT * FROM nguoi WHERE user_id='u1'").get();
-  assert.equal(n.ten_hien_thi, 'Người A');
-  assert.equal(Number(n.la_host), 1);
+  const n = db.prepare("SELECT * FROM people WHERE user_id='u1'").get();
+  assert.equal(n.display_name, 'Người A');
+  assert.equal(Number(n.is_host), 1);
   closeDb(db);
 });
 
-test('G3 lan_dau_thay giữ nguyên, lan_cuoi_thay được đẩy tới', async () => {
+test('G3 first_seen giữ nguyên, last_seen được đẩy tới', async () => {
   const { db } = dbTam();
   moNghe(db, 'A');
-  const dau = db.prepare("SELECT lan_dau_thay AS d FROM hoi_thoai WHERE chat_id='A'").get().d;
+  const dau = db.prepare("SELECT first_seen AS d FROM conversations WHERE chat_id='A'").get().d;
   await new Promise((r) => setTimeout(r, 5));
   moNghe(db, 'A');
-  const sau = db.prepare("SELECT * FROM hoi_thoai WHERE chat_id='A'").get();
-  assert.equal(sau.lan_dau_thay, dau, 'lan_dau_thay bị ghi đè');
-  assert.ok(sau.lan_cuoi_thay >= dau);
+  const sau = db.prepare("SELECT * FROM conversations WHERE chat_id='A'").get();
+  assert.equal(sau.first_seen, dau, 'first_seen bị ghi đè');
+  assert.ok(sau.last_seen >= dau);
   closeDb(db);
 });
 
@@ -542,16 +543,16 @@ test('G4 sự kiện nhóm + nhật ký truy vấn ghi được, nguồn lưu d�
   const { db } = dbTam();
   writeGroupEvent(db, { chatId: 'A', loai: 'JOIN', duLieu: '{"x":1}', tsZalo: 1 });
   writeGroupEvent(db, { chatId: 'A', loai: 'UNKNOWN', duLieu: null, tsZalo: null });
-  assert.equal(Number(db.prepare('SELECT count(*) AS c FROM su_kien_nhom').get().c), 2);
+  assert.equal(Number(db.prepare('SELECT count(*) AS c FROM group_events').get().c), 2);
 
   writeQueryLog(db, {
     requestId: 'req-1', chatIdHoi: 'A',
     nguonChatIds: ['A', 'B'], coCheo: true, huongTraLoi: 'dm_host',
   });
-  const nk = db.prepare('SELECT * FROM nhat_ky_truy_van').get();
-  assert.deepEqual(JSON.parse(nk.nguon_chat_ids), ['A', 'B']);
-  assert.equal(Number(nk.co_cheo), 1);
-  assert.equal(nk.huong_tra_loi, 'dm_host');
+  const nk = db.prepare('SELECT * FROM query_log').get();
+  assert.deepEqual(JSON.parse(nk.source_chat_ids), ['A', 'B']);
+  assert.equal(Number(nk.has_cross), 1);
+  assert.equal(nk.reply_route, 'dm_host');
   closeDb(db);
 });
 
@@ -599,6 +600,11 @@ function dbV1CoDuLieu() {
   for (let i = 1; i <= 3; i += 1) {
     writeMessage(db, tinGia({ chatId: '111', msgId: `cu${i}`, noiDung: `câu cũ ${i}`, tsZalo: 1000 + i }));
   }
+  // 🔴 Hạ TÊN về tiếng Việt TRƯỚC: từ v12, schema.sql sinh ra tên tiếng Anh,
+  // mà mọi bước migrate cũ lại gọi `ALTER TABLE tin_nhan ...`. Không hạ tên thì
+  // "DB v1" này ⛔ không trung thực và bài test đo nhầm một thứ khác.
+  const daHa = haCapTenV11(db);
+  assert.ok(daHa.bang > 0 && daHa.cot > 0, 'không hạ được tên thì tiền đề sai, bài này vô nghĩa');
   // Hạ về v1 thật sự: SQLite không DROP COLUMN ở phiên bản cũ, nên dựng lại
   // bảng theo đúng khuôn v1 rồi chép dữ liệu sang.
   db.exec(`
@@ -628,37 +634,37 @@ test('F1 ★ migrate v1 -> mới nhất TUẦN TỰ trên DB CÓ DỮ LIỆU: kh
   // Dùng HẰNG SỐ chứ không gõ cứng số phiên bản: bài này đã mục nát một lần
   // mỗi khi ai đó thêm bước migrate, mà nội dung nó canh thì không đổi.
   assert.equal(
-    db.prepare("SELECT gia_tri AS v FROM meta WHERE khoa='schema_version'").get().v,
+    db.prepare("SELECT value AS v FROM meta WHERE name='schema_version'").get().v,
     PHIEN_BAN_SCHEMA,
   );
-  const r = db.prepare('SELECT count(*) AS c FROM tin_nhan').get();
+  const r = db.prepare('SELECT count(*) AS c FROM messages').get();
   assert.equal(Number(r.c), 3, 'mất dòng là mất hội thoại thật, không phát lại được');
   assert.equal(
-    db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='cu2'").get().n,
+    db.prepare("SELECT content AS n FROM messages WHERE msg_id='cu2'").get().n,
     'câu cũ 2',
   );
-  const cot = db.prepare('PRAGMA table_info(tin_nhan)').all().map((c) => c.name);
+  const cot = db.prepare('PRAGMA table_info(messages)').all().map((c) => c.name);
   for (const c of [
-    'tra_loi_msg_id', 'tra_loi_cli_msg_id', 'tra_loi_user_id', 'tra_loi_trich',
-    'thu_hoi_nguon', 'thu_hoi_do_tin_cay', 'vang_mat_lan_dau', 'vang_mat_so_lan',
+    'reply_msg_id', 'reply_cli_msg_id', 'reply_user_id', 'reply_quote',
+    'recall_source', 'recall_confidence', 'absent_first_ms', 'absent_count',
   ]) {
     assert.ok(cot.includes(c), `thiếu cột ${c}`);
   }
-  // v4: lich_hen phải có đủ cột lời nhắc theo đuổi (bước 3->4 đã chạy).
-  const cotLich = db.prepare('PRAGMA table_info(lich_hen)').all().map((c) => c.name);
-  for (const c of ['la_theo_duoi', 'trang_thai_td', 'chu_ky_ngay', 'gio_nhac',
-    'bo_chu_nhat', 'nhac_lan_cuoi_ms', 'so_lan_da_nhac', 'nguoi_phu_trach',
-    'tam_dung_toi_ms', 'dong_boi', 'dong_luc_ms', 'ly_do_dong', 'cho_model_tu_ms']) {
-    assert.ok(cotLich.includes(c), `lich_hen thiếu cột ${c}`);
+  // v4: schedules phải có đủ cột lời nhắc theo đuổi (bước 3->4 đã chạy).
+  const cotLich = db.prepare('PRAGMA table_info(schedules)').all().map((c) => c.name);
+  for (const c of ['is_follow_up', 'follow_up_status', 'cycle_days', 'remind_time',
+    'skip_sunday', 'last_remind_ms', 'remind_count', 'owner',
+    'paused_until_ms', 'closed_by', 'closed_at_ms', 'close_reason', 'model_wait_since_ms']) {
+    assert.ok(cotLich.includes(c), `schedules thiếu cột ${c}`);
   }
 
   // Dòng cũ phải là NULL ở cột mới — không được bịa giá trị.
-  assert.equal(db.prepare("SELECT tra_loi_msg_id AS x FROM tin_nhan WHERE msg_id='cu1'").get().x, null);
-  // ...TRỪ đúng một chỗ có suy ngược CÓ CHỦ ĐÍCH: tin đang `da_thu_hoi = 1` từ
+  assert.equal(db.prepare("SELECT reply_msg_id AS x FROM messages WHERE msg_id='cu1'").get().x, null);
+  // ...TRỪ đúng một chỗ có suy ngược CÓ CHỦ ĐÍCH: tin đang `recalled = 1` từ
   // trước v3 chỉ có thể sinh từ sự kiện `undo` thật ⇒ gán nguồn SU_KIEN. Đây là
   // lần DUY NHẤT được suy ngược; sau bước này mọi kết luận tự khai nguồn.
   assert.equal(
-    db.prepare("SELECT thu_hoi_nguon AS x FROM tin_nhan WHERE da_thu_hoi = 0 LIMIT 1").get()?.x ?? null,
+    db.prepare("SELECT recall_source AS x FROM messages WHERE recalled = 0 LIMIT 1").get()?.x ?? null,
     null,
     'tin KHÔNG bị thu hồi thì tuyệt đối không được gán nguồn',
   );
@@ -667,14 +673,14 @@ test('F1 ★ migrate v1 -> mới nhất TUẦN TỰ trên DB CÓ DỮ LIỆU: kh
 
 test('F1b ★ DB MỚI (schema.sql) và DB CŨ (migrate) phải cho CÙNG cấu trúc', () => {
   // 🔴 Bài này sinh ra từ một lỗi THẬT ngày 20/08/2026: v3 thêm 3 cột vào
-  // `su_kien_thu_hoi` bằng MIGRATION_STEPS nhưng quên thêm vào schema.sql ⇒ máy có
+  // `recall_events` bằng MIGRATION_STEPS nhưng quên thêm vào schema.sql ⇒ máy có
   // DB cũ thì chạy được, máy dựng DB mới thì nổ "no such column" giữa truy vấn.
   // Hai đường dựng DB PHẢI hội tụ, và chỉ có bài test so trực tiếp mới bắt được.
   const dbMoi = openDb(dbTam().duongDan);
   const dbCu = openDb(dbV1CoDuLieu());
   const cot = (d, bang) =>
     d.prepare(`PRAGMA table_info(${bang})`).all().map((c) => c.name).sort();
-  for (const bang of ['tin_nhan', 'su_kien_thu_hoi']) {
+  for (const bang of ['messages', 'recall_events']) {
     assert.deepEqual(cot(dbMoi, bang), cot(dbCu, bang), `bảng ${bang} lệch giữa hai đường dựng`);
   }
   assert.deepEqual(describeSchema(dbMoi).bang, describeSchema(dbCu).bang);
@@ -696,6 +702,7 @@ test('F1c ★ v10 -> v11 TRÊN DB CÓ DỮ LIỆU: ⛔ không mất ghi nhớ n�
     loai: 'chot_viec', noiDung: 'ghi nhớ có từ thời v10', nguyenVan: 'anh nói y như thế',
   });
   // Hạ về ĐÚNG hình dạng v10: bỏ 2 cột nguồn, bỏ 2 bảng mới, hạ phiên bản.
+  haCapTenV11(db);
   db.exec(`
     CREATE TABLE ghi_nho_v10 AS
       SELECT id, chat_id, request_id, nguoi_ghi, loai, noi_dung, nguyen_van,
@@ -709,19 +716,20 @@ test('F1c ★ v10 -> v11 TRÊN DB CÓ DỮ LIỆU: ⛔ không mất ghi nhớ n�
   closeDb(db);
 
   const sau = openDb(duongDan);                      // openDb tự migrate 10 -> 11
-  assert.equal(sau.prepare("SELECT gia_tri AS v FROM meta WHERE khoa='schema_version'").get().v, '11');
+  assert.equal(sau.prepare("SELECT value AS v FROM meta WHERE name='schema_version'").get().v,
+    PHIEN_BAN_SCHEMA, 'migrate phải đi hết tới phiên bản hiện hành');
 
-  const g = sau.prepare("SELECT * FROM ghi_nho WHERE request_id = 'r-cu'").get();
+  const g = sau.prepare("SELECT * FROM memories WHERE request_id = 'r-cu'").get();
   assert.ok(g, '🔴 MẤT GHI NHỚ CŨ khi migrate — dữ liệu thật không phát lại được');
-  assert.equal(g.noi_dung, 'ghi nhớ có từ thời v10', '🔴 mất chữ');
-  assert.equal(g.nguyen_van, 'anh nói y như thế');
+  assert.equal(g.content, 'ghi nhớ có từ thời v10', '🔴 mất chữ');
+  assert.equal(g.verbatim, 'anh nói y như thế');
   // NULL = "host tự nói", đúng trạng thái của mọi ghi nhớ trước v11.
   // ⛔ KHÔNG phải "không rõ" — dòng cũ lấy đâu ra nguồn.
-  assert.equal(g.nguon_nguoi, null, 'cột mới phải NULL cho dòng cũ');
-  assert.equal(g.nguon_nguyen_van, null);
+  assert.equal(g.source_user, null, 'cột mới phải NULL cho dòng cũ');
+  assert.equal(g.source_verbatim, null);
 
   // Hai bảng mới do `schema.sql` dựng lại sau khi chạy hết các bước.
-  for (const bang of ['yeu_cau_duyet', 'nhat_ky_hanh_dong']) {
+  for (const bang of ['approval_requests', 'action_log']) {
     assert.ok(describeSchema(sau).bang.includes(bang), `🔴 thiếu bảng '${bang}' sau migrate`);
   }
   closeDb(sau);
@@ -739,7 +747,7 @@ test('F2 migrate chạy LẠI trên DB đã v2 -> không làm gì thêm, không 
 
 test('F3 phiên bản LẠ (không có bước migrate) vẫn NỔ như cũ', () => {
   const { db, duongDan } = dbTam();
-  db.exec("UPDATE meta SET gia_tri = '99' WHERE khoa = 'schema_version'");
+  db.exec("UPDATE meta SET value = '99' WHERE name = 'schema_version'");
   closeDb(db);
   assert.throws(() => openDb(duongDan), /schema_version='99'/);
 });
@@ -752,10 +760,10 @@ test('F4 ghi + đọc lại được 4 trường reply', () => {
     traLoiMsgId: '9996000000002', traLoiCliMsgId: '1786095000001',
     traLoiUserId: '9993000000000000003', traLoiTrich: 'Test trợ lý 1',
   }));
-  const r = db.prepare("SELECT * FROM tin_nhan WHERE msg_id='tra-loi'").get();
-  assert.equal(r.tra_loi_msg_id, '9996000000002');
-  assert.equal(r.tra_loi_user_id, '9993000000000000003');
-  assert.equal(r.tra_loi_trich, 'Test trợ lý 1');
+  const r = db.prepare("SELECT * FROM messages WHERE msg_id='tra-loi'").get();
+  assert.equal(r.reply_msg_id, '9996000000002');
+  assert.equal(r.reply_user_id, '9993000000000000003');
+  assert.equal(r.reply_quote, 'Test trợ lý 1');
   closeDb(db);
 });
 
@@ -791,7 +799,7 @@ test('G3 nhóm chưa ai nhắn -> rỗng (fail-closed: không tag được ai)',
   closeDb(db);
 });
 
-test('H1 ★ tiếng vọng: tin trợ lý quay lại qua listener KHÔNG được xoá cờ do_tro_ly_tao', () => {
+test('H1 ★ tiếng vọng: tin trợ lý quay lại qua listener KHÔNG được xoá cờ made_by_assistant', () => {
   const { db } = dbTam();
   moNghe(db, '111');
   // 1) send.js ghi trước, có cờ.
@@ -801,9 +809,9 @@ test('H1 ★ tiếng vọng: tin trợ lý quay lại qua listener KHÔNG đư�
   const lanHai = writeMessage(db, tinGia({ chatId: '111', msgId: 'echo', noiDung: 'Dạ em xem rồi ạ', tuToi: true }));
 
   assert.equal(lanHai, false, 'INSERT OR IGNORE phải bỏ lần ghi thứ hai');
-  const r = db.prepare("SELECT count(*) AS c FROM tin_nhan WHERE msg_id='echo'").get();
+  const r = db.prepare("SELECT count(*) AS c FROM messages WHERE msg_id='echo'").get();
   assert.equal(Number(r.c), 1, 'không được nhân đôi dòng');
-  const cờ = db.prepare("SELECT do_tro_ly_tao AS d FROM tin_nhan WHERE msg_id='echo'").get().d;
+  const cờ = db.prepare("SELECT made_by_assistant AS d FROM messages WHERE msg_id='echo'").get().d;
   assert.equal(Number(cờ), 1,
     'đổi sang INSERT OR REPLACE là bản echo đè mất cờ -> lại không truy ra câu nào của trợ lý');
   closeDb(db);
@@ -935,7 +943,7 @@ test('I8 replyContext tra được từ requestId trong hàng đợi', () => {
 
 test('I9 hàng đợi KHÔNG phải cửa sau: hội thoại tắt nghe thì không tra ra gì', () => {
   const db = dbCoReply();
-  db.exec("UPDATE hoi_thoai SET duoc_nghe = 0 WHERE chat_id = '111'");
+  db.exec("UPDATE conversations SET listened = 0 WHERE chat_id = '111'");
   enqueueQuestion(db, {
     requestId: 'R-test-2', chatIdHoi: '111', msgId: REPLY_ID,
     userId: '1', noiDung: 'thế à', tsTao: new Date().toISOString(),
@@ -1008,7 +1016,7 @@ test('J3 🔴 KHÔNG đè lên dòng đã có chữ', () => {
   const dd = dbCanVa();
   patchContent(dd, true);
   const db = openDb(dd);
-  assert.equal(db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='co1'").get().n, 'chữ sẵn có');
+  assert.equal(db.prepare("SELECT content AS n FROM messages WHERE msg_id='co1'").get().n, 'chữ sẵn có');
   closeDb(db);
 });
 
@@ -1017,18 +1025,18 @@ test('J3b 🔴 dòng đã có chữ mà content_raw còn `_text` cũ -> TUYỆT 
   patchContent(dd, true);
   const db = openDb(dd);
   assert.equal(
-    db.prepare("SELECT noi_dung AS n FROM tin_nhan WHERE msg_id='ca_hai'").get().n,
+    db.prepare("SELECT content AS n FROM messages WHERE msg_id='ca_hai'").get().n,
     'BẢN ĐÚNG',
     'đè bản đúng bằng bản cũ là làm hỏng dữ liệu THẬT, không phải lấp chỗ trống',
   );
   closeDb(db);
 });
 
-test('J4 sticker KHÔNG bị đụng (spec H: loại khác text thì noi_dung phải NULL)', () => {
+test('J4 sticker KHÔNG bị đụng (spec H: loại khác text thì content phải NULL)', () => {
   const dd = dbCanVa();
   patchContent(dd, true);
   const db = openDb(dd);
-  const r = db.prepare("SELECT noi_dung AS n, msg_type AS t FROM tin_nhan WHERE msg_id='stk'").get();
+  const r = db.prepare("SELECT content AS n, msg_type AS t FROM messages WHERE msg_id='stk'").get();
   assert.equal(r.n, null);
   assert.equal(r.t, 'UNKNOWN');
   closeDb(db);
@@ -1038,7 +1046,7 @@ test('J5 msg_type của dòng vừa lấp phải thành chat.text, không để 
   const dd = dbCanVa();
   patchContent(dd, true);
   const db = openDb(dd);
-  const r = db.prepare("SELECT noi_dung AS n, msg_type AS t FROM tin_nhan WHERE msg_id='mat1'").get();
+  const r = db.prepare("SELECT content AS n, msg_type AS t FROM messages WHERE msg_id='mat1'").get();
   assert.equal(r.n, 'Test trợ lý 1');
   assert.equal(r.t, 'chat.text', 'để nguyên UNKNOWN là vẫn bị bỏ sót ở tầng đọc');
   closeDb(db);
@@ -1049,7 +1057,7 @@ test('J6 tên bot lấy TỪ DB, không viết cứng', () => {
   patchContent(dd, true);
   const db = openDb(dd);
   assert.equal(
-    db.prepare("SELECT ten_luc_gui AS t FROM tin_nhan WHERE msg_id='bot1'").get().t,
+    db.prepare("SELECT name_at_send AS t FROM messages WHERE msg_id='bot1'").get().t,
     'Hảis Assistant',
   );
   closeDb(db);

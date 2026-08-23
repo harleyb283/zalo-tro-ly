@@ -4,7 +4,7 @@
  *
  * ═══ BỆNH NÓ CHỐNG ═══
  * Ở `cheDo:"tach"`, `tra_loi` KHÔNG gửi Zalo nữa — nó **xếp hàng** vào
- * `hang_doi_gui` rồi báo model *"đã xếp hàng gửi"*, daemon mới là bên rút ra gửi.
+ * `send_queue` rồi báo model *"đã xếp hàng gửi"*, daemon mới là bên rút ra gửi.
  * ⇒ Daemon chết / mất mạng / kẹt throttle thì:
  *     · model tưởng xong (nó xếp hàng THÀNH CÔNG),
  *     · người nhắn không nhận gì,
@@ -15,15 +15,15 @@
  * ═══ 🔴 BA ĐIỀU LÀM NÊN LƯỚI NÀY — ĐỌC TRƯỚC KHI SỬA ═══
  *
  *  ① **KHÔNG ĐOÁN GÌ CẢ.** Lưới canh một SỰ THẬT KHÁCH QUAN: có một dòng
- *     `hang_doi_gui` ở `'cho'`/`'dang_gui'` quá lâu. Không có chỗ nào để đoán,
+ *     `send_queue` ở `'cho'`/`'dang_gui'` quá lâu. Không có chỗ nào để đoán,
  *     nên công tắc `ZTL_LUOI_OUTBOX` (đặt ở `runner.js`) **mặc định BẬT**.
- *     ⚠️ Pack từng có một lưới nữa canh `hang_doi_hoi` còn `'da_day'`. Nó phải
+ *     ⚠️ Pack từng có một lưới nữa canh `ask_queue` còn `'da_day'`. Nó phải
  *     ĐOÁN *"câu này có cần trả lời không"* và đoán sai thật — đi giục trả lời
  *     cả tiếng "ok" của host — nên **anh chốt bỏ hẳn 21/08/2026**. Ghi lại để
  *     đừng ai dựng lại nó dưới tên khác: cái gì phải đoán ý người thì đừng cho
  *     nó quyền nhắn tin.
  *
- *  ② **ĐỒNG HỒ ĐỌC TỪ ĐĨA, không phải từ lúc lưới nhìn thấy.** `ts_cap_nhat` là
+ *  ② **ĐỒNG HỒ ĐỌC TỪ ĐĨA, không phải từ lúc lưới nhìn thấy.** `ts_updated` là
  *     mốc ĐÚNG: đặt lúc xếp hàng, và `claimOutbound` cập nhật lại mỗi lần đổi
  *     trạng thái. Cứ tin nó, ⛔ đừng tự đếm từ lúc quét.
  *
@@ -116,7 +116,7 @@ function _gio(tsIso) {
 /** Tên hội thoại đích, tra lúc gửi. Không tra ra ⇒ null, ⛔ CẤM bịa. */
 function _tenHoiThoai(db, chatId) {
   try {
-    return db.prepare('SELECT ten FROM hoi_thoai WHERE chat_id = ?').get(String(chatId))?.ten ?? null;
+    return db.prepare('SELECT name FROM conversations WHERE chat_id = ?').get(String(chatId))?.name ?? null;
   } catch {
     return null;
   }
@@ -136,10 +136,10 @@ function _tenHoiThoai(db, chatId) {
  */
 function _demTheoTrangThai(db) {
   const r = db.prepare(
-    'SELECT trang_thai, count(*) AS c FROM hang_doi_gui GROUP BY trang_thai',
+    'SELECT status, count(*) AS c FROM send_queue GROUP BY status',
   ).all();
   const dem = { cho: 0, dang_gui: 0, da_gui: 0, loi: 0 };
-  for (const d of r) dem[String(d.trang_thai)] = Number(d.c);
+  for (const d of r) dem[String(d.status)] = Number(d.c);
   return dem;
 }
 
@@ -155,8 +155,8 @@ export function createOutboxWatcher(tuyChon = {}) {
   const duongDanSo = tuyChon.duongDanSo ?? null;
   // 🔴 TÁI DÙNG `takeStuckOutbound` của bước 2 chứ ⛔ KHÔNG chép lại SQL. Hàm đó
   // được viết SẴN CHO lưới này ("Dành cho lưới canh outbox") và nó lọc theo
-  // `ts_cap_nhat`, ⛔ không phải `ts_tao` — chép tay rất dễ chép nhầm sang
-  // `ts_tao`, và lúc đó một dòng vừa được `claimOutbound` đụng vào vẫn bị tính là
+  // `ts_updated`, ⛔ không phải `ts_created` — chép tay rất dễ chép nhầm sang
+  // `ts_created`, và lúc đó một dòng vừa được `claimOutbound` đụng vào vẫn bị tính là
   // kẹt từ đầu. Một nguồn sự thật, không hai bản trôi khỏi nhau.
   const layKet = typeof tuyChon.layKet === 'function' ? tuyChon.layKet : takeStuckOutbound;
   const mocKhoiDong = Number.isFinite(Number(tuyChon.mocKhoiDongMs))
@@ -239,9 +239,9 @@ export function createOutboxWatcher(tuyChon = {}) {
         _ghiSo(duongDanSo, {
           luc: new Date(bayGio).toISOString(), su_kien: 'ket',
           id: String(d.id), request_id: String(d.request_id ?? ''),
-          chat_id_dich: String(d.chat_id_dich), trang_thai: String(d.trang_thai),
-          so_lan_thu: Number(d.so_lan_thu ?? 0),
-          ket_ms: bayGio - (Date.parse(String(d.ts_cap_nhat)) || bayGio),
+          target_chat_id: String(d.target_chat_id), status: String(d.status),
+          attempt_count: Number(d.attempt_count ?? 0),
+          ket_ms: bayGio - (Date.parse(String(d.ts_updated)) || bayGio),
         });
       }
       _log(`${moiKet.length} tin kẹt trong outbox quá ${Math.round(nguongKet / 1000)}s -> BÁO HOST`);
@@ -264,8 +264,8 @@ export function createOutboxWatcher(tuyChon = {}) {
       if (!m.daBaoHost) continue;
       let tt = null;
       try {
-        tt = p.db.prepare('SELECT trang_thai FROM hang_doi_gui WHERE id = ?')
-          .get(id)?.trang_thai ?? null;
+        tt = p.db.prepare('SELECT status FROM send_queue WHERE id = ?')
+          .get(id)?.status ?? null;
       } catch { /* mất một dòng thống kê, không đáng để hỏng nhịp */ }
       ra.thoatKet += 1; tong.thoatKet += 1;
       _ghiSo(duongDanSo, {
@@ -298,10 +298,10 @@ export function createOutboxWatcher(tuyChon = {}) {
 function _dungTin(db, ds, nguongMs) {
   const giay = Math.round(Number(nguongMs) / 1000);
   const dong = ds.slice(0, MAX_LISTED).map((d) => {
-    const ten = _tenHoiThoai(db, String(d.chat_id_dich));
-    const noi = ten ? String(redact(ten)) : `chat ${String(d.chat_id_dich)}`;
-    const lan = Number(d.so_lan_thu ?? 0);
-    return `· ${_gio(d.ts_tao)} -> ${noi} [${String(d.trang_thai)}`
+    const ten = _tenHoiThoai(db, String(d.target_chat_id));
+    const noi = ten ? String(redact(ten)) : `chat ${String(d.target_chat_id)}`;
+    const lan = Number(d.attempt_count ?? 0);
+    return `· ${_gio(d.ts_created)} -> ${noi} [${String(d.status)}`
       + `${lan ? `, đã thử ${lan} lần` : ''}]`;
   });
   const con = ds.length - dong.length;

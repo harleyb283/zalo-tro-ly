@@ -37,44 +37,44 @@ function dungDb() {
   db.exec(SCHEMA);
 
   db.exec(`
-    INSERT INTO hoi_thoai (chat_id, loai, ten, duoc_nghe, lan_dau_thay, lan_cuoi_thay)
+    INSERT INTO conversations (chat_id, kind, name, listened, first_seen, last_seen)
     VALUES ('${CHAT_A}','GROUP','Nhóm A',1,'x','x'),
            ('${CHAT_B}','GROUP','Nhóm cũ',0,'x','x');
-    INSERT INTO nguoi (user_id, ten_hien_thi, la_host, cap_nhat)
+    INSERT INTO people (user_id, display_name, is_host, updated_at)
     VALUES ('u1','Tên MỚI của Người A',0,'x'), ('u2','Người B',0,'x');
   `);
 
   const them = db.prepare(`
-    INSERT INTO tin_nhan (chat_id,msg_id,cli_msg_id,user_id,ten_luc_gui,msg_type,noi_dung,
-                          content_raw,ts_zalo,ts_ghi,tu_toi,co_tag_host,da_thu_hoi,
-                          thu_hoi_boi,thu_hoi_luc,do_tro_ly_tao)
-    VALUES ($chat_id,$msg_id,$cli,$user_id,$ten,$msg_type,$noi_dung,$raw,$ts,'x',$tu_toi,0,
-            $da_thu_hoi,$boi,$luc,$tro_ly)`);
+    INSERT INTO messages (chat_id,msg_id,cli_msg_id,user_id,name_at_send,msg_type,content,
+                          content_raw,ts_zalo,ts_saved,from_me,has_host_tag,recalled,
+                          recalled_by,recalled_at,made_by_assistant)
+    VALUES ($chat_id,$msg_id,$cli,$user_id,$ten,$msg_type,$content,$raw,$ts,'x',$from_me,0,
+            $recalled,$boi,$luc,$tro_ly)`);
   const mac = {
     chat_id: CHAT_A, cli: null, user_id: 'u1', ten: 'Người A lúc đó', msg_type: 'chat.text',
-    raw: null, tu_toi: 0, da_thu_hoi: 0, boi: null, luc: null, tro_ly: 0,
+    raw: null, from_me: 0, recalled: 0, boi: null, luc: null, tro_ly: 0,
   };
   const T09 = T(9, 12);
-  them.run({ ...mac, msg_id: 'm1', noi_dung: 'chào cả nhà', ts: T09 });
+  them.run({ ...mac, msg_id: 'm1', content: 'chào cả nhà', ts: T09 });
   them.run({ ...mac, msg_id: 'm2', user_id: 'u2', ten: 'Người B lúc đó',
-    noi_dung: 'báo giá 500 triệu bên Sao Mai', ts: T(9, 13),
-    da_thu_hoi: 1, boi: 'u2', luc: T(9, 15) });
-  them.run({ ...mac, msg_id: 'm3', msg_type: 'chat.image', noi_dung: null,
+    content: 'báo giá 500 triệu bên Sao Mai', ts: T(9, 13),
+    recalled: 1, boi: 'u2', luc: T(9, 15) });
+  them.run({ ...mac, msg_id: 'm3', msg_type: 'chat.image', content: null,
     raw: JSON.stringify({ _msgTypeGoc: 'chat.image', href: 'https://x/a.jpg' }), ts: T(9, 20) });
-  them.run({ ...mac, msg_id: 'm4', msg_type: 'UNKNOWN', noi_dung: null,
+  them.run({ ...mac, msg_id: 'm4', msg_type: 'UNKNOWN', content: null,
     raw: JSON.stringify({ _msgTypeGoc: 'chat.voice', len: 3 }), ts: T(9, 21) });
-  them.run({ ...mac, msg_id: 'm5', noi_dung: 'dòng 1\ndòng 2\n### không phải heading',
+  them.run({ ...mac, msg_id: 'm5', content: 'dòng 1\ndòng 2\n### không phải heading',
     ts: T(9, 30) });
-  them.run({ ...mac, msg_id: 'm6', ten: null, user_id: null, noi_dung: 'em trả lời đây',
+  them.run({ ...mac, msg_id: 'm6', ten: null, user_id: null, content: 'em trả lời đây',
     ts: T(9, 40), tro_ly: 1 });
   // Hôm sau + hội thoại khác, để đo lọc ngày và lọc nhóm
-  them.run({ ...mac, msg_id: 'm7', noi_dung: 'hôm sau', ts: T(8, 0, 21) });
-  them.run({ ...mac, chat_id: CHAT_B, msg_id: 'm8', noi_dung: 'ở nhóm khác', ts: T(10, 0) });
-  // Tin của hội thoại CHƯA có dòng trong hoi_thoai
-  them.run({ ...mac, chat_id: '999', msg_id: 'm9', noi_dung: 'nhóm lạ', ts: T(11, 0) });
+  them.run({ ...mac, msg_id: 'm7', content: 'hôm sau', ts: T(8, 0, 21) });
+  them.run({ ...mac, chat_id: CHAT_B, msg_id: 'm8', content: 'ở nhóm khác', ts: T(10, 0) });
+  // Tin của hội thoại CHƯA có dòng trong conversations
+  them.run({ ...mac, chat_id: '999', msg_id: 'm9', content: 'nhóm lạ', ts: T(11, 0) });
 
-  db.prepare(`INSERT INTO su_kien_thu_hoi
-    (event_id,chat_id,msg_id_dich,cli_msg_id_dich,nguoi_thu_hoi,ten_nguoi_thu_hoi,ts_zalo,ts_ghi,khop_duoc)
+  db.prepare(`INSERT INTO recall_events
+    (event_id,chat_id,target_msg_id,target_cli_msg_id,recaller_id,recaller_name,ts_zalo,ts_saved,matched)
     VALUES ('e1',$c,'m2',NULL,'u2',NULL,$ts,'x',1)`).run({ c: CHAT_A, ts: T(9, 15) });
 
   db.close();
@@ -108,9 +108,9 @@ test('A1 DB mở ở chế độ CHỈ ĐỌC — mọi lệnh ghi bị chặn',
   const { duongDan } = dungDb();
   const db = openReadOnly(duongDan);
   try {
-    assert.throws(() => db.exec("INSERT INTO tin_nhan (chat_id,msg_id,msg_type,ts_zalo,ts_ghi) VALUES ('x','y','chat.text',1,'x')"));
-    assert.throws(() => db.exec('DELETE FROM tin_nhan'));
-    assert.throws(() => db.exec('DROP TABLE tin_nhan'));
+    assert.throws(() => db.exec("INSERT INTO messages (chat_id,msg_id,msg_type,ts_zalo,ts_saved) VALUES ('x','y','chat.text',1,'x')"));
+    assert.throws(() => db.exec('DELETE FROM messages'));
+    assert.throws(() => db.exec('DROP TABLE messages'));
   } finally {
     db.close();
   }
@@ -196,10 +196,10 @@ test('C1 tin thu hồi: hiện RÕ đã thu hồi + AI + LÚC NÀO + VẪN CÓ n
     'giấu nội dung gốc là mất đúng thứ anh cần — cả tính năng vô nghĩa');
 });
 
-test('C2 ten_nguoi_thu_hoi trống + người thu hồi CHÍNH LÀ người gửi -> nói rõ, không bịa tên', () => {
+test('C2 recaller_name trống + người thu hồi CHÍNH LÀ người gửi -> nói rõ, không bịa tên', () => {
   const { duongDan } = dungDb();
   const db = openReadOnly(duongDan);
-  const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m2');
+  const r = db.prepare('SELECT * FROM messages WHERE msg_id = ?').get('m2');
   const sk = recallTable(db, CHAT_A).get(`${CHAT_A}|m2`);
   const ten = recallerName(r, sk, peopleTable(db));
   db.close();
@@ -209,22 +209,22 @@ test('C2 ten_nguoi_thu_hoi trống + người thu hồi CHÍNH LÀ người gử
 test('C3 người thu hồi là NGƯỜI KHÁC -> dùng tên hiện tại NHƯNG phải nói rõ đó là tên hiện tại', () => {
   const { duongDan } = dungDb();
   const db = openReadOnly(duongDan);
-  const r = db.prepare('SELECT * FROM tin_nhan WHERE msg_id = ?').get('m2');
-  const ten = recallerName({ ...r, user_id: 'u9' }, { nguoi_thu_hoi: 'u1' }, peopleTable(db));
+  const r = db.prepare('SELECT * FROM messages WHERE msg_id = ?').get('m2');
+  const ten = recallerName({ ...r, user_id: 'u9' }, { recaller_id: 'u1' }, peopleTable(db));
   db.close();
   assert.match(ten, /Tên MỚI của Người A \(tên HIỆN TẠI, không phải tên lúc thu hồi\)/);
 });
 
-test('C4 chỉ có cờ da_thu_hoi mà KHÔNG có bản ghi sự kiện -> vẫn hiện, ghi "không rõ ai"', () => {
+test('C4 chỉ có cờ recalled mà KHÔNG có bản ghi sự kiện -> vẫn hiện, ghi "không rõ ai"', () => {
   const { duongDan } = dungDb();
   const db = openReadOnly(duongDan);
-  const ten = recallerName({ user_id: 'u1', thu_hoi_boi: null }, undefined, peopleTable(db));
+  const ten = recallerName({ user_id: 'u1', recalled_by: null }, undefined, peopleTable(db));
   db.close();
   assert.equal(ten, 'không rõ ai');
 });
 
 // ═══ D. Tên người gửi = ẢNH CHỤP lúc gửi ═══
-test('D1 dùng ten_luc_gui, TUYỆT ĐỐI không tra tên hiện tại trong bảng nguoi', () => {
+test('D1 dùng name_at_send, TUYỆT ĐỐI không tra tên hiện tại trong bảng people', () => {
   const { duongDan } = dungDb();
   const md = xuat(duongDan, { chatId: CHAT_A }).md;
   assert.ok(md.includes('Người A lúc đó'));
@@ -240,7 +240,7 @@ test('D2 tin do trợ lý tự gửi có nhãn riêng', () => {
 });
 
 test('D3 thiếu cả tên lẫn user_id -> nói không rõ, không in "null"', () => {
-  assert.equal(senderName({ ten_luc_gui: null, user_id: null, do_tro_ly_tao: 0 }),
+  assert.equal(senderName({ name_at_send: null, user_id: null, made_by_assistant: 0 }),
     '<không rõ người gửi>');
 });
 
@@ -330,18 +330,18 @@ test('G4 xuất TẤT CẢ hội thoại -> mỗi tin có nhãn nhóm để khô
   assert.match(md, /_Nhóm cũ_/);
 });
 
-test('G5 hội thoại duoc_nghe=0 VẪN xuất, kèm ghi chú (không giấu dữ liệu của chủ kho)', () => {
+test('G5 hội thoại listened=0 VẪN xuất, kèm ghi chú (không giấu dữ liệu của chủ kho)', () => {
   const { duongDan } = dungDb();
   const kq = xuat(duongDan, { chatId: CHAT_B });
   assert.equal(kq.soTinDaIn, 1);
   assert.match(kq.md, /không còn trong danh sách nghe/);
 });
 
-test('G6 hội thoại chưa có dòng trong hoi_thoai vẫn xuất được, có cảnh báo', () => {
+test('G6 hội thoại chưa có dòng trong conversations vẫn xuất được, có cảnh báo', () => {
   const { duongDan } = dungDb();
   const kq = xuat(duongDan, { chatId: '999' });
   assert.equal(kq.soTinDaIn, 1);
-  assert.match(kq.md, /Không có dòng nào trong bảng `hoi_thoai`/);
+  assert.match(kq.md, /Không có dòng nào trong bảng `conversations`/);
 });
 
 test('G7 không có tin nào -> file vẫn hợp lệ và nói rõ 0 tin', () => {

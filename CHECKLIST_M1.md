@@ -179,8 +179,8 @@ ra JSON có `soTinDaLuu`.
 
 ```bash
 sqlite3 ~/.zalo-tro-ly/lichsu.db \
-  "SELECT msg_id, substr(noi_dung,1,40), datetime(ts_zalo/1000,'unixepoch','+7 hours') \
-   FROM tin_nhan ORDER BY ts_zalo DESC LIMIT 5;"
+  "SELECT msg_id, substr(content,1,40), datetime(ts_zalo/1000,'unixepoch','+7 hours') \
+   FROM messages ORDER BY ts_zalo DESC LIMIT 5;"
 ```
 
 ✅ Tin vừa nhắn phải có mặt.
@@ -191,13 +191,13 @@ sqlite3 ~/.zalo-tro-ly/lichsu.db \
 1. Nhắn một tin rồi **thu hồi** nó trên điện thoại.
 2. ```bash
    sqlite3 ~/.zalo-tro-ly/lichsu.db \
-     "SELECT da_thu_hoi, noi_dung FROM tin_nhan WHERE da_thu_hoi=1 ORDER BY ts_zalo DESC LIMIT 3;"
+     "SELECT recalled, content FROM messages WHERE recalled=1 ORDER BY ts_zalo DESC LIMIT 3;"
    sqlite3 ~/.zalo-tro-ly/lichsu.db \
-     "SELECT count(*) FROM su_kien_thu_hoi WHERE khop_duoc=0;"
+     "SELECT count(*) FROM recall_events WHERE matched=0;"
    ```
 
-✅ `da_thu_hoi = 1` **và nội dung cũ CÒN NGUYÊN** · câu thứ hai trả **`0`**.
-❌ `khop_duoc=0` khác 0 ⇒ **bẫy ghép ID** — báo người vận hành, đừng tự đoán.
+✅ `recalled = 1` **và nội dung cũ CÒN NGUYÊN** · câu thứ hai trả **`0`**.
+❌ `matched=0` khác 0 ⇒ **bẫy ghép ID** — báo người vận hành, đừng tự đoán.
 
 ### 4c. 🔴 CÂU HỎI CHƯA AI TRẢ LỜI ĐƯỢC — tự tag chính mình
 
@@ -206,15 +206,15 @@ Trợ lý chạy trên **tài khoản bot RIÊNG**, không phải tài khoản a
 có chuyện "tự tag chính mình"**. Anh tag trợ lý = tag một tài khoản khác, hoàn
 toàn bình thường, **không có câu hỏi bỏ ngỏ nào ở đây**.
 
-Vẫn giữ bước kiểm dưới đây vì nó xác nhận `co_tag_host` được đặt đúng:
+Vẫn giữ bước kiểm dưới đây vì nó xác nhận `has_host_tag` được đặt đúng:
 
 Thử: trong nhóm, gõ `@` rồi chọn **tên tài khoản BOT** → gửi.
 
 - ✅ **Chọn được** → đây là đường kích hoạt chính. Kiểm:
   ```bash
-  sqlite3 ~/.zalo-tro-ly/lichsu.db "SELECT co_tag_host, noi_dung FROM tin_nhan ORDER BY ts_zalo DESC LIMIT 1;"
+  sqlite3 ~/.zalo-tro-ly/lichsu.db "SELECT has_host_tag, content FROM messages ORDER BY ts_zalo DESC LIMIT 1;"
   ```
-  `co_tag_host` phải là `1`, và phải có dòng trong `hang_doi_hoi`.
+  `has_host_tag` phải là `1`, và phải có dòng trong `ask_queue`.
 - ❌ **Không chọn được chính mình** → **DỪNG, báo người vận hành ngay**. Cổng host phải đổi
   cơ chế (tiền tố lệnh, hoặc chỉ dùng DM). Đường DM đã mở sẵn phòng ca này —
   xem 4d.
@@ -229,9 +229,9 @@ Thử: trong nhóm, gõ `@` rồi chọn **tên tài khoản BOT** → gửi.
 4. Kiểm bằng số:
    ```bash
    sqlite3 ~/.zalo-tro-ly/lichsu.db \
-     "SELECT co_cheo, huong_tra_loi, nguon_chat_ids FROM nhat_ky_truy_van ORDER BY id DESC LIMIT 3;"
+     "SELECT has_cross, reply_route, source_chat_ids FROM query_log ORDER BY id DESC LIMIT 3;"
    ```
-   Câu hỏi chuyện nhóm khác phải ra `co_cheo=1`, `huong_tra_loi='dm_host'`.
+   Câu hỏi chuyện nhóm khác phải ra `has_cross=1`, `reply_route='dm_host'`.
 
 ❌ **Hỏng nghiêm trọng nhất:** chuyện nhóm B hiện **trong nhóm A**. Dừng ngay,
 báo người vận hành — đó là rò chéo nhóm.
@@ -243,7 +243,7 @@ báo người vận hành — đó là rò chéo nhóm.
 3. Nhắn một tin mới → phải vào được DB.
 
 ❌ Sau 5 lần nối lại đều hỏng → `health.json` ra `CAN_QR` + anh nhận DM báo.
-**Tiến trình vẫn phải còn sống** để hỏi `trang_thai()` được — chết hẳn là sai.
+**Tiến trình vẫn phải còn sống** để hỏi `status()` được — chết hẳn là sai.
 
 ---
 
@@ -260,7 +260,7 @@ Kiểm hằng ngày:
 
 ```bash
 cat ~/.zalo-tro-ly/health.json
-sqlite3 ~/.zalo-tro-ly/lichsu.db "SELECT count(*) FROM tin_nhan;"   # phải TĂNG
+sqlite3 ~/.zalo-tro-ly/lichsu.db "SELECT count(*) FROM messages;"   # phải TĂNG
 ```
 
 🔴 `health` ghi `OK` mà số tin **không tăng suốt cả ngày** ⇒ nghi chết câm, dù
@@ -277,5 +277,5 @@ mọi thứ trông bình thường.
 | 3 | Trần độ dài tin thật | Không có số chính thức; 4000 là con số của ta |
 | 4 | Ngưỡng spam thật | 1,2s/tin + 20 tin/phút là ước lượng, chưa ai đo |
 | 5 | `readyState` lúc chết câm thật | Chưa biết socket "chết câm" có giữ `OPEN` không — nếu có thì Tầng 1 mù, chỉ còn Tầng 2 |
-| 6 | Ghép thu hồi trên payload THẬT | `khop_duoc=0` là thước đo, chỉ đo được khi có tin thật |
+| 6 | Ghép thu hồi trên payload THẬT | `matched=0` là thước đo, chỉ đo được khi có tin thật |
 | 7 | `mentions` trong payload thật | G2 đọc `.d.ts`, chưa thấy payload chạy thật |

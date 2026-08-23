@@ -403,7 +403,7 @@ liệu thật — mà "test xanh" và "đã chạy thật" là hai chuyện khá
 | | |
 |---|---|
 | Trạng thái | **NGỦ.** Mặc định TẮT (`ZTL_QUET_DOI_CHIEU`), chưa từng bật trên hệ thật |
-| Bằng chứng | Bảng `doi_chieu_lich_su` có **0 dòng** trên DB thật (đo 21/08/2026) |
+| Bằng chứng | Bảng `history_audit` có **0 dòng** trên DB thật (đo 21/08/2026) |
 | Quy mô | `src/scan/doi_chieu.js` + `probe_a0.js` + `api_lichsu.js`, kèm **1.032 dòng test** |
 
 ⚠️ **1.032 dòng test đó chỉ chứng minh code chạy đúng với dữ liệu GIẢ.** Lần đầu bật thật
@@ -416,14 +416,14 @@ trước**, đừng bật thẳng vào kho thật.
 
 **`msg_type = 'UNKNOWN'` — 36 dòng (đo 21/08/2026).**
 Toàn bộ là sự kiện `chat.delete` của Zalo, được cất nguyên văn vào `content_raw`, còn
-`noi_dung` là `NULL`. Chúng **không phải tin nhắn hỏng** và cũng **không phải tin bị mất
+`content` là `NULL`. Chúng **không phải tin nhắn hỏng** và cũng **không phải tin bị mất
 nội dung** — chúng là *sự kiện* nằm chung bảng với *tin*. Đếm số tin trong nhóm mà không
 lọc `msg_type` thì con số sẽ cao hơn thực tế.
 
-**`hoi_thoai.duoc_nghe = 0` — 9 hội thoại, mỗi cái đúng 1 tin.**
+**`conversations.listened = 0` — 9 hội thoại, mỗi cái đúng 1 tin.**
 Đây là các nhóm/DM mà tài khoản bot có mặt nhưng **không nằm trong allowlist**. Pack vẫn
 ghi lại (đúng spec *"âm thầm lưu lịch sử các nhóm nó được add vào"*), nhưng tầng đọc
-(`store/query.js`) `JOIN ... duoc_nghe = 1` nên **không bao giờ trả chúng ra**.
+(`store/query.js`) `JOIN ... listened = 1` nên **không bao giờ trả chúng ra**.
 ⇒ Ghi được mà không đọc được là **CÓ CHỦ ĐÍCH** (fail-closed), không phải lỗi. Ai định
 "sửa" cho đọc được thì đang tháo một lớp chống rò, không phải vá một bug.
 

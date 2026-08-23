@@ -6,7 +6,7 @@
  *      07:10:57  bộ chạy giao việc cho model
  *      07:11:14  model gửi tin thứ NHẤT (17 giây — thừa sức trong hạn)
  *      07:12:27  🔴 tin thứ HAI: "Em nhắc lần 2…"   (= 07:10:57 + 90 giây)
- *    `cho_model_tu_ms` (cờ "đang chờ model") KHÔNG ai gỡ khi model trả lời qua
+ *    `model_wait_since_ms` (cờ "đang chờ model") KHÔNG ai gỡ khi model trả lời qua
  *    `reply`, nên đúng trần chờ sau, lưới an toàn tưởng model chết và bắn bù.
  *
  * 🔴 Và lỗi này do CHÍNH bản vá A5 đêm trước đẻ ra: trước A5 trần chờ là 10 phút
@@ -73,8 +73,8 @@ function nhacDaChot(db, ma = 'NHAC') {
     chuKyPhut: NHIP_PHUT,
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
-  const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
+  const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(d.id);
   return d;
 }
 
@@ -133,10 +133,10 @@ async function motNhip(db, api, bayGioMs, { coModel = true } = {}) {
 }
 
 function rid(db) {
-  return db.prepare('SELECT request_id FROM hang_doi_hoi ORDER BY rowid DESC LIMIT 1').get()?.request_id;
+  return db.prepare('SELECT request_id FROM ask_queue ORDER BY rowid DESC LIMIT 1').get()?.request_id;
 }
 function dong(db, id) {
-  return db.prepare('SELECT * FROM lich_hen WHERE id = ?').get(id);
+  return db.prepare('SELECT * FROM schedules WHERE id = ?').get(id);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -162,7 +162,7 @@ test('T6a ★★★ model trả lời TRONG HẠN -> ĐÚNG MỘT tin, lưới K
 
   assert.equal(tin.length, 1,
     `một lượt nhắc đi ${tin.length} tin — đúng sự cố 21/08/2026 anh nhìn thấy`);
-  assert.equal(dong(db, d.id).cho_model_tu_ms, null, 'token phải đã bị tiêu');
+  assert.equal(dong(db, d.id).model_wait_since_ms, null, 'token phải đã bị tiêu');
   closeDb(db);
 });
 
@@ -240,7 +240,7 @@ test('T6c-2 ★★★ CHỈ RIÊNG token cũng chặn được (tách khỏi l�
 
   // Gỡ lớp A7: coi như phiên vẫn còn sống (ca thật: model đang bay giữa chừng
   // lúc lưới bắn, hoặc lệnh đóng phiên hỏng).
-  db.prepare('UPDATE hang_doi_hoi SET trang_thai = ? WHERE request_id = ?')
+  db.prepare('UPDATE ask_queue SET status = ? WHERE request_id = ?')
     .run(TRANG_THAI_HANG_DOI.CHO, r0);
 
   const r = await goi(TEN_TOOL.TRA_LOI, { request_id: r0, text: 'Anh Trọng ơi' });
@@ -265,14 +265,14 @@ test('T6d ★★★ model gửi HỎNG -> token trả lại, lưới vẫn bắn
 
   const t0 = Date.now();
   await motNhip(db, api, t0);
-  const mocTruoc = dong(db, d.id).cho_model_tu_ms;
+  const mocTruoc = dong(db, d.id).model_wait_since_ms;
   assert.ok(mocTruoc, 'phải có token sau khi giao model');
 
   const r = await goiHong(TEN_TOOL.TRA_LOI, { request_id: rid(db), text: 'thử' });
   assert.equal(r.ok, false);
   assert.equal(tin.length, 0);
 
-  assert.equal(dong(db, d.id).cho_model_tu_ms, mocTruoc,
+  assert.equal(dong(db, d.id).model_wait_since_ms, mocTruoc,
     'gửi hỏng mà token bị tiêu -> lưới an toàn mất lượt này VĨNH VIỄN');
 
   const ra = await motNhip(db, api, t0 + TRAN_MS + 1000);
@@ -287,23 +287,23 @@ test('T6d-2 ★★ token trả về MỐC CŨ, không phải mốc hiện tại'
   const db = dbTam();
   const d = nhacDaChot(db);
   const moc = Date.now() - 60_000;
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(moc, d.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(moc, d.id);
 
   const { claimReminderSend, releaseReminderSend } = tvd;
   const giu = claimReminderSend(db, d.id);
   assert.equal(giu.ok, true);
   assert.equal(giu.mocCu, moc);
-  assert.equal(dong(db, d.id).cho_model_tu_ms, null);
+  assert.equal(dong(db, d.id).model_wait_since_ms, null);
 
   releaseReminderSend(db, d.id, giu.mocCu);
-  assert.equal(dong(db, d.id).cho_model_tu_ms, moc, 'phải là mốc CŨ');
+  assert.equal(dong(db, d.id).model_wait_since_ms, moc, 'phải là mốc CŨ');
   closeDb(db);
 });
 
 test('T6d-3 ★★★ hai bên cùng giành token -> ĐÚNG MỘT bên thắng', () => {
   const db = dbTam();
   const d = nhacDaChot(db);
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), d.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(Date.now(), d.id);
   const a = tvd.claimReminderSend(db, d.id);
   const b = tvd.claimReminderSend(db, d.id);
   assert.deepEqual([a.ok, b.ok], [true, false], 'cả hai cùng thắng = cả hai cùng gửi');
@@ -320,7 +320,7 @@ test('T6d-4 ★★★ ẢNH CHỤP LỖI THỜI: SELECT thấy token cũ mà UPD
   const db = dbTam();
   const d = nhacDaChot(db);
   const moc = Date.now();
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(moc, d.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(moc, d.id);
 
   const dbLoiThoi = {
     prepare(sql) {
@@ -330,7 +330,7 @@ test('T6d-4 ★★★ ẢNH CHỤP LỖI THỜI: SELECT thấy token cũ mà UPD
         get: (...a) => {
           // bên kia tiêu token NGAY sau khi mình đọc xong
           const r = st.get(...a);
-          db.prepare('UPDATE lich_hen SET cho_model_tu_ms = NULL WHERE id = ?').run(d.id);
+          db.prepare('UPDATE schedules SET model_wait_since_ms = NULL WHERE id = ?').run(d.id);
           return r;
         },
       };
@@ -349,15 +349,15 @@ test('T6d-5 ★★★ trả token KHÔNG được đè lên token của LƯỢT 
   const db = dbTam();
   const d = nhacDaChot(db);
   const cu = Date.now() - 200_000;
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(cu, d.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(cu, d.id);
   const giu = tvd.claimReminderSend(db, d.id);
   assert.equal(giu.ok, true);
 
   const moi = Date.now();
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(moi, d.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(moi, d.id);
 
   assert.equal(tvd.releaseReminderSend(db, d.id, giu.mocCu), false, 'phải từ chối trả');
-  assert.equal(Number(dong(db, d.id).cho_model_tu_ms), moi,
+  assert.equal(Number(dong(db, d.id).model_wait_since_ms), moi,
     'token của lượt MỚI bị đè bằng mốc cũ -> lưới bắn sớm -> nhắc đôi lần nữa');
   closeDb(db);
 });
@@ -366,7 +366,7 @@ test('T6d-5 ★★★ trả token KHÔNG được đè lên token của LƯỢT 
 // T6e — SỔ SÁCH: đếm lượt và BẰNG CHỨNG gửi
 // ═══════════════════════════════════════════════════════════════════════
 
-test('T6e ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG MODEL', async () => {
+test('T6e ★★★ remind_count == số tin thật, ĐƯỜNG MODEL', async () => {
   const db = dbTam();
   const d = nhacDaChot(db);
   const { tin, api } = banGui();
@@ -379,13 +379,13 @@ test('T6e ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG MODEL', async (
 
   const sau = dong(db, d.id);
   assert.equal(tin.length, 1);
-  assert.equal(Number(sau.so_lan_da_nhac), 1, `đếm ${sau.so_lan_da_nhac} mà gửi ${tin.length} tin -> trần là con số dối`);
-  assert.ok(sau.msg_id_da_gui,
+  assert.equal(Number(sau.remind_count), 1, `đếm ${sau.remind_count} mà gửi ${tin.length} tin -> trần là con số dối`);
+  assert.ok(sau.sent_msg_id,
     'đường model KHÔNG ghi bằng chứng gửi -> câu báo hết lượt kêu oan "không có bằng chứng tin nào đã gửi"');
   closeDb(db);
 });
 
-test('T6e-2 ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG DỰ PHÒNG', async () => {
+test('T6e-2 ★★★ remind_count == số tin thật, ĐƯỜNG DỰ PHÒNG', async () => {
   const db = dbTam();
   const d = nhacDaChot(db);
   const { tin, api } = banGui();
@@ -393,8 +393,8 @@ test('T6e-2 ★★★ so_lan_da_nhac == số tin thật, ĐƯỜNG DỰ PHÒNG',
   await motNhip(db, api, t0, { coModel: false });   // không có Claude -> gửi thẳng
   assert.equal(tin.length, 1);
   const sau = dong(db, d.id);
-  assert.equal(Number(sau.so_lan_da_nhac), 1);
-  assert.ok(sau.msg_id_da_gui);
+  assert.equal(Number(sau.remind_count), 1);
+  assert.ok(sau.sent_msg_id);
   closeDb(db);
 });
 
@@ -411,7 +411,7 @@ test('T6e-3 ★★★ gửi HỎNG cả hai đường -> KHÔNG có bằng chứ
     sendHostDm: async () => ({ msgId: 'x' }),
     groupMembers: () => [{ uid: TRONG, ten: 'Trọng Nguyễn' }],
   });
-  assert.equal(dong(db, d.id).msg_id_da_gui, null,
+  assert.equal(dong(db, d.id).sent_msg_id, null,
     'ghi bằng chứng khi gửi hỏng = sổ sách nói dối, host tưởng người ta đã được nhắc');
   closeDb(db);
 });
@@ -430,7 +430,7 @@ test('T6f ★★★ token có mặt NGAY khi hàng đợi vừa sinh ra', async 
   await runFollowUpTick({
     db, api: {}, bayGioMs: Date.now(),
     enqueueQuestion: (dbIn, x) => {
-      mocLucTaoHangDoi = dong(dbIn, d.id).cho_model_tu_ms;
+      mocLucTaoHangDoi = dong(dbIn, d.id).model_wait_since_ms;
       return enqueueQuestion(dbIn, x);
     },
     sendToGroup: async () => ({ msgId: 'x' }),
@@ -464,12 +464,12 @@ test('T6h ★★★ lưới gửi bù xong -> phiên model phải ĐÓNG, không
   assert.equal(ra.duPhong, 1);
   assert.equal(tin.length, 1, 'lời nhắc PHẢI đã tới nơi bằng câu dự phòng');
 
-  const q = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(r0);
-  assert.equal(q.trang_thai, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
+  const q = db.prepare('SELECT status FROM ask_queue WHERE request_id = ?').get(r0);
+  assert.equal(q.status, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
     'phiên model bị bỏ rơi -> 30 phút sau host nhận báo động GIẢ về một tin đã gửi thành công');
 
   // Và kiểm THẲNG hậu quả: quét quá hạn KHÔNG được nhặt nó ra để báo.
-  db.prepare('UPDATE hang_doi_hoi SET ts_tao = ?')
+  db.prepare('UPDATE ask_queue SET ts_created = ?')
     .run(new Date(Date.now() - 1_860_000).toISOString());
   const hetHan = [];
   takePendingQueue(db, 1_800_000, { gomDaDay: true, khiHetHan: (r) => hetHan.push(r.request_id) });
@@ -488,17 +488,17 @@ test('T6h-3 ★★★ đóng phiên phải ĐÚNG lời nhắc đó, KHÔNG gi�
 
   const t0 = Date.now();
   await motNhip(db, api, t0);                    // cả A và B đều giao model
-  const phien = db.prepare('SELECT request_id, msg_id FROM hang_doi_hoi').all();
+  const phien = db.prepare('SELECT request_id, msg_id FROM ask_queue').all();
   assert.equal(phien.length, 2);
   const cuaB = phien.find((r) => r.msg_id.startsWith(`nhac:${B.id}:`)).request_id;
 
   // Chỉ A quá trần (B vẫn còn token mới) -> chỉ phiên của A được đóng.
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(t0, B.id);
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(t0 - TRAN_MS * 2, A.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(t0, B.id);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(t0 - TRAN_MS * 2, A.id);
   await motNhip(db, api, t0 + 100);
 
-  const ttB = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(cuaB);
-  assert.equal(ttB.trang_thai, TRANG_THAI_HANG_DOI.CHO,
+  const ttB = db.prepare('SELECT status FROM ask_queue WHERE request_id = ?').get(cuaB);
+  assert.equal(ttB.status, TRANG_THAI_HANG_DOI.CHO,
     'phiên model của lời nhắc B bị giết oan -> B mất giọng model trong im lặng');
   closeDb(db);
 });
@@ -518,8 +518,8 @@ test('T6h-2 ★★ lưới gửi HỎNG -> KHÔNG đóng phiên (còn cơ hội 
   await runFollowUpTick({ ...p, bayGioMs: t0 });
   const r0 = rid(db);
   await runFollowUpTick({ ...p, bayGioMs: t0 + TRAN_MS + 1000 });
-  const q = db.prepare('SELECT trang_thai FROM hang_doi_hoi WHERE request_id = ?').get(r0);
-  assert.equal(q.trang_thai, TRANG_THAI_HANG_DOI.CHO,
+  const q = db.prepare('SELECT status FROM ask_queue WHERE request_id = ?').get(r0);
+  assert.equal(q.status, TRANG_THAI_HANG_DOI.CHO,
     'đóng phiên khi gửi hỏng = vứt nốt cơ hội cuối, lượt nhắc mất hẳn');
   closeDb(db);
 });

@@ -9,15 +9,15 @@
  *
  * 🔴 LUẬT VIẾT BÀI CHO CỤM NÀY — đọc trước khi sửa bất cứ dòng nào:
  *    Hai bộ chạy KHÔNG tranh nhau bằng một cơ chế CAS chung. `claimSending` khoá
- *    trên cột `status`; `claimReminderTurn` khoá trên `gui_luc_ms`. Hai `UPDATE`
+ *    trên cột `status`; `claimReminderTurn` khoá trên `send_at_ms`. Hai `UPDATE`
  *    ấy KHÔNG loại trừ nhau — loại trừ chỉ xảy ra ở tầng `SELECT`.
  *    ⛔ VÌ VẬY CẤM viết bài kiểu *"gọi bộ theo-đuổi TRƯỚC rồi khẳng định nó thắng"*.
- *    Bài đó XANH cả trên code hỏng (vì `claimReminderTurn` đẩy `gui_luc_ms` sang
+ *    Bài đó XANH cả trên code hỏng (vì `claimReminderTurn` đẩy `send_at_ms` sang
  *    tương lai nên `dueSchedules` không còn thấy dòng), tức là XANH GIẢ — và nó
  *    dẫn người sửa tới bản vá giòn "đảo thứ tự trong index.js", hỏng lại ngay khi
  *    ai đó thêm một `await`.
  *    ⇒ Bài đúng phải gọi `runOneTick` TRƯỚC (đúng thứ tự `index.js` thật) và
- *      khẳng định nó KHÔNG ĐỤNG dòng `la_theo_duoi = 1`.
+ *      khẳng định nó KHÔNG ĐỤNG dòng `is_follow_up = 1`.
  * ═══════════════════════════════════════════════════════════════════════
  */
 import assert from 'node:assert/strict';
@@ -65,10 +65,10 @@ function nhacDaChot(db, v = {}) {
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
   if (v.guiLucMs !== undefined) {
-    db.prepare('UPDATE lich_hen SET gui_luc_ms = $g WHERE ma_xac_nhan = $m')
+    db.prepare('UPDATE schedules SET send_at_ms = $g WHERE confirm_code = $m')
       .run({ g: v.guiLucMs, m: ma });
   }
-  return db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+  return db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 }
 
 /** Một lịch MỘT LẦN đã chốt. */
@@ -81,20 +81,20 @@ function lichDaChot(db, guiLucMs, ma = 'MOT1') {
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
 }
 
-const doc = (db, ma) => db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
+const doc = (db, ma) => db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
 
 // ═══════════════════════════════════════════════════════════════════════
 // T1a — A1: bộ chạy MỘT LẦN không được đụng dòng THEO ĐUỔI
 // ═══════════════════════════════════════════════════════════════════════
 
-test('T1a ★★★ runOneTick chạy TRƯỚC vẫn KHÔNG đụng dòng la_theo_duoi=1', async () => {
+test('T1a ★★★ runOneTick chạy TRƯỚC vẫn KHÔNG đụng dòng is_follow_up=1', async () => {
   const db = dbTam();
   const bayGio = Date.now();
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: bayGio - 1000 });
 
   // Dòng theo đuổi đã chốt ⇒ đang ở 'da_len_lich', ĐÚNG trạng thái mà
   // `dueSchedules` cũ vơ vào. Đây là tiền đề của bài; hỏng tiền đề thì bài vô nghĩa.
-  assert.equal(doc(db, 'NHAC').trang_thai, TRANG_THAI_LICH.DA_LEN_LICH);
+  assert.equal(doc(db, 'NHAC').status, TRANG_THAI_LICH.DA_LEN_LICH);
   assert.equal(dueFollowUps(db, bayGio).length, 1, 'bộ theo-đuổi PHẢI thấy nó');
 
   // ★ Lọc ở tầng SELECT: bộ một-lần không được thấy dòng này.
@@ -112,10 +112,10 @@ test('T1a ★★★ runOneTick chạy TRƯỚC vẫn KHÔNG đụng dòng la_the
   assert.equal(daGui.length, 0);
 
   const sau = doc(db, 'NHAC');
-  assert.equal(sau.trang_thai, TRANG_THAI_LICH.DA_LEN_LICH, 'trang_thai bị lật -> dòng chết vĩnh viễn');
-  assert.equal(Number(sau.so_lan_thu), 0, 'so_lan_thu tăng = claimSending đã chạm vào');
-  assert.equal(sau.msg_id_da_gui, null);
-  assert.equal(Number(sau.so_lan_da_nhac), 0);
+  assert.equal(sau.status, TRANG_THAI_LICH.DA_LEN_LICH, 'status bị lật -> dòng chết vĩnh viễn');
+  assert.equal(Number(sau.attempt_count), 0, 'attempt_count tăng = claimSending đã chạm vào');
+  assert.equal(sau.sent_msg_id, null);
+  assert.equal(Number(sau.remind_count), 0);
 
   // Và nó phải CÒN SỐNG với bộ theo-đuổi — đây là điều đã hỏng thật hôm 20/08.
   assert.equal(dueFollowUps(db, bayGio).length, 1, 'dòng rơi khỏi CẢ HAI truy vấn');
@@ -125,7 +125,7 @@ test('T1a ★★★ runOneTick chạy TRƯỚC vẫn KHÔNG đụng dòng la_the
 test('T1a-2 ★★ claimSending TỰ NÓ từ chối dòng theo đuổi (lớp trong, chống ảnh tĩnh cũ)', () => {
   // 🔴 Bài RIÊNG vì lớp này KHÔNG chạm tới được qua đường công khai một khi
   // `dueSchedules` đã lọc đúng — đó chính là định nghĩa của phòng thủ nhiều lớp.
-  // Phép thử đột biến xác nhận: gỡ `AND la_theo_duoi = 0` khỏi `claimSending` thì
+  // Phép thử đột biến xác nhận: gỡ `AND is_follow_up = 0` khỏi `claimSending` thì
   // MỌI bài khác vẫn xanh, chỉ bài này đỏ. Không có nó thì lớp trong là code chết
   // không ai canh, và cửa sổ ảnh-tĩnh-cũ lặng lẽ mở lại khi ai đó sửa `dueSchedules`.
   const db = dbTam();
@@ -134,10 +134,10 @@ test('T1a-2 ★★ claimSending TỰ NÓ từ chối dòng theo đuổi (lớp t
   const dong = doc(db, 'NHAC');
 
   assert.equal(claimSending(db, dong.id), false,
-    'claimSending nhận dòng la_theo_duoi=1 -> ảnh tĩnh cũ đủ để gửi tin thứ hai');
+    'claimSending nhận dòng is_follow_up=1 -> ảnh tĩnh cũ đủ để gửi tin thứ hai');
   const sau = doc(db, 'NHAC');
-  assert.equal(sau.trang_thai, TRANG_THAI_LICH.DA_LEN_LICH);
-  assert.equal(Number(sau.so_lan_thu), 0, 'từ chối rồi mà vẫn tăng so_lan_thu');
+  assert.equal(sau.status, TRANG_THAI_LICH.DA_LEN_LICH);
+  assert.equal(Number(sau.attempt_count), 0, 'từ chối rồi mà vẫn tăng attempt_count');
 
   // Đối chứng: cùng hàm đó PHẢI nhận một lịch một lần, nếu không bài trên xanh vô nghĩa.
   lichDaChot(db, bayGio - 1000, 'MOT1');
@@ -192,7 +192,7 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
   nhacDaChot(db, { chuKyPhut: 3, tranSoLan: null, guiLucMs: t0 - 1000 });
 
   // Trần chờ phải NHỎ HƠN nhịp — bất biến của `modelWaitCapMs`.
-  const tran = modelWaitCapMs(parseCadence({ chu_ky_phut: 3 }));
+  const tran = modelWaitCapMs(parseCadence({ cycle_minutes: 3 }));
   assert.ok(tran < 3 * 60_000, `trần chờ ${tran}ms >= nhịp 180000ms thì lưới không bao giờ bắn`);
 
   const daGui = [];
@@ -214,7 +214,7 @@ test('T1c ★★★ nhịp 3 phút, model IM MÃI -> lưới dự phòng VẪN b
     'model im mà code KHÔNG gửi bù lần nào -> lời nhắc biến mất âm thầm, đúng thứ tính năng sinh ra để chống');
 
   // Trần bị đốt bởi lượt CHƯA GỬI GÌ: cho phép lệch tối đa 1 (đúng một lượt đang chờ model).
-  const daNhac = Number(doc(db, 'NHAC').so_lan_da_nhac);
+  const daNhac = Number(doc(db, 'NHAC').remind_count);
   assert.ok(daNhac - daGui.length <= 1,
     `đã tính ${daNhac} lượt nhưng chỉ gửi ${daGui.length} tin — trần bị đốt bởi lượt chưa gửi`);
   closeDb(db);
@@ -229,11 +229,11 @@ test('T1d ★★★ host ĐÓNG rồi -> quét treo KHÔNG gửi tin nào nữa'
   const t0 = Date.parse('2026-08-21T02:00:00Z');
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: t0 + 10 * 60_000 });   // chưa tới hạn nhắc
   // Giả lập: đã giao model từ lâu, model im.
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE ma_xac_nhan = ?')
+  db.prepare('UPDATE schedules SET model_wait_since_ms = $t WHERE confirm_code = ?')
     .run({ t: t0 - 10 * 60_000 }, 'NHAC');
 
   closeFollowUp(db, { id: 'NHAC', nguoiDong: HOST, isHost: true, bayGioMs: t0 });
-  assert.equal(doc(db, 'NHAC').cho_model_tu_ms, null, 'closeFollowUp phải xoá mốc chờ model');
+  assert.equal(doc(db, 'NHAC').model_wait_since_ms, null, 'closeFollowUp phải xoá mốc chờ model');
 
   const daGui = [];
   await runFollowUpTick({
@@ -250,11 +250,11 @@ test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả kh�
   const db = dbTam();
   const t0 = Date.parse('2026-08-21T02:00:00Z');
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: t0 + 10 * 60_000 });
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = $t WHERE ma_xac_nhan = ?')
+  db.prepare('UPDATE schedules SET model_wait_since_ms = $t WHERE confirm_code = ?')
     .run({ t: t0 - 10 * 60_000 }, 'NHAC');
 
   adjustCadence(db, { id: 'NHAC', isHost: true, tamDungToiMs: t0 + 86_400_000, bayGioMs: t0 });
-  assert.equal(doc(db, 'NHAC').trang_thai_td, TRANG_THAI_TD.TAM_DUNG);
+  assert.equal(doc(db, 'NHAC').follow_up_status, TRANG_THAI_TD.TAM_DUNG);
 
   const daGui = [];
   await runFollowUpTick({
@@ -269,7 +269,7 @@ test('T1d-2 ★★★ host TẠM DỪNG -> quét treo KHÔNG gửi (van xả kh�
 
 test('T1d-3 ★★ stalledModelReminders TỰ NÓ lọc trạng thái (lớp ngoài)', () => {
   // 🔴 Bài RIÊNG vì phép thử đột biến cho thấy T1d/T1d-2 KHÔNG chạm tới lớp này:
-  // chúng xanh nhờ `closeFollowUp`/`adjustCadence` đã xoá `cho_model_tu_ms`, nên bộ quét
+  // chúng xanh nhờ `closeFollowUp`/`adjustCadence` đã xoá `model_wait_since_ms`, nên bộ quét
   // không còn gì để thấy. Muốn canh chính bộ lọc thì phải dựng thẳng cái trạng
   // thái mà hai hàm kia sẽ không bao giờ để lại — đó là việc của bài này.
   const db = dbTam();
@@ -277,18 +277,18 @@ test('T1d-3 ★★ stalledModelReminders TỰ NÓ lọc trạng thái (lớp ngo
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: t0 + 10 * 60_000 });
   const cu = t0 - 10 * 60_000;
 
-  const dat = (sql, tham = {}) => db.prepare(`UPDATE lich_hen SET ${sql} WHERE ma_xac_nhan = 'NHAC'`).run(tham);
+  const dat = (sql, tham = {}) => db.prepare(`UPDATE schedules SET ${sql} WHERE confirm_code = 'NHAC'`).run(tham);
 
-  dat('cho_model_tu_ms = $t', { t: cu });
+  dat('model_wait_since_ms = $t', { t: cu });
   assert.equal(stalledModelReminders(db, t0).length, 1, 'tiền đề: đang treo thì PHẢI thấy');
 
-  dat("trang_thai_td = 'da_xong', ly_do_dong = 'HOST_DONG'");
+  dat("follow_up_status = 'da_xong', close_reason = 'HOST_DONG'");
   assert.equal(stalledModelReminders(db, t0).length, 0, 'host bảo XONG mà vẫn lấy ra để nhắc');
 
-  dat("trang_thai_td = 'dang_theo_duoi', ly_do_dong = NULL, tam_dung_toi_ms = $t", { t: t0 + 86_400_000 });
+  dat("follow_up_status = 'dang_theo_duoi', close_reason = NULL, paused_until_ms = $t", { t: t0 + 86_400_000 });
   assert.equal(stalledModelReminders(db, t0).length, 0, 'đang TẠM DỪNG mà vẫn lấy ra — van xả bị đi vòng');
 
-  dat("tam_dung_toi_ms = NULL, trang_thai = 'da_huy'");
+  dat("paused_until_ms = NULL, status = 'da_huy'");
   assert.equal(stalledModelReminders(db, t0).length, 0, 'dòng đã chốt sổ mà vẫn lấy ra');
   closeDb(db);
 });
@@ -301,21 +301,21 @@ test('T1d-4 ★★ isStillFollowingUp: chặn host-đóng/tạm-dừng nhưng CH
   const t0 = Date.parse('2026-08-21T02:00:00Z');
   nhacDaChot(db, { chuKyPhut: 3, guiLucMs: t0 });
   const id = doc(db, 'NHAC').id;
-  const dat = (sql, tham = {}) => db.prepare(`UPDATE lich_hen SET ${sql} WHERE id = '${id}'`).run(tham);
+  const dat = (sql, tham = {}) => db.prepare(`UPDATE schedules SET ${sql} WHERE id = '${id}'`).run(tham);
 
   assert.equal(isStillFollowingUp(db, id, t0), true, 'đang chạy bình thường');
 
-  dat("trang_thai_td = 'da_xong', trang_thai = 'da_gui', ly_do_dong = 'HET_LUOT'");
+  dat("follow_up_status = 'da_xong', status = 'da_gui', close_reason = 'HET_LUOT'");
   assert.equal(isStillFollowingUp(db, id, t0), true,
     'chặn lượt HET_LUOT = trần 10 hoá thành nhắc 9 lần');
 
-  dat("ly_do_dong = 'HOST_DONG'");
+  dat("close_reason = 'HOST_DONG'");
   assert.equal(isStillFollowingUp(db, id, t0), false, 'host bảo xong rồi mà vẫn nhắc');
 
-  dat("trang_thai_td = 'tam_dung', trang_thai = 'da_len_lich', ly_do_dong = NULL");
+  dat("follow_up_status = 'tam_dung', status = 'da_len_lich', close_reason = NULL");
   assert.equal(isStillFollowingUp(db, id, t0), false, 'đang tạm dừng mà vẫn nhắc');
 
-  dat("trang_thai_td = 'dang_theo_duoi', tam_dung_toi_ms = $t", { t: t0 + 3600_000 });
+  dat("follow_up_status = 'dang_theo_duoi', paused_until_ms = $t", { t: t0 + 3600_000 });
   assert.equal(isStillFollowingUp(db, id, t0), false, 'còn trong hạn tạm dừng mà vẫn nhắc');
 
   assert.equal(isStillFollowingUp(db, 'khong-co-that', t0), false, 'dòng không tồn tại phải là false');
@@ -333,9 +333,9 @@ test('T1e ★★★ adjustCadence({chuKyPhut:5}) -> mốc kế tiếp cách ĐÚ
 
   const kq = adjustCadence(db, { id: 'NHAC', isHost: true, chuKyPhut: 5, bayGioMs: t0 });
   assert.equal(kq.ok, true);
-  assert.equal(Number(kq.dong.chu_ky_phut), 5, 'cột DB phải đổi');
+  assert.equal(Number(kq.dong.cycle_minutes), 5, 'cột DB phải đổi');
 
-  const lech = Number(doc(db, 'NHAC').gui_luc_ms) - t0;
+  const lech = Number(doc(db, 'NHAC').send_at_ms) - t0;
   assert.equal(lech, 5 * 60_000,
     `mốc kế tiếp lệch ${Math.round(lech / 60000)} phút — host siết nhịp mà nó tự giãn sang hôm sau`);
   closeDb(db);
@@ -406,7 +406,7 @@ test('T1g ★★★ lượt CHẠM TRẦN vẫn phải GỬI (trần 3 = nhắc 
 
   assert.equal(daGui.length, 3, 'trần 3 phải nhắc ĐỦ 3 lần — lượt cuối bị nuốt');
   const sau = doc(db, 'NHAC');
-  assert.equal(sau.trang_thai_td, TRANG_THAI_TD.DA_XONG);
-  assert.equal(sau.ly_do_dong, 'HET_LUOT');
+  assert.equal(sau.follow_up_status, TRANG_THAI_TD.DA_XONG);
+  assert.equal(sau.close_reason, 'HET_LUOT');
   closeDb(db);
 });

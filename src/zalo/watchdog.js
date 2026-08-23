@@ -236,7 +236,7 @@ export function createWatchdog(phuThuoc) {
   /**
    * Vòng nối lại: backoff 5s/15s/60s/300s/300s, tối đa 5 lần.
    * Hết cách ⇒ CAN_QR + báo host, nhưng **GIỮ TIẾN TRÌNH SỐNG** để tool
-   * `trang_thai()` còn trả lời được — chết hẳn thì anh không hỏi được gì.
+   * `status()` còn trả lời được — chết hẳn thì anh không hỏi được gì.
    */
   async function noiLai(lyDoChet) {
     if (dangNoiLai || daDung) return;

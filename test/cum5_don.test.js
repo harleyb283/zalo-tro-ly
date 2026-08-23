@@ -57,14 +57,14 @@ function nhacDaChot(db, v = {}) {
     nguoiDat: HOST, chatIdDat: NHOM, nguoiPhuTrach: TRONG, ma, ...v,
   });
   confirmSchedule(db, { id: ma, ma, nguoiDat: HOST });
-  const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get(ma);
-  db.prepare('UPDATE lich_hen SET gui_luc_ms = 1 WHERE id = ?').run(d.id);
+  const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
+  db.prepare('UPDATE schedules SET send_at_ms = 1 WHERE id = ?').run(d.id);
   return d;
 }
 
 /** `queryHistory` giả — mô phỏng ĐÚNG ca "ai đó nới bối cảnh sang nhóm khác". */
 const truyVanChamNhomKhac = () => ({
-  rows: [{ chat_id: NHOM_KHAC, user_id: TRONG, noi_dung: 'chuyện của nhóm B', ts_zalo: 1 }],
+  rows: [{ chat_id: NHOM_KHAC, user_id: TRONG, content: 'chuyện của nhóm B', ts_zalo: 1 }],
   nguonChatIds: [NHOM_KHAC],
 });
 
@@ -111,7 +111,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
     recordSources: (rid, nguon) => recordSources(bo, rid, nguon),
   });
 
-  const rid = db.prepare('SELECT request_id FROM hang_doi_hoi LIMIT 1').get().request_id;
+  const rid = db.prepare('SELECT request_id FROM ask_queue LIMIT 1').get().request_id;
   const qd = decideReplyRoute({
     requestId: rid, chatIdHoi: NHOM, nguon: getSources(bo, rid), tonTaiHangDoi: true,
   });
@@ -124,7 +124,7 @@ test('B5-b ★★★ lá chắn BẬT THẬT: nguồn khai được làm leak_gu
 test('B5-c ★★★ FAIL-CLOSED: chạm nhóm khác mà chưa nối recordSources -> KHÔNG giao model', async () => {
   // ⛔ Không có nhánh "không chắc thì cứ gửi". Chưa có đường khai nguồn thì tuyệt đối
   // không đẩy dữ liệu nhóm khác vào context model — rơi xuống câu dự phòng do code
-  // dựng, câu đó chỉ dùng `noi_dung` của chính dòng nhắc.
+  // dựng, câu đó chỉ dùng `content` của chính dòng nhắc.
   const db = dbTam();
   nhacDaChot(db);
 
@@ -217,7 +217,7 @@ test('A14-a ★★★ trần số lịch đang chờ áp cho CẢ lời nhắc t
   assert.equal(kq.ok, false, 'không có trần -> model lỡ vòng lặp là đẻ hàng loạt lời nhắc LẶP LẠI');
   assert.match(kq.thongDiep, /trần 50/);
   assert.equal(
-    db.prepare("SELECT count(*) c FROM lich_hen WHERE la_theo_duoi = 1").get().c, 0,
+    db.prepare("SELECT count(*) c FROM schedules WHERE is_follow_up = 1").get().c, 0,
     'phải chặn TRƯỚC khi ghi DB',
   );
   closeDb(db);

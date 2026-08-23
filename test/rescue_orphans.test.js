@@ -64,7 +64,7 @@ function ghiDong(db, { rid, chatId = '111', tsTao, trangThai = 'cho', noiDung = 
 test('A1 dòng `cho` LUÔN được đẩy và ⛔ không bị đếm', () => {
   const so = createRescueLedger({ log: () => {} });
   for (let i = 0; i < 10; i += 1) {
-    assert.equal(so.choPhep({ request_id: 'r1', trang_thai: 'cho' }), true);
+    assert.equal(so.choPhep({ request_id: 'r1', status: 'cho' }), true);
   }
   assert.equal(so.soDong(), 0, 'đường đi chính ⛔ không được dính trần');
 });
@@ -72,7 +72,7 @@ test('A1 dòng `cho` LUÔN được đẩy và ⛔ không bị đếm', () => {
 test('A2 ★ vớt tối đa MAX_RESCUE_ATTEMPTS lần rồi TỪ CHỐI + báo host ĐÚNG một lần', () => {
   const bao = [];
   const so = createRescueLedger({ log: () => {}, notifyHost: (s) => bao.push(s) });
-  const r = { request_id: 'r2', trang_thai: 'da_day', ts_tao: '2026-08-21T13:42:17.482Z', noi_dung: 'Xong thì báo a nhé' };
+  const r = { request_id: 'r2', status: 'da_day', ts_created: '2026-08-21T13:42:17.482Z', content: 'Xong thì báo a nhé' };
 
   for (let i = 0; i < MAX_RESCUE_ATTEMPTS; i += 1) assert.equal(so.choPhep(r), true, `lần ${i + 1} phải cho vớt`);
   assert.equal(so.choPhep(r), false, 'quá trần thì TỪ CHỐI');
@@ -86,7 +86,7 @@ test('A2 ★ vớt tối đa MAX_RESCUE_ATTEMPTS lần rồi TỪ CHỐI + báo 
 
 test('A3 `quen()` xoá khỏi sổ để nó ⛔ không phình vô hạn', () => {
   const so = createRescueLedger({ log: () => {} });
-  so.choPhep({ request_id: 'r3', trang_thai: 'da_day' });
+  so.choPhep({ request_id: 'r3', status: 'da_day' });
   assert.equal(so.soDong(), 1);
   so.quen('r3');
   assert.equal(so.soDong(), 0);
@@ -161,8 +161,8 @@ test('B3 ★ `choPhepDay` phải chặn TRƯỚC khi CAS nhận việc', async (
     queueTtlMs: 0,
     guiThongBao: async (t) => { daDay.push(t.requestId); return true; },
     takePendingQueue: () => ([
-      { request_id: 'chan', chat_id_hoi: '1', trang_thai: 'da_day', ts_tao: new Date().toISOString(), noi_dung: 'x' },
-      { request_id: 'qua', chat_id_hoi: '1', trang_thai: 'cho', ts_tao: new Date().toISOString(), noi_dung: 'y' },
+      { request_id: 'chan', asking_chat_id: '1', status: 'da_day', ts_created: new Date().toISOString(), content: 'x' },
+      { request_id: 'qua', asking_chat_id: '1', status: 'cho', ts_created: new Date().toISOString(), content: 'y' },
     ]),
     updateQueueState: () => true,
     claimQuestion: (_db, rid) => { casGoi.push(rid); return true; },

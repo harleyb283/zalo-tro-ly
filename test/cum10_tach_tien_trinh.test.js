@@ -209,7 +209,7 @@ test('★★★ C1 NGHIỆM THU③: HAI client cùng lúc -> CẢ HAI đều s�
 test('★★★ C2 NGHIỆM THU⑤: client mở DB CŨ HƠN -> thoát mã ≠0 kèm thông điệp', () => {
   const pDb = path.join(thuMucTam(), 'kho', 'cu.db');
   const db = openDb(pDb);
-  db.prepare("UPDATE meta SET gia_tri = '6' WHERE khoa = 'schema_version'").run();
+  db.prepare("UPDATE meta SET value = '6' WHERE name = 'schema_version'").run();
   closeDb(db);
   const r = chayTienTrinh(['--config', fileCauHinh(pDb), '--kiem-khoi-dong'],
     { ZTL_CHE_DO: CHE_DO.TACH, ZTL_VAI: VAI.CLIENT, ZTL_CHAT_ID: NHOM });
@@ -256,8 +256,8 @@ test('★★★ X1 NGHIỆM THU①: tra_loi XẾP HÀNG, ⛔ không chạm mạn
       const ds = takePendingOutbound(db);
       assert.equal(ds.length, 1, 'không xếp hàng thì tin BIẾN MẤT — không ai gửi cả');
       assert.equal(ds[0].text, 'Dạ em trả lời anh');
-      assert.equal(ds[0].chat_id_dich, NHOM);
-      assert.equal(ds[0].trang_thai, TRANG_THAI_GUI.CHO);
+      assert.equal(ds[0].target_chat_id, NHOM);
+      assert.equal(ds[0].status, TRANG_THAI_GUI.CHO);
       closeDb(db);
     });
 });
@@ -347,9 +347,9 @@ test('★★★ X4 luật chống rò chéo GIỮ NGUYÊN ở chế độ tách 
   assert.equal(r.duLieu.coCheo, true);
   const ds = takePendingOutbound(db);
   assert.equal(ds.length, 2, 'phải xếp hàng CẢ đáp án (DM host) lẫn câu trung tính (nhóm)');
-  assert.deepEqual(ds.map((x) => x.chat_id_dich).sort(), ['9993000000000000003', NHOM].sort());
-  const dm = ds.find((x) => x.chat_id_dich === '9993000000000000003');
-  const nhom = ds.find((x) => x.chat_id_dich === NHOM);
+  assert.deepEqual(ds.map((x) => x.target_chat_id).sort(), ['9993000000000000003', NHOM].sort());
+  const dm = ds.find((x) => x.target_chat_id === '9993000000000000003');
+  const nhom = ds.find((x) => x.target_chat_id === NHOM);
   assert.match(dm.text, /dữ liệu nhóm khác/, 'đáp án thật phải vào DM host');
   assert.doesNotMatch(nhom.text, /dữ liệu nhóm khác/, 'một chữ của đáp án lọt vào nhóm là RÒ');
   closeDb(db);
@@ -369,8 +369,8 @@ test('★★★ K1 NGHIỆM THU②: KILL daemon GIỮA CHỪNG -> tin CÒN, lên
 
   // ── daemon lần 1: nhận việc rồi "chết" (không gửi, không ghi kết quả) ──
   assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
-  const sauChet = db.prepare('SELECT * FROM hang_doi_gui WHERE id = ?').get(id);
-  assert.equal(sauChet.trang_thai, TRANG_THAI_GUI.DANG_GUI, 'tin phải CÒN trong outbox');
+  const sauChet = db.prepare('SELECT * FROM send_queue WHERE id = ?').get(id);
+  assert.equal(sauChet.status, TRANG_THAI_GUI.DANG_GUI, 'tin phải CÒN trong outbox');
   assert.equal(sauChet.text, 'tin quan trọng', 'nội dung phải nguyên vẹn');
   assert.equal(sauChet.msg_id, null, 'chưa gửi thì ⛔ không được có msgId');
 
@@ -403,10 +403,10 @@ test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `dr
   assert.deepEqual(r2, { daGui: 0, loi: 0 });
   assert.equal(daGui.length, 1, '🔴 gửi đôi — tin Zalo KHÔNG thu hồi được');
 
-  const d = db.prepare('SELECT * FROM hang_doi_gui').get();
-  assert.equal(d.trang_thai, TRANG_THAI_GUI.DA_GUI);
+  const d = db.prepare('SELECT * FROM send_queue').get();
+  assert.equal(d.status, TRANG_THAI_GUI.DA_GUI);
   assert.equal(d.msg_id, '9996000000001');
-  assert.equal(d.so_lan_thu, 1);
+  assert.equal(d.attempt_count, 1);
   closeDb(db);
 });
 
@@ -440,9 +440,9 @@ test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử l�
 
   const r1 = await drainOutbox({ db, log: () => {}, kho, gui });
   assert.deepEqual(r1, { daGui: 0, loi: 1 });
-  const d = db.prepare('SELECT * FROM hang_doi_gui').get();
-  assert.equal(d.trang_thai, TRANG_THAI_GUI.LOI);
-  assert.match(d.ly_do, /mạng rớt/);
+  const d = db.prepare('SELECT * FROM send_queue').get();
+  assert.equal(d.status, TRANG_THAI_GUI.LOI);
+  assert.match(d.reason, /mạng rớt/);
   assert.equal(d.msg_id, null, 'gửi hỏng mà ghi msgId = sổ sách nói dối');
 
   const r2 = await drainOutbox({ db, log: () => {}, kho, gui });

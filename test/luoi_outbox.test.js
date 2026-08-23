@@ -66,7 +66,7 @@ function docSo(duongDan) {
 function xepHang(db, { id = 'g-1', giaMs = 0, text = 'câu trả lời cho anh' } = {}) {
   const { id: idThat } = enqueueOutbound(db, { id, requestId: 'r-1', chatIdDich: NHOM, text });
   const moc = new Date(T0 - giaMs).toISOString();
-  db.prepare('UPDATE hang_doi_gui SET ts_tao = $t, ts_cap_nhat = $t WHERE id = $id')
+  db.prepare('UPDATE send_queue SET ts_created = $t, ts_updated = $t WHERE id = $id')
     .run({ t: moc, id: idThat });
   return idThat;
 }
@@ -121,7 +121,7 @@ test('O2 — tin đã gửi xong: lưới KHÔNG nổ dù dòng cũ bao nhiêu �
   assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
   assert.equal(writeSendResult(db, id, { msgId: 'm-999' }), true);
   // Lùi cả dòng 'da_gui' về quá khứ: tuổi KHÔNG được là lý do để nổ.
-  db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
+  db.prepare('UPDATE send_queue SET ts_updated = $t WHERE id = $id')
     .run({ t: new Date(T0 - STUCK_THRESHOLD_MS * 10).toISOString(), id });
 
   const daBaoHost = [];
@@ -145,7 +145,7 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
   const id = xepHang(db);
   // Daemon nhận việc rồi chết trước khi gửi -> dòng nằm 'dang_gui' vĩnh viễn.
   assert.equal(claimOutbound(db, id, TRANG_THAI_GUI.CHO, TRANG_THAI_GUI.DANG_GUI), true);
-  db.prepare('UPDATE hang_doi_gui SET ts_cap_nhat = $t WHERE id = $id')
+  db.prepare('UPDATE send_queue SET ts_updated = $t WHERE id = $id')
     .run({ t: new Date(T0 - STUCK_THRESHOLD_MS).toISOString(), id });
 
   const daBaoHost = [];
@@ -155,7 +155,7 @@ test('O3 — dòng "dang_gui" quá lâu CŨNG nổ (đừng bỏ sót ca tiến 
   });
   assert.equal(n.notifyHost, 1, "'dang_gui' quá lâu mà bỏ qua = tin chết câm đúng ca daemon sập");
   assert.match(daBaoHost[0], /dang_gui/);
-  assert.match(daBaoHost[0], /đã thử 1 lần/, 'claimOutbound cộng so_lan_thu lúc NHẬN — phải hiện ra');
+  assert.match(daBaoHost[0], /đã thử 1 lần/, 'claimOutbound cộng attempt_count lúc NHẬN — phải hiện ra');
 
   closeDb(db);
 });

@@ -169,7 +169,7 @@ function _layUidTroLy(api) {
  * là **người BỊ tag** — tức tài khoản BOT. Host là người ĐI tag, nằm ở
  * `uidFrom`. Bản trước chỉ truyền `{ hostUserIds }` nên `hasHostMention` rơi vào
  * nhánh lùi và đi so `mentions[].uid` với uid HOST ⇒ **không bao giờ khớp**
- * ⇒ `co_tag_host` luôn 0 ⇒ spec B không bao giờ kích hoạt được.
+ * ⇒ `has_host_tag` luôn 0 ⇒ spec B không bao giờ kích hoạt được.
  *
  * Đo thật 20/08/2026, nhóm Haceco KT: anh nhắn `"Test tag @Hảis Assistant"`,
  * `_mentions[0].uid = 999200000000000002` (BOT), host là
@@ -296,7 +296,7 @@ export function lastEventAt() {
   return _lanCuoi;
 }
 
-/** Đang gắn dây hay không (dùng cho test + `trang_thai`). */
+/** Đang gắn dây hay không (dùng cho test + `status`). */
 export function isListening() {
   return _dangGan !== null;
 }

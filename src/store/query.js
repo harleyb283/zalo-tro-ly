@@ -17,7 +17,7 @@
  *    ⇒ Cả file này có ĐÚNG MỘT chỗ dựng KetQuaTruyVan: `_ketQua()`. Không
  *      hàm nào được tự dựng object đó, để không có đường nào lách.
  *
- *  · Chỉ đọc hội thoại có `hoi_thoai.duoc_nghe = 1` (JOIN, không phải WHERE
+ *  · Chỉ đọc hội thoại có `conversations.listened = 1` (JOIN, không phải WHERE
  *    IN) ⇒ hội thoại chưa upsert thì KHÔNG có dòng nào lọt ra. Fail-closed.
  *  · Trần cứng GIOI_HAN.SO_LUONG_TOI_DA — chặn kéo cả kho vào prompt.
  *  · Tin đã thu hồi VẪN trả về theo mặc định — TÍNH NĂNG, không phải bug.
@@ -115,12 +115,12 @@ function _sangMs(v, ten) {
 }
 
 /**
- * ⚠️ JOIN chứ không phải WHERE: hội thoại chưa có trong bảng `hoi_thoai`
- * (hoặc `duoc_nghe = 0`) thì tin của nó KHÔNG bao giờ lọt ra khỏi tầng này.
+ * ⚠️ JOIN chứ không phải WHERE: hội thoại chưa có trong bảng `conversations`
+ * (hoặc `listened = 0`) thì tin của nó KHÔNG bao giờ lọt ra khỏi tầng này.
  */
 const NGUON_DOC = `
-FROM tin_nhan t
-JOIN hoi_thoai h ON h.chat_id = t.chat_id AND h.duoc_nghe = 1
+FROM messages t
+JOIN conversations h ON h.chat_id = t.chat_id AND h.listened = 1
 `;
 
 /**
@@ -137,28 +137,28 @@ JOIN hoi_thoai h ON h.chat_id = t.chat_id AND h.duoc_nghe = 1
  * 🔴 RÀNG `g.chat_id = t.chat_id`: Zalo không cho quote tin của hội thoại khác,
  * nên tin gốc LUÔN cùng nhóm. Ràng buộc này vừa đúng ngữ nghĩa, vừa khiến tin
  * gốc KHÔNG THỂ kéo dữ liệu nhóm khác ra — nó nằm trong đúng `chat_id` đã qua
- * `JOIN hoi_thoai ... duoc_nghe = 1` ở trên, không có đường vòng nào.
+ * `JOIN conversations ... listened = 1` ở trên, không có đường vòng nào.
  *
- * Đường lùi `cli_msg_id`: dùng khi `tra_loi_msg_id` NULL (Zalo trả
+ * Đường lùi `cli_msg_id`: dùng khi `reply_msg_id` NULL (Zalo trả
  * `globalMsgId = 0`, cùng họ với `gMsgID = 0` của reaction).
  */
 const GHEP_TIN_GOC = `
-LEFT JOIN tin_nhan g ON g.chat_id = t.chat_id AND (
-     (t.tra_loi_msg_id IS NOT NULL
-      AND CAST(g.msg_id AS INTEGER) = CAST(t.tra_loi_msg_id AS INTEGER))
-  OR (t.tra_loi_msg_id IS NULL AND t.tra_loi_cli_msg_id IS NOT NULL
+LEFT JOIN messages g ON g.chat_id = t.chat_id AND (
+     (t.reply_msg_id IS NOT NULL
+      AND CAST(g.msg_id AS INTEGER) = CAST(t.reply_msg_id AS INTEGER))
+  OR (t.reply_msg_id IS NULL AND t.reply_cli_msg_id IS NOT NULL
       AND g.cli_msg_id IS NOT NULL
-      AND CAST(g.cli_msg_id AS INTEGER) = CAST(t.tra_loi_cli_msg_id AS INTEGER))
+      AND CAST(g.cli_msg_id AS INTEGER) = CAST(t.reply_cli_msg_id AS INTEGER))
 )`;
 
 const CHON_TIN_GOC = `,
   g.chat_id     AS _tra_loi_chat_id,
   g.msg_id      AS _goc_msg_id,
   g.user_id     AS _goc_user_id,
-  g.ten_luc_gui AS _goc_ten,
-  g.noi_dung    AS _goc_noi_dung,
+  g.name_at_send AS _goc_ten,
+  g.content    AS _goc_noi_dung,
   g.ts_zalo     AS _goc_ts,
-  g.da_thu_hoi  AS _goc_da_thu_hoi`;
+  g.recalled  AS _goc_da_thu_hoi`;
 
 /**
  * Dựng `_tra_loi` cho một dòng — thứ tầng trên đọc để biết "tin này trả lời ai".
@@ -171,16 +171,16 @@ const CHON_TIN_GOC = `,
  * @returns {object|null} null = tin này không phải reply
  */
 export function describeReplyRoute(r) {
-  if (!r || (r.tra_loi_msg_id === null && r.tra_loi_cli_msg_id === null)) return null;
+  if (!r || (r.reply_msg_id === null && r.reply_cli_msg_id === null)) return null;
 
-  const trich = r.tra_loi_trich ?? null;
+  const trich = r.reply_quote ?? null;
   const coTrongKho = r._goc_msg_id !== undefined && r._goc_msg_id !== null;
 
   if (!coTrongKho) {
     return {
       coTrongKho: false,
-      msgIdGoc: r.tra_loi_msg_id ?? null,
-      userIdGoc: r.tra_loi_user_id ?? null,
+      msgIdGoc: r.reply_msg_id ?? null,
+      userIdGoc: r.reply_user_id ?? null,
       trichDoan: trich,
       ghiChu: trich
         ? 'KHÔNG có tin gốc trong kho (bot chưa nghe lúc đó) — chỉ còn trích đoạn Zalo gửi kèm.'
@@ -192,7 +192,7 @@ export function describeReplyRoute(r) {
     coTrongKho: true,
     msgIdGoc: String(r._goc_msg_id),
     userIdGoc: r._goc_user_id === null || r._goc_user_id === undefined
-      ? (r.tra_loi_user_id ?? null) : String(r._goc_user_id),
+      ? (r.reply_user_id ?? null) : String(r._goc_user_id),
     tenNguoiGoc: r._goc_ten ?? null,
     noiDungGoc: r._goc_noi_dung ?? null,
     tsGoc: r._goc_ts ?? null,
@@ -229,9 +229,9 @@ export function queryHistory(db, thamSo) {
   if (ts.tuKhoa !== undefined && ts.tuKhoa !== null && String(ts.tuKhoa).trim() !== '') {
     // 🔴 `chu_thuong_vn` (JS toLowerCase) chứ KHÔNG `lower()` của SQLite.
     // Đo thật 20/08/2026: lower('BÁO GIÁ') -> 'bÁo giÁ' (chỉ gập ASCII), và
-    // `noi_dung LIKE '%BÁO%'` trả 0 dòng trên chuỗi 'Báo giá bên ĐỐI TÁC'.
+    // `content LIKE '%BÁO%'` trả 0 dòng trên chuỗi 'Báo giá bên ĐỐI TÁC'.
     // Tức tìm tiếng Việt viết hoa sẽ TRƯỢT SẠCH mà không có lỗi nào.
-    dieuKien.push("chu_thuong_vn(t.noi_dung) LIKE chu_thuong_vn($tu_khoa) ESCAPE '\\'");
+    dieuKien.push("chu_thuong_vn(t.content) LIKE chu_thuong_vn($tu_khoa) ESCAPE '\\'");
     bien.tu_khoa = `%${_thoatLike(String(ts.tuKhoa).trim())}%`;
   }
 
@@ -248,15 +248,15 @@ export function queryHistory(db, thamSo) {
 
   // Mặc định false — tin đã thu hồi VẪN trả về. Đó là lý do tồn tại của cả
   // pack (spec: lưu cả lịch sử thu hồi), đừng đảo mặc định.
-  if (ts.boQuaDaThuHoi === true) dieuKien.push('t.da_thu_hoi = 0');
+  if (ts.boQuaDaThuHoi === true) dieuKien.push('t.recalled = 0');
 
   bien.so_luong = _chotSoLuong(ts.soLuong);
 
-  // LEFT JOIN su_kien_thu_hoi để lấy KHOẢNG thời gian của ca DOI_CHIEU. Tin
+  // LEFT JOIN recall_events để lấy KHOẢNG thời gian của ca DOI_CHIEU. Tin
   // không bị thu hồi thì 2 cột này NULL — LEFT JOIN nên không mất dòng nào.
   const sql =
-    `SELECT t.*, s.khoang_tu_ms AS _th_tu, s.khoang_den_ms AS _th_den${CHON_TIN_GOC} ${NGUON_DOC}` +
-    ' LEFT JOIN su_kien_thu_hoi s ON s.chat_id = t.chat_id AND s.msg_id_dich = t.msg_id' +
+    `SELECT t.*, s.range_from_ms AS _th_tu, s.range_to_ms AS _th_den${CHON_TIN_GOC} ${NGUON_DOC}` +
+    ' LEFT JOIN recall_events s ON s.chat_id = t.chat_id AND s.target_msg_id = t.msg_id' +
     GHEP_TIN_GOC +
     (dieuKien.length ? ` WHERE ${dieuKien.join(' AND ')}` : '') +
     ' ORDER BY t.ts_zalo DESC, t.msg_id DESC LIMIT $so_luong';
@@ -272,11 +272,11 @@ export function queryHistory(db, thamSo) {
 /**
  * ★ CỜ ĐỘ TIN CẬY DO TẦNG TRUY VẤN ĐẶT — không phải lời dặn cho tầng trên.
  *
- * 🔴 VÌ SAO PHẢI Ở ĐÂY: `da_thu_hoi = 1` không nói được mình chắc tới đâu.
+ * 🔴 VÌ SAO PHẢI Ở ĐÂY: `recalled = 1` không nói được mình chắc tới đâu.
  * Có hai đường sinh ra cờ đó:
  *   · SU_KIEN   — nghe được `undo` thật ⇒ biết CHÍNH XÁC ai và lúc nào.
  *   · DOI_CHIEU — suy ra do tin vắng mặt ⇒ CHỈ biết nó xảy ra GIỮA HAI LƯỢT QUÉT.
- * Ai đọc `thu_hoi_luc` của dòng DOI_CHIEU rồi trả lời anh "bị thu hồi lúc 14:32"
+ * Ai đọc `recalled_at` của dòng DOI_CHIEU rồi trả lời anh "bị thu hồi lúc 14:32"
  * là NÓI SAI SỰ THẬT — mà sai kiểu này không ai phát hiện được, vì con số trông
  * hoàn toàn hợp lệ. Đặt cờ ở tầng truy vấn thì mọi chỗ đọc đều nhận được nó,
  * không phụ thuộc ai đó có nhớ đọc tài liệu hay không.
@@ -284,14 +284,14 @@ export function queryHistory(db, thamSo) {
  * `moTaThoiDiem` là câu ĐÃ DỰNG SẴN, để tầng trên chỉ việc đọc ra chứ không tự
  * chế câu từ mấy con số rồi chế nhầm.
  *
- * @param {any} r dòng thô của tin_nhan (kèm _th_tu/_th_den nếu có)
+ * @param {any} r dòng thô của messages (kèm _th_tu/_th_den nếu có)
  * @returns {{biThuHoi: boolean, nguon: string|null, doTinCay: string|null,
  *            chacChanThoiDiem: boolean, moTaThoiDiem: string|null}}
  */
 export function describeRecall(r) {
-  const biThuHoi = Number(r?.da_thu_hoi ?? 0) === 1;
-  const nguon = r?.thu_hoi_nguon ?? null;
-  const doTinCay = r?.thu_hoi_do_tin_cay ?? null;
+  const biThuHoi = Number(r?.recalled ?? 0) === 1;
+  const nguon = r?.recall_source ?? null;
+  const doTinCay = r?.recall_confidence ?? null;
   if (!biThuHoi) {
     return { biThuHoi: false, nguon: null, doTinCay, chacChanThoiDiem: false, moTaThoiDiem: null };
   }
@@ -310,7 +310,7 @@ export function describeRecall(r) {
     };
   }
   // SU_KIEN (hoặc dòng cũ trước v3, vốn chỉ sinh từ sự kiện undo).
-  const luc = r?.thu_hoi_luc ?? null;
+  const luc = r?.recalled_at ?? null;
   return {
     biThuHoi: true,
     nguon: nguon ?? NGUON_THU_HOI.SU_KIEN,
@@ -323,7 +323,7 @@ export function describeRecall(r) {
 /**
  * Lối tắt cho "n tin gần nhất của một hội thoại".
  * Cố ý gọi lại `queryHistory` chứ không viết truy vấn thứ hai: hai truy vấn
- * là hai chỗ có thể quên `duoc_nghe = 1` hoặc quên dựng nguồn.
+ * là hai chỗ có thể quên `listened = 1` hoặc quên dựng nguồn.
  *
  * @param {TDb} db
  * @param {string} chatId
@@ -335,10 +335,10 @@ export function latestMessages(db, chatId, soLuong) {
 }
 
 /**
- * Số liệu cho tool `trang_thai()`.
+ * Số liệu cho tool `status()`.
  *
  * ⚠️ Hàm DUY NHẤT trong file không trả `KetQuaTruyVan`, cố ý — nó chỉ ĐẾM,
- * không đọc `noi_dung` của tin nào nên không sinh nguồn để khai. Hình dạng
+ * không đọc `content` của tin nào nên không sinh nguồn để khai. Hình dạng
  * trả về phải khớp `DuLieuTrangThai` trong types.d.ts (G5 tiêu thụ).
  * (Ghi chú ở đầu stub G0 nói "mọi hàm phải trả KetQuaTruyVan, kể cả hàm chỉ
  * đếm" mâu thuẫn với chính chữ ký G0 viết cho hàm này — đã báo Router, giữ
@@ -358,26 +358,26 @@ export function storeStats(db) {
   // rò, chỉ là rò ở dạng gọn hơn. Khoá phạm vi thì đếm TRONG phạm vi.
   if (pv !== null) {
     return {
-      soTinDaLuu: dem('SELECT count(*) AS c FROM tin_nhan WHERE chat_id = $c', { c: pv }),
+      soTinDaLuu: dem('SELECT count(*) AS c FROM messages WHERE chat_id = $c', { c: pv }),
       soThuHoiMoCoi: dem(
-        'SELECT count(*) AS c FROM su_kien_thu_hoi WHERE khop_duoc = 0 AND chat_id = $c', { c: pv },
+        'SELECT count(*) AS c FROM recall_events WHERE matched = 0 AND chat_id = $c', { c: pv },
       ),
       soHangDoiCho: dem(
-        "SELECT count(*) AS c FROM hang_doi_hoi WHERE trang_thai = 'cho' AND chat_id_hoi = $c",
+        "SELECT count(*) AS c FROM ask_queue WHERE status = 'cho' AND asking_chat_id = $c",
         { c: pv },
       ),
       // Khoá vào một hội thoại thì con số này chỉ có thể là 1 hoặc 0.
       soNhomDangNghe: dem(
-        'SELECT count(*) AS c FROM hoi_thoai WHERE duoc_nghe = 1 AND chat_id = $c', { c: pv },
+        'SELECT count(*) AS c FROM conversations WHERE listened = 1 AND chat_id = $c', { c: pv },
       ),
       phamVi: pv,
     };
   }
   return {
-    soTinDaLuu: dem('SELECT count(*) AS c FROM tin_nhan'),
-    soThuHoiMoCoi: dem('SELECT count(*) AS c FROM su_kien_thu_hoi WHERE khop_duoc = 0'),
-    soHangDoiCho: dem("SELECT count(*) AS c FROM hang_doi_hoi WHERE trang_thai = 'cho'"),
-    soNhomDangNghe: dem('SELECT count(*) AS c FROM hoi_thoai WHERE duoc_nghe = 1'),
+    soTinDaLuu: dem('SELECT count(*) AS c FROM messages'),
+    soThuHoiMoCoi: dem('SELECT count(*) AS c FROM recall_events WHERE matched = 0'),
+    soHangDoiCho: dem("SELECT count(*) AS c FROM ask_queue WHERE status = 'cho'"),
+    soNhomDangNghe: dem('SELECT count(*) AS c FROM conversations WHERE listened = 1'),
   };
 }
 
@@ -389,7 +389,7 @@ export function storeStats(db) {
  * Danh sách người ĐÃ TỪNG NHẮN trong `chatId`, kèm TÊN MỚI NHẤT của họ.
  *
  * 🔴 Đây là bằng chứng DUY NHẤT mà pack có về "ai có thật trong nhóm này".
- * Bảng `nguoi` là bảng TOÀN CỤC (khoá chính `user_id`, không có `chat_id`)
+ * Bảng `people` là bảng TOÀN CỤC (khoá chính `user_id`, không có `chat_id`)
  * nên KHÔNG trả lời được câu hỏi theo nhóm — dùng nó để tag là mở đường tag
  * một người ở nhóm khác vào đây.
  *
@@ -397,7 +397,7 @@ export function storeStats(db) {
  * kể từ lúc bot bắt đầu nghe thì không tra ra ⇒ không tag được. Đúng hướng an
  * toàn — thà không tag còn hơn tag nhầm.
  *
- * Lấy tên MỚI NHẤT vì `ten_luc_gui` là ảnh chụp tại thời điểm gửi, người ta
+ * Lấy tên MỚI NHẤT vì `name_at_send` là ảnh chụp tại thời điểm gửi, người ta
  * đổi tên hiển thị là chuyện thường.
  *
  * @param {TDb} db
@@ -416,23 +416,23 @@ export function storeStats(db) {
  * Ba điều kiện, thoả ĐỦ CẢ BA, kiểm trong ĐÚNG MỘT truy vấn — ⛔ đừng tách ra
  * ba lần đọc rồi ghép ở JS: tách là mở cửa sổ cho lời nhắc bị đóng giữa chừng.
  *
- *   ① `nguoi_phu_trach = <người gửi>`   — đúng NGƯỜI PHỤ TRÁCH việc đó
- *   ② `trang_thai_td = 'dang_theo_duoi'` — việc còn MỞ
- *   ③ `chat_id_dich = <nơi đang nói>`   — ĐÚNG NHÓM của việc đó
+ *   ① `owner = <người gửi>`   — đúng NGƯỜI PHỤ TRÁCH việc đó
+ *   ② `follow_up_status = 'dang_theo_duoi'` — việc còn MỞ
+ *   ③ `target_chat_id = <nơi đang nói>`   — ĐÚNG NHÓM của việc đó
  *
  * ⇒ Lời nhắc đóng ⇒ cửa 2 **đóng theo, ngay lập tức** (không cache, không cờ
  *   riêng — trạng thái cửa suy ra từ chính lời nhắc mỗi lượt).
  *
  * 🔴 ĐIỀU KIỆN THỨ TƯ, EM TỰ TÌM RA — ⛔ ĐỪNG BỎ:
- * `cancelSchedule()` chỉ đổi `trang_thai` sang `'da_huy'` và **KHÔNG đụng
- * `trang_thai_td`** (đọc `src/lich/schedule.js`). Nên một lời nhắc ĐÃ HUỶ vẫn
- * còn `trang_thai_td = 'dang_theo_duoi'` ⇒ chỉ kiểm ba điều kiện trên là
+ * `cancelSchedule()` chỉ đổi `status` sang `'da_huy'` và **KHÔNG đụng
+ * `follow_up_status`** (đọc `src/lich/schedule.js`). Nên một lời nhắc ĐÃ HUỶ vẫn
+ * còn `follow_up_status = 'dang_theo_duoi'` ⇒ chỉ kiểm ba điều kiện trên là
  * **cửa 2 mở cho một việc đã huỷ**. Phải loại thẳng `da_huy` / `loi`.
  * (`closeFollowUp()` thì đặt cả hai, nên nó không dính lỗi này.)
  *
  * 🔴 ⛔ KHÔNG XÉT DM. Anh chốt: cửa 2 **chỉ trong đúng nhóm có lời nhắc**. Mở
  * DM là ai từng bị nhắc một việc cũng nhắn riêng được cho trợ lý của anh.
- * `loai_dich = 'GROUP'` là chỗ thi hành điều đó ở tầng dữ liệu; gate còn một
+ * `target_kind = 'GROUP'` là chỗ thi hành điều đó ở tầng dữ liệu; gate còn một
  * lớp nữa ở tầng quyết định.
  *
  * @param {TDb} db
@@ -446,15 +446,15 @@ export function findGate2Task(db, chatId, userId) {
   if (c === null || u === null) return null;
   const d = db
     .prepare(
-      `SELECT id, noi_dung, ma_xac_nhan
-         FROM lich_hen
-        WHERE la_theo_duoi = 1
-          AND trang_thai_td = $ttd
-          AND nguoi_phu_trach = $uid
-          AND chat_id_dich = $chat
-          AND loai_dich = 'GROUP'
-          AND trang_thai NOT IN ($huy, $loi)
-        ORDER BY gui_luc_ms ASC
+      `SELECT id, content, confirm_code
+         FROM schedules
+        WHERE is_follow_up = 1
+          AND follow_up_status = $ttd
+          AND owner = $uid
+          AND target_chat_id = $chat
+          AND target_kind = 'GROUP'
+          AND status NOT IN ($huy, $loi)
+        ORDER BY send_at_ms ASC
         LIMIT 1`,
     )
     .get({
@@ -464,7 +464,7 @@ export function findGate2Task(db, chatId, userId) {
       huy: TRANG_THAI_LICH.DA_HUY,
       loi: TRANG_THAI_LICH.LOI,
     });
-  return d ? { id: String(d.id), noiDung: String(d.noi_dung ?? ''), maXacNhan: d.ma_xac_nhan ?? null } : null;
+  return d ? { id: String(d.id), noiDung: String(d.content ?? ''), maXacNhan: d.confirm_code ?? null } : null;
 }
 
 /**
@@ -475,7 +475,7 @@ export function findGate2Task(db, chatId, userId) {
  * tool từ chối. Tức hai ca *"xin dời lịch"* và *"xin đóng"* mà anh duyệt
  * **KHÔNG CHẠY ĐƯỢC**. Bài `T2` bắt được đúng chuyện này.
  *
- * Host cần xin phép là **host của VIỆC đó** (`nguoi_dat`), ⛔ không phải "host
+ * Host cần xin phép là **host của VIỆC đó** (`created_by`), ⛔ không phải "host
  * nào cũng được" — đúng tinh thần *"quyền đi theo VIỆC"*.
  *
  * @param {TDb} db
@@ -485,8 +485,8 @@ export function findGate2Task(db, chatId, userId) {
 export function taskOwnerHost(db, idViec) {
   const id = String(idViec ?? '').trim();
   if (!id) return null;
-  const d = db.prepare('SELECT nguoi_dat FROM lich_hen WHERE id = $id').get({ id });
-  return d?.nguoi_dat ? String(d.nguoi_dat) : null;
+  const d = db.prepare('SELECT created_by FROM schedules WHERE id = $id').get({ id });
+  return d?.created_by ? String(d.created_by) : null;
 }
 
 /**
@@ -501,7 +501,7 @@ export function taskOwnerHost(db, idViec) {
  * "đổi tên hiển thị ⇒ mất tag trong im lặng".
  *
  * @param {any} db
- * @param {string} idNhac  `lich_hen.id`
+ * @param {string} idNhac  `schedules.id`
  * @returns {{uids: string[], chatIdDich: string|null}|null} null nếu không có dòng đó
  */
 export function reminderTagUids(db, idNhac) {
@@ -509,16 +509,16 @@ export function reminderTagUids(db, idNhac) {
   if (!id) return null;
   const d = db
     .prepare(
-      `SELECT chat_id_dich, loai_dich, nguoi_phu_trach, tag_user_ids
-         FROM lich_hen WHERE id = $id AND la_theo_duoi = 1`,
+      `SELECT target_chat_id, target_kind, owner, tag_user_ids
+         FROM schedules WHERE id = $id AND is_follow_up = 1`,
     )
     .get({ id });
   if (!d) return null;
   // ⚠️ Lời nhắc của nhóm KHÁC ⇒ coi như không thấy. `idNhac` ở đây suy từ
-  // `hang_doi_hoi.msg_id` nên model không tự chọn được, nhưng dữ liệu cũ / lỗi
+  // `ask_queue.msg_id` nên model không tự chọn được, nhưng dữ liệu cũ / lỗi
   // ghi vẫn có thể trỏ sang nhóm khác — và uid là dữ liệu riêng.
   const pv = getReadScope();
-  if (pv !== null && String(d.chat_id_dich) !== pv) return null;
+  if (pv !== null && String(d.target_chat_id) !== pv) return null;
 
   const uids = [];
   try {
@@ -527,14 +527,14 @@ export function reminderTagUids(db, idNhac) {
       if (s && !uids.includes(s)) uids.push(s);
     }
   } catch {
-    /* JSON hỏng thì coi như không khai — vẫn còn `nguoi_phu_trach` ở dưới */
+    /* JSON hỏng thì coi như không khai — vẫn còn `owner` ở dưới */
   }
-  const pt = d.nguoi_phu_trach ? String(d.nguoi_phu_trach).trim() : '';
+  const pt = d.owner ? String(d.owner).trim() : '';
   if (pt && !uids.includes(pt)) uids.push(pt);
 
   // DM thì zca-js bỏ hết mentions ⇒ đừng trả uid để tầng trên khỏi dựng chữ thừa.
-  if (String(d.loai_dich) === 'DM') return { uids: [], chatIdDich: String(d.chat_id_dich) };
-  return { uids, chatIdDich: String(d.chat_id_dich) };
+  if (String(d.target_kind) === 'DM') return { uids: [], chatIdDich: String(d.target_chat_id) };
+  return { uids, chatIdDich: String(d.target_chat_id) };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -547,11 +547,11 @@ export function reminderTagUids(db, idNhac) {
 //   theo đuổi tự chạy, không có người ngồi xem).
 //
 // ⛔ VÌ SAO KHÔNG DỌN DỮ LIỆU: hai bản vá đang đá nhau — bản "lấp chữ bị mất"
-//   CỐ Ý điền tên hiển thị của bot vào dòng `do_tro_ly_tao=1` (để đọc lịch sử
+//   CỐ Ý điền tên hiển thị của bot vào dòng `made_by_assistant=1` (để đọc lịch sử
 //   cho dễ), bản chống-tự-tag lại muốn tên đó biến mất. Cả hai đều đúng ở chỗ
 //   của nó. Xoá hôm nay thì mai bản kia điền lại. Luật phải nằm ở TẦNG ĐỌC.
 //
-// ⛔ VÌ SAO KHÔNG LỌC THEO `do_tro_ly_tao`: cột đó THUA CUỘC ĐUA 35,3% (đo trên
+// ⛔ VÌ SAO KHÔNG LỌC THEO `made_by_assistant`: cột đó THUA CUỘC ĐUA 35,3% (đo trên
 //   DB thật 21/08/2026 — 18/51 dòng của bot mang cờ 0 vì listener ghi trước).
 //   Lọc theo UID: uid của bot là hằng số, không phụ thuộc ai ghi trước.
 // ═══════════════════════════════════════════════════════════════════════
@@ -622,7 +622,7 @@ let _clientId = null;
 /**
  * ★ Danh tính PANE, để nhật ký trả lời được "pane nào đã đọc nhóm nào".
  *
- * 🔴 Hôm nay `nhat_ky_truy_van` trả lời được "PHIÊN nào đọc nhóm nào" nhưng
+ * 🔴 Hôm nay `query_log` trả lời được "PHIÊN nào đọc nhóm nào" nhưng
  * KHÔNG trả lời được "PANE nào" — mà sau khi tách, đó mới là câu người ta hỏi
  * khi soi một nghi vấn rò.
  *
@@ -713,17 +713,17 @@ export function groupMembers(db, chatId, uidTroLy) {
   const id = toIdRequired(enforceChatId(chatId) ?? chatId, 'groupMembers.chatId');
   const boQua = _uidTroLyHieuLuc(uidTroLy);
   const rows = db.prepare(
-    `SELECT t.user_id AS uid, t.ten_luc_gui AS ten
-       FROM tin_nhan t
+    `SELECT t.user_id AS uid, t.name_at_send AS ten
+       FROM messages t
        JOIN (SELECT user_id, MAX(ts_zalo) AS moi_nhat
-               FROM tin_nhan
+               FROM messages
               WHERE chat_id = $chat_id
                 AND user_id IS NOT NULL
-                AND ten_luc_gui IS NOT NULL
+                AND name_at_send IS NOT NULL
               GROUP BY user_id) m
          ON m.user_id = t.user_id AND m.moi_nhat = t.ts_zalo
       WHERE t.chat_id = $chat_id
-        AND t.ten_luc_gui IS NOT NULL`,
+        AND t.name_at_send IS NOT NULL`,
   ).all({ chat_id: id });
 
   // Cùng user_id + cùng ts_zalo có thể ra 2 dòng (2 tin cùng mili-giây) -> lọc trùng.
@@ -755,7 +755,7 @@ export function groupMembers(db, chatId, uidTroLy) {
  * đó với host, và nó nói đúng. Dữ liệu có mà không tới được câu trả lời thì
  * cũng như không có.
  *
- * Đi qua ĐÚNG `NGUON_DOC` (JOIN `hoi_thoai ... duoc_nghe = 1`) như mọi đường
+ * Đi qua ĐÚNG `NGUON_DOC` (JOIN `conversations ... listened = 1`) như mọi đường
  * đọc khác — hàng đợi KHÔNG phải cửa sau.
  *
  * @param {TDb} db
@@ -767,9 +767,9 @@ export function replyContext(db, requestId) {
   if (rid === '') return null;
 
   const sql =
-    `SELECT t.chat_id, t.tra_loi_msg_id, t.tra_loi_cli_msg_id, t.tra_loi_user_id,
-            t.tra_loi_trich${CHON_TIN_GOC} ${NGUON_DOC}` +
-    ' JOIN hang_doi_hoi q ON q.chat_id_hoi = t.chat_id AND q.msg_id = t.msg_id' +
+    `SELECT t.chat_id, t.reply_msg_id, t.reply_cli_msg_id, t.reply_user_id,
+            t.reply_quote${CHON_TIN_GOC} ${NGUON_DOC}` +
+    ' JOIN ask_queue q ON q.asking_chat_id = t.chat_id AND q.msg_id = t.msg_id' +
     GHEP_TIN_GOC +
     ' WHERE q.request_id = $rid LIMIT 1';
 
@@ -806,8 +806,8 @@ export function conversationKind(db, chatId) {
   const c = toId(chatId ?? null, 'conversationKind.chatId');
   if (!c) return null;
   try {
-    const r = db.prepare('SELECT loai FROM hoi_thoai WHERE chat_id = $c').get({ c });
-    return r?.loai ?? null;
+    const r = db.prepare('SELECT kind FROM conversations WHERE chat_id = $c').get({ c });
+    return r?.kind ?? null;
   } catch (e) {
     process.stderr.write(`[store/query] conversationKind(${c}) lỗi: ${e.message}\n`);
     return null;
@@ -815,7 +815,7 @@ export function conversationKind(db, chatId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// ghi_nho — đường ĐỌC (v6, 21/08/2026)
+// memories — đường ĐỌC (v6, 21/08/2026)
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
@@ -832,7 +832,7 @@ export function readMemos(db, { chatId, soLuong } = {}) {
   const n = Number.isFinite(Number(soLuong)) && Number(soLuong) > 0
     ? Math.min(Math.floor(Number(soLuong)), 200) : 20;
   const rows = db.prepare(
-    'SELECT * FROM ghi_nho WHERE chat_id = $c ORDER BY ts_tao DESC LIMIT $n',
+    'SELECT * FROM memories WHERE chat_id = $c ORDER BY ts_created DESC LIMIT $n',
   ).all({ c, n });
   return { rows, nguonChatIds: [c] };
 }
@@ -840,13 +840,13 @@ export function readMemos(db, { chatId, soLuong } = {}) {
 /**
  * ★ Phiên này đã ghi được gì chưa — BẰNG CHỨNG BỀN cho chốt chặn `cong_ghi`.
  *
- * ⚠️ Chỉ đếm `ghi_nho`. Các tool ghi khác (`dat_lich_*`, `dat_nhac_*`,
- * `dong_nhac`, `chinh_nhip_nhac`) KHÔNG mang `request_id` xuống `lich_hen`,
+ * ⚠️ Chỉ đếm `memories`. Các tool ghi khác (`dat_lich_*`, `dat_nhac_*`,
+ * `dong_nhac`, `chinh_nhip_nhac`) KHÔNG mang `request_id` xuống `schedules`,
  * nên chúng được theo dõi bằng dấu trong bộ nhớ ở `tools.js`. Hàm này là lớp
  * bền thứ hai, không phải lớp duy nhất — xem `_daGhiTrongPhien`.
  */
 export function countTurnMemos(db, requestId) {
-  const r = db.prepare('SELECT count(*) AS c FROM ghi_nho WHERE request_id = $r')
+  const r = db.prepare('SELECT count(*) AS c FROM memories WHERE request_id = $r')
     .get({ r: String(requestId ?? '') });
   return Number(r?.c ?? 0);
 }

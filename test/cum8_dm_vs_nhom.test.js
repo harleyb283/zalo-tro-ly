@@ -9,7 +9,7 @@
  *    tức mình gửi bằng `ThreadType.Group` tới một id DM.
  *
  * 🔴 Gốc: `HUONG_TRA_LOI.NHOM` nghĩa là *"trả lời NGAY CHỖ ĐÃ HỎI"*, KHÔNG có
- *    nghĩa *"chỗ đó là một nhóm"*. `reply` chưa bao giờ hỏi `chat_id_hoi`
+ *    nghĩa *"chỗ đó là một nhóm"*. `reply` chưa bao giờ hỏi `asking_chat_id`
  *    thuộc loại gì, trong khi nhánh `DM_HOST` ngay bên dưới thì CÓ truyền
  *    `{ laDm: true }` — nên đường DM CHỦ ĐỘNG chạy được, còn đường TRẢ LỜI MỘT
  *    CÂU HỎI ĐẾN TỪ DM thì rơi vào nhánh nhóm.
@@ -199,7 +199,7 @@ test('★★★ B1 nơi hỏi CHÍNH LÀ DM host -> BỎ câu trung tính (đáp
 
 test('★★★ B2 `dmChatId` trong config LỆCH nơi hỏi -> câu trung tính vẫn phải đi bằng User', async () => {
   // ⚠️ NÓI RÕ PHẠM VI: với cấu hình ĐÚNG thì ca này KHÔNG xảy ra — host hỏi
-  // trong DM của chính mình nên `chat_id_hoi` === `dmChatId`, và bài B1 mới là
+  // trong DM của chính mình nên `asking_chat_id` === `dmChatId`, và bài B1 mới là
   // ca thật. Bài này dựng ca `hosts[].dmChatId` bị điền lệch (người vận hành
   // gõ nhầm, hoặc host có hai luồng DM) để canh LỚP PHÒNG THỦ còn lại: kể cả
   // khi hai id khác nhau, câu trung tính vẫn không được gửi bằng kiểu NHÓM.
@@ -280,11 +280,11 @@ test('★★★ C3 trả lời trong DM -> KHÔNG chèn "@Tên", KHÔNG kèm men
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: DM, ma: 'N1', nguoiPhuTrach: HOST,
   });
   confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
-  const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N1'").get().id;
+  const idNhac = db.prepare("SELECT id FROM schedules WHERE confirm_code='N1'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
   // thì `reply` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
   // trạng thái mà production LUÔN tạo ra.
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), idNhac);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(Date.now(), idNhac);
 
   const { tin: ra, api } = banGui();
   const goi = dungTool(db, api);
@@ -309,11 +309,11 @@ test('★★ C4 trả lời trong NHÓM vẫn cưỡng chế tag như cũ (chố
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: NHOM, ma: 'N2', nguoiPhuTrach: HOST,
   });
   confirmSchedule(db, { id: 'N2', ma: 'N2', nguoiDat: HOST });
-  const idNhac = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N2'").get().id;
+  const idNhac = db.prepare("SELECT id FROM schedules WHERE confirm_code='N2'").get().id;
   // Token quyền gửi — `bo_chay` đặt nó TRƯỚC khi giao việc cho model. Thiếu nó
   // thì `reply` từ chối (chốt chống một-lượt-hai-tin), tức dựng thiếu một
   // trạng thái mà production LUÔN tạo ra.
-  db.prepare('UPDATE lich_hen SET cho_model_tu_ms = ? WHERE id = ?').run(Date.now(), idNhac);
+  db.prepare('UPDATE schedules SET model_wait_since_ms = ? WHERE id = ?').run(Date.now(), idNhac);
 
   const { tin: ra, api } = banGui();
   const goi = dungTool(db, api);
@@ -340,7 +340,7 @@ test('★★★ C5 LỚP 1/3 — `reminderTagUids` đã tự trả rỗng cho DM
     chatIdDich: DM, loaiDich: 'DM', noiDung: 'v', dienGiaiGoc: 'x', dienGiaiXacNhan: 'y',
     nguoiDat: HOST, chatIdDat: DM, ma: 'N9', nguoiPhuTrach: HOST, tagUserIds: [HOST2],
   });
-  const id = db.prepare("SELECT id FROM lich_hen WHERE ma_xac_nhan='N9'").get().id;
+  const id = db.prepare("SELECT id FROM schedules WHERE confirm_code='N9'").get().id;
   assert.deepEqual(reminderTagUids(db, id).uids, [],
     'trả uid cho một lời nhắc DM thì tầng trên sẽ dựng chữ "@Tên" thừa');
   closeDb(db);
@@ -458,7 +458,7 @@ test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User',
     dienGiaiXacNhan: 'y', nguoiDat: HOST, chatIdDat: DM, ma: 'N1', nguoiPhuTrach: HOST,
   });
   confirmSchedule(db, { id: 'N1', ma: 'N1', nguoiDat: HOST });
-  db.prepare("UPDATE lich_hen SET gui_luc_ms = 1 WHERE ma_xac_nhan = 'N1'").run();
+  db.prepare("UPDATE schedules SET send_at_ms = 1 WHERE confirm_code = 'N1'").run();
 
   const { tin: ra, api } = banGui();
   await runFollowUpTick({
@@ -469,8 +469,8 @@ test('★★★ D2 nhắc THEO ĐUỔI vào DM -> gửi bằng ThreadType.User',
   closeDb(db);
 });
 
-test('★★★ D3 đặt lịch TỪ DM qua tool thật -> DB ghi loai_dich = DM', async () => {
-  // Bộ chạy chọn kiểu luồng theo `loai_dich`. Nếu tool ghi nhầm 'GROUP' thì
+test('★★★ D3 đặt lịch TỪ DM qua tool thật -> DB ghi target_kind = DM', async () => {
+  // Bộ chạy chọn kiểu luồng theo `target_kind`. Nếu tool ghi nhầm 'GROUP' thì
   // tới giờ gửi mới hỏng — hỏng CÂM, cách lúc đặt hàng giờ.
   const db = dbTam();
   tin(db, DM, 'd1');
@@ -482,11 +482,11 @@ test('★★★ D3 đặt lịch TỪ DM qua tool thật -> DB ghi loai_dich = D
     noiDung: 'uống thuốc', dienGiaiGoc: 'nhắc anh 9h uống thuốc',
   });
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(db.prepare('SELECT loai_dich l FROM lich_hen ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
+  assert.equal(db.prepare('SELECT target_kind l FROM schedules ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
   closeDb(db);
 });
 
-test('★★★ D4 đặt nhắc THEO ĐUỔI từ DM -> loai_dich = DM', async () => {
+test('★★★ D4 đặt nhắc THEO ĐUỔI từ DM -> target_kind = DM', async () => {
   const db = dbTam();
   tin(db, DM, 'd1');
   const { api } = banGui();
@@ -495,7 +495,7 @@ test('★★★ D4 đặt nhắc THEO ĐUỔI từ DM -> loai_dich = DM', async 
     request_id: phien(db), noiDung: 'theo dõi vụ X', dienGiaiGoc: 'theo dõi giúp anh',
   });
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal(db.prepare('SELECT loai_dich l FROM lich_hen ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
+  assert.equal(db.prepare('SELECT target_kind l FROM schedules ORDER BY rowid DESC LIMIT 1').get().l, 'DM');
   closeDb(db);
 });
 
@@ -512,11 +512,11 @@ test('★★★ E1 `conversationKind` — có dòng thì trả loại, không c�
   closeDb(db);
 });
 
-test('★★★ E2 chưa có dòng `hoi_thoai` -> LÙI VỀ CONFIG, vẫn gửi đúng DM', async () => {
+test('★★★ E2 chưa có dòng `conversations` -> LÙI VỀ CONFIG, vẫn gửi đúng DM', async () => {
   // Ca thật: DB vừa dựng lại, hoặc host DM lần đầu và tin chưa kịp ghi.
   // Không có đường lùi thì lượt đầu tiên sau mỗi lần dựng DB lại hỏng y như cũ.
   const db = dbTam();
-  db.prepare('DELETE FROM hoi_thoai WHERE chat_id = ?').run(DM);
+  db.prepare('DELETE FROM conversations WHERE chat_id = ?').run(DM);
   assert.equal(conversationKind(db, DM), null, 'dựng sai tiền đề thì bài này vô nghĩa');
 
   const { tin: ra, api } = banGui();
@@ -540,7 +540,7 @@ test('★★ E3 không tra ra loại ở CẢ HAI nguồn -> giữ hành vi cũ 
   });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(ra[0].loaiThread, ThreadType.Group,
-    'mặc định phải giữ nguyên hành vi cũ — đổi sang DM là làm hỏng mọi nhóm chưa kịp có dòng hoi_thoai');
+    'mặc định phải giữ nguyên hành vi cũ — đổi sang DM là làm hỏng mọi nhóm chưa kịp có dòng conversations');
   closeDb(db);
 });
 

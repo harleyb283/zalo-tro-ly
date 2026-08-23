@@ -3,7 +3,7 @@
  * G4 — CỔNG HOST. CHỦ SỞ HỮU: G4. Gói khác KHÔNG sửa file này.
  *
  * ⚠️ HÀM THUẦN — KHÔNG mạng, KHÔNG I/O, KHÔNG ghi DB, KHÔNG sinh request_id
- *    (sinh id + ghi `hang_doi_hoi` là việc của caller/G8). Chỉ QUYẾT ĐỊNH.
+ *    (sinh id + ghi `ask_queue` là việc của caller/G8). Chỉ QUYẾT ĐỊNH.
  *    Đây là điều kiện để test được mà không cần Zalo lẫn Claude.
  *
  * 🔴 KHÔNG RÕ NGUỒN → 'drop' IM LẶNG. Không trả lời, không react, không báo
@@ -213,7 +213,7 @@ export function decideGate(tin, cauHinh, boiCanh) {
   //
   // ⚠️ Cái mất: trợ lý không nghe được tin host TỰ GÕ trong nhóm. Muốn nghe
   // được thì phải phân biệt "host gõ" với "trợ lý gửi", mà `TinChuanHoa`
-  // KHÔNG mang cờ đó (`do_tro_ly_tao` chỉ có sau khi ghi DB, và A8 đã đo được
+  // KHÔNG mang cờ đó (`made_by_assistant` chỉ có sau khi ghi DB, và A8 đã đo được
   // là nó thua cuộc đua 35,3 % số lần). ⇒ Chưa làm được, ⛔ không đoán.
   // ═══════════════════════════════════════════════════════════════════
   if (tin.hasHostMention !== true) return _bo(LY_DO.KHONG_TAG);

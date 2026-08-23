@@ -183,7 +183,7 @@ test('★★★ R1 client khoá nhóm A -> CHỈ nhặt dòng của A (⛔ khôn
   xepHang(db, 'a1', NHOM_A);
   xepHang(db, 'b1', NHOM_B);
   const ds = takePendingQueue(db, 600_000, { chatIdHoi: NHOM_A });
-  assert.deepEqual(ds.map((r) => String(r.chat_id_hoi)), [NHOM_A]);
+  assert.deepEqual(ds.map((r) => String(r.asking_chat_id)), [NHOM_A]);
   closeDb(db);
 });
 
@@ -329,7 +329,7 @@ test('★★★ W1 ĐẦU-CUỐI: tin mới -> GỌI baoDam đúng nhóm, SAU kh
       baoDam: async (chatId, tt) => {
         // 🔴 Phải gọi SAU khi hàng đợi đã có dòng — mở pane cho một câu hỏi
         // chưa tồn tại là mở cho một câu hỏi đã mất.
-        const n = db.prepare('SELECT COUNT(*) n FROM hang_doi_hoi').get().n;
+        const n = db.prepare('SELECT COUNT(*) n FROM ask_queue').get().n;
         goi.push({ chatId, tenNhom: tt?.tenNhom, soDongLucGoi: n });
         return { daGoi: true };
       },
@@ -375,7 +375,7 @@ test('★★★ W1b DM CỦA HOST ⇒ ⛔ TUYỆT ĐỐI KHÔNG mở pane nhóm'
   });
   await new Promise((r) => setTimeout(r, 25));
   assert.deepEqual(goi, [], '🔴 mở pane cho DM = hai phiên tranh nhau hộp thư riêng của anh');
-  const n = db.prepare('SELECT COUNT(*) n FROM hang_doi_hoi').get().n;
+  const n = db.prepare('SELECT COUNT(*) n FROM ask_queue').get().n;
   assert.equal(n, 1, 'nhưng câu hỏi trong DM VẪN phải vào hàng đợi như thường');
   closeDb(db);
 });

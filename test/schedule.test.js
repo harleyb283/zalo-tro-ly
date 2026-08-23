@@ -123,8 +123,8 @@ test('B5 mã xác nhận 4 ký tự, bỏ chữ dễ đọc nhầm (O/0, I/1)', 
 test('C1 ★ createSchedule LUÔN ở cho_xac_nhan — không tham số nào bỏ qua được', () => {
   const db = dbTam();
   const { id } = lichGia(db);
-  const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
-  assert.equal(d.trang_thai, TRANG_THAI_LICH.CHO_XAC_NHAN);
+  const d = db.prepare('SELECT * FROM schedules WHERE id=$id').get({ id });
+  assert.equal(d.status, TRANG_THAI_LICH.CHO_XAC_NHAN);
   closeDb(db);
 });
 
@@ -221,7 +221,7 @@ test('D4 ★ quá hạn: đổi qua_han, KHÔNG gửi nhóm, DM host', async () 
   assert.equal(guiDm.length, 1, 'phải báo riêng host');
   assert.match(guiDm[0][2], /KHÔNG gửi vào nhóm/);
   assert.equal(
-    db.prepare('SELECT trang_thai t FROM lich_hen WHERE id=$id').get({ id }).t,
+    db.prepare('SELECT status t FROM schedules WHERE id=$id').get({ id }).t,
     TRANG_THAI_LICH.QUA_HAN,
   );
   closeDb(db);
@@ -269,9 +269,9 @@ test('E3 ★ gửi LỖI -> ghi trạng thái loi, KHÔNG tự thử lại', asy
     groupMembers: () => [],
   });
   assert.equal(kq.loi, 1);
-  const d = db.prepare('SELECT * FROM lich_hen WHERE id=$id').get({ id });
-  assert.equal(d.trang_thai, TRANG_THAI_LICH.LOI);
-  assert.equal(Number(d.so_lan_thu), 1);
+  const d = db.prepare('SELECT * FROM schedules WHERE id=$id').get({ id });
+  assert.equal(d.status, TRANG_THAI_LICH.LOI);
+  assert.equal(Number(d.attempt_count), 1);
   assert.deepEqual(dueSchedules(db, Date.now()), [], 'KHÔNG được quay lại hàng chờ');
   closeDb(db);
 });
@@ -452,7 +452,7 @@ test('I1 ★ câu xác nhận KHÔNG còn chỗ giữ chỗ nào, mã hiện ở
   assert.match(cau, /Anh nhắn "ok" để chốt/, 'một lịch chờ thì đừng bắt gõ mã');
   assert.ok(!cau.includes(`ok ${ma}`), 'ca một lịch KHÔNG được bắt gõ mã nữa');
   // Câu trong DB và câu trả cho anh phải là MỘT.
-  const trongDb = db.prepare('SELECT dien_giai_xac_nhan c FROM lich_hen LIMIT 1').get().c;
+  const trongDb = db.prepare('SELECT confirm_phrasing c FROM schedules LIMIT 1').get().c;
   assert.equal(trongDb, cau, 'câu anh đọc và câu lưu DB phải giống hệt');
   closeDb(db);
 });

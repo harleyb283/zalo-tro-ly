@@ -319,7 +319,7 @@ export function buildMentions(msg, dsNguoi) {
       // hoàn toàn im lặng — không cảnh báo, không đếm, không trả về gì. Tin vẫn
       // gửi, vẫn CÓ CHỮ `@Tên` nên người đọc tưởng đã tag, nhưng người được nhắc
       // KHÔNG nhận thông báo nào. Đây là ca xảy ra khi ai đó ĐỔI TÊN HIỂN THỊ —
-      // chuyện thường ngày trên Zalo — mà tên cũ đã đóng băng trong `noi_dung`.
+      // chuyện thường ngày trên Zalo — mà tên cũ đã đóng băng trong `content`.
       // ⚠️ `khongTraRa` KHÔNG dùng được cho ca này: nó đang mang nghĩa "tên TRÙNG
       // nhiều người nên không dám đoán" (có bài test canh). Hai chuyện khác hẳn
       // nhau ⇒ trường RIÊNG.
@@ -535,8 +535,8 @@ function _xepHang() {
 
 /**
  * ⚠️ ĐIỂM HỢP ĐỒNG CÒN THIẾU — ĐÃ BÁO ROUTER:
- * Stub G0 bắt "tin trợ lý gửi PHẢI được ghi vào `tin_nhan` với
- * `do_tro_ly_tao = 1`", NHƯNG chữ ký `sendToGroup(api, chatId, text)` không
+ * Stub G0 bắt "tin trợ lý gửi PHẢI được ghi vào `messages` với
+ * `made_by_assistant = 1`", NHƯNG chữ ký `sendToGroup(api, chatId, text)` không
  * có `db` lẫn callback nào để làm việc đó, và `types.d.ts` cũng không định
  * nghĩa đường nào.
  * ⇒ KHÔNG tự `import '../store/write.js'` (file này không có `db` handle, và
@@ -651,7 +651,7 @@ function _ghiLai(tuyChon, { chatId, msgId, noiDung, coAnh, tsZalo, uidTroLy = nu
         userId: uidTroLy,
         tenLucGui: null,
         // Ảnh DO TRỢ LÝ TẠO RA vẫn thuộc spec H ("chỉ lưu thứ do trợ lý tạo"),
-        // nhưng schema bắt msg_type != 'chat.text' thì noi_dung PHẢI null.
+        // nhưng schema bắt msg_type != 'chat.text' thì content PHẢI null.
         // ⇒ có ảnh thì chú thích đi vào contentRaw (metadata, KHÔNG phải bytes).
         msgType: coAnh ? MSG_TYPE.IMAGE : MSG_TYPE.TEXT,
         noiDung: coAnh ? null : noiDung,

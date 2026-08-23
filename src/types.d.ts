@@ -128,35 +128,35 @@ export interface SuKienNhomChuanHoa {
 // 2. DÒNG THÔ TỪ SQLITE — snake_case, khớp 1-1 với schema.sql
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Một dòng của bảng `tin_nhan` như SQLite trả về. Cờ boolean là 0/1. */
+/** Một dòng của bảng `messages` như SQLite trả về. Cờ boolean là 0/1. */
 export interface DongTinNhan {
   chat_id: string;
   msg_id: string;
   cli_msg_id: string | null;
   user_id: string | null;
-  ten_luc_gui: string | null;
+  name_at_send: string | null;
   msg_type: string;
-  noi_dung: string | null;
+  content: string | null;
   content_raw: string | null;
   ts_zalo: number;
-  ts_ghi: string;
-  tu_toi: number;
-  co_tag_host: number;
-  da_thu_hoi: number;
-  thu_hoi_boi: string | null;
-  thu_hoi_luc: number | null;
-  do_tro_ly_tao: number;
+  ts_saved: string;
+  from_me: number;
+  has_host_tag: number;
+  recalled: number;
+  recalled_by: string | null;
+  recalled_at: number | null;
+  made_by_assistant: number;
 }
 
-/** Một dòng của bảng `hang_doi_hoi`. */
+/** Một dòng của bảng `ask_queue`. */
 export interface DongHangDoi {
   request_id: string;
-  chat_id_hoi: string;
+  asking_chat_id: string;
   msg_id: string;
   user_id: string;
-  noi_dung: string;
-  ts_tao: string;
-  trang_thai: 'cho' | 'da_day' | 'da_tra_loi' | 'het_han' | 'bo';
+  content: string;
+  ts_created: string;
+  status: 'cho' | 'da_day' | 'da_tra_loi' | 'het_han' | 'bo';
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -191,7 +191,7 @@ export interface KetQuaTruyVan {
 export interface ThamSoLichSu {
   /** Giới hạn về đúng một hội thoại. Không truyền = tìm mọi hội thoại được nghe. */
   chatId?: string;
-  /** Tìm trong `noi_dung`. */
+  /** Tìm trong `content`. */
   tuKhoa?: string;
   /** Mặc định GIOI_HAN.SO_LUONG_MAC_DINH, trần cứng GIOI_HAN.SO_LUONG_TOI_DA. */
   soLuong?: number;
@@ -330,7 +330,7 @@ export interface TrangThaiSucKhoe {
  *
  * MCP chỉ truyền được MỘT object đối số, nên schema phải phẳng.
  * `request_id` là BẮT BUỘC ở `lich_su`, `tra_loi`, `nhan_rieng_host`.
- * `trang_thai` KHÔNG có tham số nào.
+ * `status` KHÔNG có tham số nào.
  */
 export interface ThamSoToolLichSu extends ThamSoLichSu {
   request_id: string;
@@ -346,7 +346,7 @@ export interface ThamSoToolNhanRiengHost {
   text: string;
 }
 
-/** `trang_thai()` — không tham số. */
+/** `status()` — không tham số. */
 export type ThamSoToolTrangThai = Record<string, never>;
 
 /**
@@ -391,7 +391,7 @@ export interface DuLieuGui {
   msgId: string | null;
 }
 
-/** Dữ liệu trả về của `trang_thai`. */
+/** Dữ liệu trả về của `status`. */
 export interface DuLieuTrangThai {
   sucKhoe: TrangThaiSucKhoe;
   soNhomDangNghe: number;

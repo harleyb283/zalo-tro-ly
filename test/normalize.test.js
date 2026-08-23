@@ -262,7 +262,7 @@ test('D2 BẪY 2+3: globalMsgId dạng SỐ ghép được với msgId dạng CH
   const tin = normalizeMessage(tinNhom(), BOI_CANH);
   const u = normalizeRecall(suKienThuHoi());
   assert.equal(typeof u.msgIdDich, 'string');
-  assert.equal(u.msgIdDich, tin.msgId, 'đây chính là điều kiện để UPDATE da_thu_hoi trúng dòng');
+  assert.equal(u.msgIdDich, tin.msgId, 'đây chính là điều kiện để UPDATE recalled trúng dòng');
 });
 
 test('D3 cliMsgId phụ cũng về TEXT (đường ghép dự phòng)', () => {
@@ -454,9 +454,9 @@ test('J1 payload THẬT `webchat` -> là tin văn bản, chữ vào noiDung', ()
 
 test('J2 HỒI QUY chính cái đã hỏng: KHÔNG được ra UNKNOWN + chữ kẹt trong contentRaw', () => {
   const t = normalizeMessage(tinThatWebchat(), BOI_CANH);
-  // Vân tay của bug: msg_type='UNKNOWN', noi_dung=NULL, chữ nằm ở _text.
+  // Vân tay của bug: msg_type='UNKNOWN', content=NULL, chữ nằm ở _text.
   assert.notEqual(t.msgType, MSG_TYPE.UNKNOWN);
-  assert.notEqual(t.noiDung, null, 'noi_dung=NULL đúng là triệu chứng của bug');
+  assert.notEqual(t.noiDung, null, 'content=NULL đúng là triệu chứng của bug');
   assert.ok(
     !String(t.contentRaw).includes('_khongPhaiJson'),
     'chữ kẹt trong contentRaw._text là đúng dạng hỏng đã xảy ra thật',
@@ -518,7 +518,7 @@ test('J8 tên CHƯA AI TỪNG THẤY -> cắm cờ _tenLa để có người đi
   assert.equal(biet._tenLa, undefined);
 });
 
-test('J9 mentions được GIỮ làm bằng chứng — nếu không thì co_tag_host không thể truy được', () => {
+test('J9 mentions được GIỮ làm bằng chứng — nếu không thì has_host_tag không thể truy được', () => {
   const men = [{ uid: BOT_THAT, pos: 0, len: 8, type: 0 }];
   const t = normalizeMessage(tinThatWebchat({ mentions: men }), { hostUserIds: [HOST_THAT], uidTroLy: BOT_THAT });
   assert.equal(t.noiDung, 'Test trợ lý 1', 'giữ bằng chứng KHÔNG được làm mất chữ');

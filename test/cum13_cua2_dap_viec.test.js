@@ -4,8 +4,8 @@
  *
  * ═══ LUẬT ═══
  *   **Quyền đi theo VIỆC, ⛔ không theo NGƯỜI.**
- *   Mở khi thoả ĐỦ BA: đúng `nguoi_phu_trach` · lời nhắc `dang_theo_duoi` ·
- *   đúng `chat_id_dich`. Lời nhắc đóng ⇒ cửa đóng theo ngay.
+ *   Mở khi thoả ĐỦ BA: đúng `owner` · lời nhắc `dang_theo_duoi` ·
+ *   đúng `target_chat_id`. Lời nhắc đóng ⇒ cửa đóng theo ngay.
  *
  * 🔴 Cửa 2 mở quyền **NÓI**, ⛔ KHÔNG mở quyền **RA LỆNH**.
  * 🔴 ⛔ KHÔNG có cửa 2 trong DM.
@@ -82,7 +82,7 @@ function dbCoNhac(tuyChon = {}) {
     upsertConversation(db, { chatId: c, loai: 'GROUP', ten: 'g', duocNghe: true });
   }
   writeMessage(db, tin({ msgId: 'cu1', noiDung: 'tin cũ' }));
-  // ⚠️ `groupMembers` suy danh sách từ `tin_nhan.ten_luc_gui` ⇒ host phải
+  // ⚠️ `groupMembers` suy danh sách từ `messages.name_at_send` ⇒ host phải
   // TỪNG NHẮN trong nhóm thì mới tra ra tên mà dựng mention. Đây cũng chính là
   // ca hỏng thật ngoài đời: host chưa từng nhắn ⇒ tag bốc hơi trong im lặng.
   writeMessage(db, tin({ msgId: 'cu2', userId: HOST, tenLucGui: 'Chủ máy', noiDung: 'nhắc giúp anh nhé' }));
@@ -137,7 +137,7 @@ test('★★★ Q4 lời nhắc ĐÃ ĐÓNG -> cửa đóng theo NGAY', () => {
 
 test('★★★ Q5 🔴 lời nhắc bị HUỶ LỊCH -> cũng phải đóng (bẫy em tự tìm ra)', () => {
   // `cancelSchedule()` chỉ đổi `status` sang 'da_huy' và KHÔNG đụng
-  // `trang_thai_td` ⇒ chỉ kiểm ba điều kiện là cửa 2 MỞ CHO MỘT VIỆC ĐÃ HUỶ.
+  // `follow_up_status` ⇒ chỉ kiểm ba điều kiện là cửa 2 MỞ CHO MỘT VIỆC ĐÃ HUỶ.
   const { db, id } = dbCoNhac();
   cancelSchedule(db, { id });
   assert.equal(findGate2Task(db, NHOM, PHU_TRACH), null,
@@ -346,7 +346,7 @@ test('★★★ T2c `xinHostDuyet` KHÔNG mở thêm quyền nào — bật ở 
 });
 
 test('★★★ T2d HOST CHƯA TỪNG NHẮN trong nhóm -> tag hỏng CÂM, phải LÙI về DM', async () => {
-  // 🔴 `groupMembers` suy danh sách từ `tin_nhan.ten_luc_gui`. Host chưa
+  // 🔴 `groupMembers` suy danh sách từ `messages.name_at_send`. Host chưa
   // nhắn lần nào ⇒ không tra ra tên ⇒ `ensureMention` bỏ qua TRONG IM LẶNG ⇒ câu
   // "anh duyệt cho em nhé" KHÔNG tới ai, mà nhìn từ ngoài thì mọi thứ ổn.
   const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
@@ -411,7 +411,7 @@ test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM k
   // DM không có cơ chế mention, nên `ensureMention` ⛔ không chạy ở đó. Chạy đường
   // lùi cho một lượt DM là gửi cho host TIN THỨ HAI vào đúng chỗ vừa gửi.
   const { db, id } = dbCoNhac();
-  // Lượt DM: `chat_id_hoi` chính là DM host.
+  // Lượt DM: `asking_chat_id` chính là DM host.
   enqueueQuestion(db, {
     requestId: 'r-dm', chatIdHoi: DM_HOST, msgId: 'mdm', userId: HOST,
     noiDung: 'anh hỏi', tsTao: new Date().toISOString(), chiNghe: false, idViecMoCua: id,
@@ -424,7 +424,7 @@ test('★★★ T2d3 nơi hỏi là DM -> ⛔ KHÔNG chạy đường lùi (DM k
 });
 
 test('★★★ T2d4 ⛔ KHÔNG bao giờ tag CHÍNH BOT, kể cả khi host = tài khoản bot', async () => {
-  // Trợ lý chạy trên chính tài khoản của host ⇒ `nguoi_dat` có thể trùng uid
+  // Trợ lý chạy trên chính tài khoản của host ⇒ `created_by` có thể trùng uid
   // bot. Tag chính mình là một mention vô nghĩa gửi vào nhóm người thật.
   const db = openDb(path.join(tam(), 'kho', 'lichsu.db'));
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'g', duocNghe: true });
@@ -510,8 +510,8 @@ test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệ
   // Phần "có bằng chứng thì chạy" nằm ở cụm 16 (nghiệm thu GĐ5).
   const { db, id } = dbCoNhac();
   const { goi } = dungTool(db);
-  const truocLich = db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n;
-  const truocGhiNho = db.prepare('SELECT COUNT(*) n FROM ghi_nho').get().n;
+  const truocLich = db.prepare('SELECT COUNT(*) n FROM schedules').get().n;
+  const truocGhiNho = db.prepare('SELECT COUNT(*) n FROM memories').get().n;
 
   // ① QUYỀN RA LỆNH: chặn ở LỚP DANH SÁCH TRẮNG.
   const rl = await goi(TEN_TOOL.NHAN_RIENG_HOST, { request_id: phien(db, 'rg-dm', id), text: 'anh ơi' });
@@ -540,11 +540,11 @@ test('★★★ T3a 🔴 CỬA 2 ⛔ KHÔNG MỞ QUYỀN RA LỆNH (v11: nghiệ
   }
 
   // 🔴 Canh BẢN GHI DB trước/sau, ⛔ không chỉ đếm lời gọi hàm.
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n, truocLich);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM ghi_nho').get().n, truocGhiNho);
-  const d = db.prepare('SELECT trang_thai_td, chu_ky_ngay FROM lich_hen WHERE id = $i').get({ i: id });
-  assert.equal(d.trang_thai_td, 'dang_theo_duoi', '🔴 đóng được lời nhắc mà ⛔ không để lại vết');
-  assert.equal(d.chu_ky_ngay, 1, 'nhịp bị đổi = người đó tự dời lịch');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM schedules').get().n, truocLich);
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM memories').get().n, truocGhiNho);
+  const d = db.prepare('SELECT follow_up_status, cycle_days FROM schedules WHERE id = $i').get({ i: id });
+  assert.equal(d.follow_up_status, 'dang_theo_duoi', '🔴 đóng được lời nhắc mà ⛔ không để lại vết');
+  assert.equal(d.cycle_days, 1, 'nhịp bị đổi = người đó tự dời lịch');
   closeDb(db);
 });
 
@@ -571,7 +571,7 @@ test('★★★ T5 CỬA 2 ĐÓNG (lượt chỉ nghe thuần) -> `reply` vẫn 
 test('★★★ T6 phiên tự khai `idViecMoCua` qua THAM SỐ TOOL -> ⛔ không lọt', async () => {
   const { db, id } = dbCoNhac();
   const { goi, daGui } = dungTool(db);
-  for (const doi of [{ idViecMoCua: id }, { id_viec_mo_cua: id }, { chiNghe: false }]) {
+  for (const doi of [{ idViecMoCua: id }, { open_pane_job_id: id }, { chiNghe: false }]) {
     // eslint-disable-next-line no-await-in-loop
     const r = await goi(TEN_TOOL.TRA_LOI, { request_id: phien(db, `rk-${Object.keys(doi)[0]}`, null), text: 'Dạ', ...doi });
     assert.equal(r.ok, false, `model tự khai ${JSON.stringify(doi)} mà lọt`);
@@ -652,8 +652,8 @@ test('★★★ T11 `idViecMoCua` chuỗi RỖNG -> ép về NULL (cửa ĐÓNG)
       requestId: `rr${i}`, chatIdHoi: NHOM, msgId: `mm${i}`, userId: PHU_TRACH,
       noiDung: 'x', tsTao: new Date().toISOString(), chiNghe: true, idViecMoCua: v,
     });
-    const d = db.prepare('SELECT id_viec_mo_cua FROM hang_doi_hoi WHERE request_id = $r').get({ r: `rr${i}` });
-    assert.equal(d.id_viec_mo_cua, null, `giá trị ${JSON.stringify(v)} phải thành NULL`);
+    const d = db.prepare('SELECT open_pane_job_id FROM ask_queue WHERE request_id = $r').get({ r: `rr${i}` });
+    assert.equal(d.open_pane_job_id, null, `giá trị ${JSON.stringify(v)} phải thành NULL`);
   }
   closeDb(db);
 });
@@ -744,10 +744,10 @@ test('★★★ W1 ĐẦU-CUỐI: người phụ trách nói -> phiên MANG id v
   handleMessage(p, tin({ msgId: 'w1', userId: PHU_TRACH, noiDung: 'sắp xong rồi anh' }));
   await new Promise((r) => setTimeout(r, 25));
 
-  const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w1'").get();
+  const dong = db.prepare("SELECT * FROM ask_queue WHERE msg_id = 'w1'").get();
   assert.ok(dong, 'phải mở phiên');
-  assert.equal(dong.id_viec_mo_cua, id, '🔴 cửa 2 KHÔNG tới được phiên — tính năng chết câm');
-  assert.equal(dong.chi_nghe, 1, 'cửa 2 mở quyền NÓI, ⛔ vẫn KHÔNG phải lượt host');
+  assert.equal(dong.open_pane_job_id, id, '🔴 cửa 2 KHÔNG tới được phiên — tính năng chết câm');
+  assert.equal(dong.listen_only, 1, 'cửa 2 mở quyền NÓI, ⛔ vẫn KHÔNG phải lượt host');
   assert.equal(daBao[0]?.idViecMoCua, id, 'tin báo cho model cũng phải mang id');
   assert.equal(daBao[0]?.noiDungViec, 'gửi báo giá cho khách', 'model cần BIẾT phạm vi là việc nào');
   closeDb(db);
@@ -759,9 +759,9 @@ test('★★★ W2 ĐẦU-CUỐI: người KHÔNG phụ trách -> phiên KHÔNG 
   const { p } = boDauCuoi(db);
   handleMessage(p, tin({ msgId: 'w2', userId: NGUOI_KHAC }));
   await new Promise((r) => setTimeout(r, 25));
-  const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w2'").get();
-  assert.equal(dong.id_viec_mo_cua, null, '🔴 cửa mở cho người không phụ trách');
-  assert.equal(dong.chi_nghe, 1);
+  const dong = db.prepare("SELECT * FROM ask_queue WHERE msg_id = 'w2'").get();
+  assert.equal(dong.open_pane_job_id, null, '🔴 cửa mở cho người không phụ trách');
+  assert.equal(dong.listen_only, 1);
   closeDb(db);
 });
 
@@ -773,9 +773,9 @@ test('★★★ W3 ĐẦU-CUỐI: HOST gửi -> lượt đầy đủ, ⛔ KHÔNG
   const { p } = boDauCuoi(db);
   handleMessage(p, tin({ msgId: 'w3', userId: HOST, hasHostMention: true }));
   await new Promise((r) => setTimeout(r, 25));
-  const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w3'").get();
-  assert.equal(dong.chi_nghe, 0, 'host phải là lượt đầy đủ');
-  assert.equal(dong.id_viec_mo_cua, null,
+  const dong = db.prepare("SELECT * FROM ask_queue WHERE msg_id = 'w3'").get();
+  assert.equal(dong.listen_only, 0, 'host phải là lượt đầy đủ');
+  assert.equal(dong.open_pane_job_id, null,
     '🔴 lượt host mà mang cờ cửa 2 = trần 300 ký tự áp nhầm lên chính chủ');
   void id;
   closeDb(db);
@@ -804,16 +804,16 @@ test('★★★ W4 ĐẦU-CUỐI: tra cửa 2 HỎNG -> coi như ĐÓNG, ⛔ KH�
   const { db } = dbCoNhac();
   const goc = db.prepare.bind(db);
   db.prepare = (sql) => {
-    if (String(sql).includes('trang_thai_td = $ttd')) throw new Error('DB chết đúng lúc');
+    if (String(sql).includes('follow_up_status = $ttd')) throw new Error('DB chết đúng lúc');
     return goc(sql);
   };
   const { p } = boDauCuoi(db);
   assert.doesNotThrow(() => handleMessage(p, tin({ msgId: 'w4', userId: PHU_TRACH })));
   await new Promise((r) => setTimeout(r, 25));
   db.prepare = goc;
-  const dong = db.prepare("SELECT * FROM hang_doi_hoi WHERE msg_id = 'w4'").get();
+  const dong = db.prepare("SELECT * FROM ask_queue WHERE msg_id = 'w4'").get();
   assert.ok(dong, 'tra hỏng mà mất luôn phiên = mất tin của người thật');
-  assert.equal(dong.id_viec_mo_cua, null, 'hỏng phải về chiều ĐÓNG');
+  assert.equal(dong.open_pane_job_id, null, 'hỏng phải về chiều ĐÓNG');
   closeDb(db);
 });
 
@@ -852,6 +852,6 @@ test('★★★ N2 nhãn cửa 2 THẮNG nhãn chỉ-nghe (⛔ không dán cả 
   assert.ok(c.startsWith('[ĐÁP VIỆC'), 'nhãn cửa 2 phải ở ĐẦU content');
   assert.ok(!c.includes(LISTEN_ONLY_LABEL),
     '🔴 dán cả hai nhãn = bảo model vừa "không được trả lời" vừa "đáp ngắn"');
-  assert.equal(nhan[0].params.meta.id_viec_mo_cua, 'NHAC1');
+  assert.equal(nhan[0].params.meta.open_pane_job_id, 'NHAC1');
   await kenh.dong();
 });

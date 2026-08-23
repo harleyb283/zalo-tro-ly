@@ -85,7 +85,7 @@ export const TRANG_THAI_HANG_DOI = Object.freeze({
   BO: 'bo',
 });
 
-// ─── Hướng trả lời (ghi vào nhat_ky_truy_van.huong_tra_loi) ────────────
+// ─── Hướng trả lời (ghi vào query_log.reply_route) ────────────
 export const HUONG_TRA_LOI = Object.freeze({
   NHOM: 'nhom',
   DM_HOST: 'dm_host',
@@ -131,7 +131,7 @@ export const MSG_TYPE = Object.freeze({
   UNKNOWN: 'UNKNOWN',
 });
 
-/** msgType nào được phép có `noi_dung` khác NULL — thi hành spec H ở tầng code. */
+/** msgType nào được phép có `content` khác NULL — thi hành spec H ở tầng code. */
 export const MSG_TYPE_CO_NOI_DUNG = Object.freeze([MSG_TYPE.TEXT]);
 
 // ─── Mã lỗi trả về từ tool MCP (hợp đồng G0 mục 9) ─────────────────────
@@ -141,7 +141,7 @@ export const MSG_TYPE_CO_NOI_DUNG = Object.freeze([MSG_TYPE.TEXT]);
  */
 export const MA_LOI = Object.freeze({
   THIEU_REQUEST_ID: 'THIEU_REQUEST_ID',
-  REQUEST_ID_LA: 'REQUEST_ID_LA',        // không có trong hang_doi_hoi → fail-closed
+  REQUEST_ID_LA: 'REQUEST_ID_LA',        // không có trong ask_queue → fail-closed
   HANG_DOI_HET_HAN: 'HANG_DOI_HET_HAN',
   BI_CHAN_RO_CHEO: 'BI_CHAN_RO_CHEO',    // đã chuyển sang DM host
   KHONG_CO_HOST: 'KHONG_CO_HOST',
@@ -198,7 +198,7 @@ export const DO_TIN_CAY = Object.freeze({
  * dừng hẳn phương án A". Hai thứ hoàn toàn khác nhau:
  *   DO             = ĐÃ GỌI THẬT và hỏng  -> đây mới là điều kiện dừng phương án
  *   CHUA_SAN_SANG  = chưa gọi lần nào     -> chưa biết gì, chạy lại
- * Phân biệt bằng `so_goi_mang`: 0 nghĩa là chưa có bằng chứng nào về endpoint.
+ * Phân biệt bằng `net_call_count`: 0 nghĩa là chưa có bằng chứng nào về endpoint.
  */
 export const KET_LUAN_A0 = Object.freeze({
   XANH: 'XANH',
@@ -332,7 +332,7 @@ export const A0_BO_DO = Object.freeze({
   ]),
 });
 
-/** Kết quả một lượt quét, ghi vào `doi_chieu_lich_su.ket_qua`. */
+/** Kết quả một lượt quét, ghi vào `history_audit.result`. */
 export const KET_QUA_QUET = Object.freeze({
   OK: 'OK',
   CUT_TRANG: 'CUT_TRANG',
@@ -394,10 +394,10 @@ export const TIEN_TO_NHAC_MUON = '(nhắc muộn) ';
  * Trạng thái riêng của lời nhắc THEO ĐUỔI.
  *
  * ⚠️ VÌ SAO PHẢI LÀ CỘT RIÊNG, không thêm giá trị vào `status`:
- * `lich_hen.trang_thai` có ràng buộc CHECK liệt kê cứng 6 giá trị. Thêm giá trị
+ * `schedules.status` có ràng buộc CHECK liệt kê cứng 6 giá trị. Thêm giá trị
  * thứ 7 đòi DỰNG LẠI BẢNG — mà luật migrate của pack cấm DROP/RENAME/copy-bảng
  * (đây là kho hội thoại THẬT, mất là mất hẳn). Nên `status` giữ nguyên vòng
- * đời cũ, `trang_thai_td` chỉ có nghĩa khi `la_theo_duoi = 1`.
+ * đời cũ, `follow_up_status` chỉ có nghĩa khi `is_follow_up = 1`.
  */
 export const TRANG_THAI_TD = Object.freeze({
   DANG_THEO_DUOI: 'dang_theo_duoi',
@@ -488,7 +488,7 @@ export const TEN_TOOL_LICH = Object.freeze({
  *
  * 🔴 KHÁC HẲN `TEN_TOOL_LICH` ở trên, và đây là chỗ model rất dễ chọn nhầm vì
  * tên na ná nhau:
- *   · `TEN_TOOL_LICH`  = nhắc MỘT LẦN. `gui_luc_ms` là một mốc đơn; gửi xong
+ *   · `TEN_TOOL_LICH`  = nhắc MỘT LẦN. `send_at_ms` là một mốc đơn; gửi xong
  *     chuyển `da_gui` và hết. Muốn nhắc tiếp thì mỗi lần phải đặt lại một lịch
  *     mới — quên một hôm là việc rơi im lặng.
  *   · `TEN_TOOL_NHAC`  = nhắc LẶP theo chu kỳ ngày, tự tính mốc kế tiếp, chạy
@@ -629,7 +629,7 @@ export const SU_KIEN_CONG_GHI = Object.freeze({
  * ⚠️ Cố ý CHỈ gồm cue MỆNH LỆNH RÕ RÀNG. Cám dỗ là nhét thêm "nhớ", "chốt",
  * "note" trần — nhưng "nhớ" xuất hiện trong "anh không nhớ", "để anh nhớ xem",
  * và bắt nhầm thì tốn một vòng model MỖI LẦN. Rộng dần theo số đo trong
- * `nhat_ky_cong_ghi`, ⛔ đừng đoán trước.
+ * `write_gate_log`, ⛔ đừng đoán trước.
  */
 export const CUE_GHI_NHO_MAC_DINH = Object.freeze([
   'lưu lại', 'lưu giùm', 'lưu hộ', 'lưu vào',
@@ -726,7 +726,7 @@ export const TRANG_THAI_DUYET = Object.freeze({
 });
 
 
-export const PHIEN_BAN_SCHEMA = '11';  // v11 (21/08/2026): yeu_cau_duyet + ghi_nho.nguon_*
+export const PHIEN_BAN_SCHEMA = '12';  // v12 (23/08/2026): đổi tên bảng/cột sang tiếng Anh
 
 /**
  * ★ BẢNG TÊN TOOL CŨ -> MỚI (đổi sang tiếng Anh 22/08/2026, anh chốt).

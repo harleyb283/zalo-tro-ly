@@ -31,9 +31,9 @@ import { enqueueQuestion, updateQueueState } from '../src/store/write.js';
 
 const moi = (truMs = 5_000, them = {}) => ({
   request_id: 'r-moi',
-  ts_tao: new Date(Date.now() - truMs).toISOString(),
-  noi_dung: 'anh hỏi một câu',
-  chi_nghe: 0,
+  ts_created: new Date(Date.now() - truMs).toISOString(),
+  content: 'anh hỏi một câu',
+  listen_only: 0,
   ...them,
 });
 
@@ -57,7 +57,7 @@ test('A2 ★★ câu chặn phải nêu ĐÍCH DANH tool và request_id', () => 
 });
 
 test('A3 ★ lượt CHỈ NGHE thì chỉ đường sang bo_qua, ⛔ không bắt trả lời', () => {
-  const s = blockMessage(decideBlock({ dong: [moi(5_000, { chi_nghe: 1 })] }));
+  const s = blockMessage(decideBlock({ dong: [moi(5_000, { listen_only: 1 })] }));
   assert.match(s, /skip/);
   assert.match(s, /CHỈ NGHE/);
 });
@@ -83,8 +83,8 @@ test('B3 ★ ⛔ không còn dòng nào -> cho đi tiếp', () => {
 });
 
 test('B4 ★★ mốc thời gian hỏng -> ⛔ KHÔNG chặn (hỏng thì MỞ)', () => {
-  assert.equal(decideBlock({ dong: [moi(0, { ts_tao: 'không-phải-ngày' })] }), null);
-  assert.equal(decideBlock({ dong: [moi(0, { ts_tao: null })] }), null);
+  assert.equal(decideBlock({ dong: [moi(0, { ts_created: 'không-phải-ngày' })] }), null);
+  assert.equal(decideBlock({ dong: [moi(0, { ts_created: null })] }), null);
 });
 
 test('B5 ★ mốc ở TƯƠNG LAI (lệch giờ máy) -> ⛔ không chặn', () => {

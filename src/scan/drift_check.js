@@ -161,9 +161,9 @@ export function groupsToScan(db, tuMs) {
   return db
     .prepare(
       `SELECT DISTINCT t.chat_id
-         FROM tin_nhan t
-         JOIN hoi_thoai h ON h.chat_id = t.chat_id AND h.duoc_nghe = 1
-        WHERE h.loai = 'GROUP' AND t.ts_zalo >= $tu`,
+         FROM messages t
+         JOIN conversations h ON h.chat_id = t.chat_id AND h.listened = 1
+        WHERE h.kind = 'GROUP' AND t.ts_zalo >= $tu`,
     )
     .all({ tu: Math.floor(tuMs) })
     .map((r) => String(r.chat_id));
@@ -178,15 +178,15 @@ export function groupsToScan(db, tuMs) {
 export function messagesInWindow(db, chatId, tuMs) {
   return db
     .prepare(
-      `SELECT msg_id, ts_zalo, thu_hoi_nguon, vang_mat_so_lan
-         FROM tin_nhan WHERE chat_id = $c AND ts_zalo >= $tu`,
+      `SELECT msg_id, ts_zalo, recall_source, absent_count
+         FROM messages WHERE chat_id = $c AND ts_zalo >= $tu`,
     )
     .all({ c: String(chatId), tu: Math.floor(tuMs) })
     .map((r) => ({
       msgId: String(r.msg_id),
       tsZalo: Number(r.ts_zalo ?? 0),
-      nguonHienTai: r.thu_hoi_nguon ?? null,
-      vangMatSoLan: Number(r.vang_mat_so_lan ?? 0),
+      nguonHienTai: r.recall_source ?? null,
+      vangMatSoLan: Number(r.absent_count ?? 0),
     }));
 }
 
@@ -194,9 +194,9 @@ export function messagesInWindow(db, chatId, tuMs) {
  * Áp kết quả phân loại vào DB — nơi thi hành CHỐT 2 (xác nhận 2 lượt).
  *
  * Ba đường ghi:
- *  · vắng lần đầu   -> vang_mat_so_lan = 1, do_tin_cay = NGHI_NGO, CHƯA đánh
- *                      dấu `da_thu_hoi` (chưa đủ chắc để nói ra)
- *  · vắng đủ số lần -> da_thu_hoi = 1, nguon = DOI_CHIEU, do_tin_cay = SUY_RA
+ *  · vắng lần đầu   -> absent_count = 1, do_tin_cay = NGHI_NGO, CHƯA đánh
+ *                      dấu `recalled` (chưa đủ chắc để nói ra)
+ *  · vắng đủ số lần -> recalled = 1, source = DOI_CHIEU, do_tin_cay = SUY_RA
  *  · xuất hiện lại  -> XOÁ dấu nghi ngờ. Quan trọng: một lần mạng hỏng làm tin
  *                      "vắng" rồi lượt sau thấy lại thì phải quên đi, nếu không
  *                      bộ đếm cứ cộng dồn qua nhiều ngày và cuối cùng vu oan.
@@ -211,41 +211,41 @@ export function applyScanResult(db, p) {
   const ra = { soNghiNgo: 0, soXacNhan: 0, soXoaNghi: 0 };
 
   const doc = db.prepare(
-    'SELECT vang_mat_so_lan, thu_hoi_nguon FROM tin_nhan WHERE chat_id = $c AND msg_id = $m',
+    'SELECT absent_count, recall_source FROM messages WHERE chat_id = $c AND msg_id = $m',
   );
   const ghiNghi = db.prepare(
-    `UPDATE tin_nhan SET vang_mat_so_lan = $n, vang_mat_lan_dau = COALESCE(vang_mat_lan_dau, $iso),
-            thu_hoi_do_tin_cay = $tc
+    `UPDATE messages SET absent_count = $n, absent_first_ms = COALESCE(absent_first_ms, $iso),
+            recall_confidence = $tc
       WHERE chat_id = $c AND msg_id = $m`,
   );
   const ghiXacNhan = db.prepare(
-    `UPDATE tin_nhan SET vang_mat_so_lan = $n, da_thu_hoi = 1,
-            thu_hoi_nguon = $nguon, thu_hoi_do_tin_cay = $tc
-      WHERE chat_id = $c AND msg_id = $m AND thu_hoi_nguon IS NOT 'SU_KIEN'`,
+    `UPDATE messages SET absent_count = $n, recalled = 1,
+            recall_source = $nguon, recall_confidence = $tc
+      WHERE chat_id = $c AND msg_id = $m AND recall_source IS NOT 'SU_KIEN'`,
   );
   const xoaNghi = db.prepare(
-    `UPDATE tin_nhan SET vang_mat_so_lan = 0, vang_mat_lan_dau = NULL,
-            thu_hoi_do_tin_cay = NULL
-      WHERE chat_id = $c AND msg_id = $m AND vang_mat_so_lan > 0
-        AND thu_hoi_nguon IS NOT 'SU_KIEN'`,
+    `UPDATE messages SET absent_count = 0, absent_first_ms = NULL,
+            recall_confidence = NULL
+      WHERE chat_id = $c AND msg_id = $m AND absent_count > 0
+        AND recall_source IS NOT 'SU_KIEN'`,
   );
   const ghiSuKien = db.prepare(
-    `INSERT OR IGNORE INTO su_kien_thu_hoi
-       (event_id, chat_id, msg_id_dich, cli_msg_id_dich, nguoi_thu_hoi,
-        ten_nguoi_thu_hoi, ts_zalo, ts_ghi, khop_duoc, nguon, khoang_tu_ms, khoang_den_ms)
+    `INSERT OR IGNORE INTO recall_events
+       (event_id, chat_id, target_msg_id, target_cli_msg_id, recaller_id,
+        recaller_name, ts_zalo, ts_saved, matched, source, range_from_ms, range_to_ms)
      VALUES ($e, $c, $m, NULL, $boi, NULL, $ts, $iso, 1, $nguon, $tu, $den)`,
   );
   // Người thu hồi SUY RA ĐƯỢC CHẮC CHẮN: Zalo chỉ cho thu hồi tin của CHÍNH
   // MÌNH ⇒ người thu hồi chính là người đã gửi tin đó. Đọc thẳng từ DB, không đoán.
   const layNguoiGui = db.prepare(
-    'SELECT user_id FROM tin_nhan WHERE chat_id = $c AND msg_id = $m',
+    'SELECT user_id FROM messages WHERE chat_id = $c AND msg_id = $m',
   );
 
   for (const m of p.vangMat) {
     const cu = doc.get({ c: p.chatId, m });
     if (!cu) continue;
-    if (cu.thu_hoi_nguon === NGUON_THU_HOI.SU_KIEN) continue;   // chốt 4
-    const n = Number(cu.vang_mat_so_lan ?? 0) + 1;
+    if (cu.recall_source === NGUON_THU_HOI.SU_KIEN) continue;   // chốt 4
+    const n = Number(cu.absent_count ?? 0) + 1;
     if (n < can) {
       ghiNghi.run({ c: p.chatId, m, n, iso: p.bayGioIso, tc: DO_TIN_CAY.NGHI_NGO });
       ra.soNghiNgo += 1;
@@ -264,7 +264,7 @@ export function applyScanResult(db, p) {
       m,
       boi: layNguoiGui.get({ c: p.chatId, m })?.user_id ?? null,
       // ⚠️ ts_zalo ở đây là LÚC QUÉT, KHÔNG phải lúc thu hồi. Thứ ta biết thật
-      // nằm ở cặp khoang_tu_ms/khoang_den_ms ngay dưới.
+      // nằm ở cặp range_from_ms/range_to_ms ngay dưới.
       ts: p.bayGioMs,
       iso: p.bayGioIso,
       nguon: NGUON_THU_HOI.DOI_CHIEU,
@@ -284,29 +284,29 @@ export function applyScanResult(db, p) {
 /** Ghi một dòng nhật ký quét. */
 export function writeScanLog(db, r) {
   db.prepare(
-    `INSERT INTO doi_chieu_lich_su
-       (chat_id, ts_bat_dau, ts_ket_thuc, cua_so_tu_ms, cua_so_den_ms,
-        bien_min_msg_id, bien_max_msg_id, so_tin_zalo, so_tin_db, so_nghi_ngo,
-        so_xac_nhan, so_backfill, so_goi_mang, ket_qua, ghi_chu)
-     VALUES ($chat_id, $ts_bat_dau, $ts_ket_thuc, $cua_so_tu_ms, $cua_so_den_ms,
-             $bien_min, $bien_max, $so_tin_zalo, $so_tin_db, $so_nghi_ngo,
-             $so_xac_nhan, $so_backfill, $so_goi_mang, $ket_qua, $ghi_chu)`,
+    `INSERT INTO history_audit
+       (chat_id, ts_start, ts_end, window_from_ms, window_to_ms,
+        edge_min_msg_id, edge_max_msg_id, zalo_msg_count, db_msg_count, suspect_count,
+        confirmed_count, backfill_count, net_call_count, result, note)
+     VALUES ($chat_id, $ts_start, $ts_end, $window_from_ms, $window_to_ms,
+             $bien_min, $bien_max, $zalo_msg_count, $db_msg_count, $suspect_count,
+             $confirmed_count, $backfill_count, $net_call_count, $result, $note)`,
   ).run({
     chat_id: String(r.chatId),
-    ts_bat_dau: r.tsBatDau,
-    ts_ket_thuc: r.tsKetThuc,
-    cua_so_tu_ms: Math.floor(r.cuaSoTuMs),
-    cua_so_den_ms: Math.floor(r.cuaSoDenMs),
+    ts_start: r.tsBatDau,
+    ts_end: r.tsKetThuc,
+    window_from_ms: Math.floor(r.cuaSoTuMs),
+    window_to_ms: Math.floor(r.cuaSoDenMs),
     bien_min: r.bienMin ?? null,
     bien_max: r.bienMax ?? null,
-    so_tin_zalo: r.soTinZalo | 0,
-    so_tin_db: r.soTinDb | 0,
-    so_nghi_ngo: r.soNghiNgo | 0,
-    so_xac_nhan: r.soXacNhan | 0,
-    so_backfill: r.soBackfill | 0,
-    so_goi_mang: r.soGoiMang | 0,
-    ket_qua: String(r.ketQua),
-    ghi_chu: r.ghiChu ?? null,
+    zalo_msg_count: r.soTinZalo | 0,
+    db_msg_count: r.soTinDb | 0,
+    suspect_count: r.soNghiNgo | 0,
+    confirmed_count: r.soXacNhan | 0,
+    backfill_count: r.soBackfill | 0,
+    net_call_count: r.soGoiMang | 0,
+    result: String(r.ketQua),
+    note: r.ghiChu ?? null,
   });
 }
 
@@ -315,7 +315,7 @@ export function callsToday(db, bayGioMs) {
   const d = new Date(bayGioMs);
   const dau = new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
   const r = db
-    .prepare('SELECT COALESCE(SUM(so_goi_mang), 0) s FROM doi_chieu_lich_su WHERE ts_ket_thuc >= $d')
+    .prepare('SELECT COALESCE(SUM(net_call_count), 0) s FROM history_audit WHERE ts_end >= $d')
     .get({ d: dau });
   return Number(r?.s ?? 0);
 }
@@ -439,11 +439,11 @@ function _lanQuetTruoc(db, chatId) {
   try {
     const r = db
       .prepare(
-        `SELECT cua_so_den_ms FROM doi_chieu_lich_su
+        `SELECT window_to_ms FROM history_audit
           WHERE chat_id = $c ORDER BY id DESC LIMIT 1`,
       )
       .get({ c: String(chatId) });
-    return r ? Number(r.cua_so_den_ms) : null;
+    return r ? Number(r.window_to_ms) : null;
   } catch {
     return null;
   }

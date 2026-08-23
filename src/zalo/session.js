@@ -73,7 +73,7 @@ function log(...phan) {
  *
  * `selfListen: true` — nghe cả tin do CHÍNH tài khoản này gửi (kể cả gửi từ
  * điện thoại). Cần thiết vì spec là "âm thầm lưu TOÀN BỘ lịch sử": thiếu nó
- * thì kho chỉ có một nửa cuộc hội thoại, và cột `tu_toi` trong `tin_nhan`
+ * thì kho chỉ có một nửa cuộc hội thoại, và cột `from_me` trong `messages`
  * sẽ không bao giờ khác 0.
  *
  * @returns {{selfListen: boolean, checkUpdate: boolean, logging: boolean}}

@@ -31,7 +31,7 @@ import { GIOI_HAN_LICH, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH } from '../lib/hang_s
 import { toId, toIdRequired } from '../lib/ids.js';
 
 function _log(msg) {
-  process.stderr.write(`[lich/lich_hen] ${msg}\n`);
+  process.stderr.write(`[lich/schedules] ${msg}\n`);
 }
 
 const THU_VN = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
@@ -138,10 +138,10 @@ export function createSchedule(db, p) {
   const id = p.id ?? randomUUID();
   const ma = p.ma ?? makeConfirmCode();
   db.prepare(
-    `INSERT INTO lich_hen
-       (id, chat_id_dich, loai_dich, noi_dung, tag_user_ids, gui_luc_ms, mui_gio,
-        dien_giai_goc, dien_giai_xac_nhan, nguoi_dat, chat_id_dat, trang_thai,
-        ma_xac_nhan, so_lan_thu, ts_tao, ts_cap_nhat)
+    `INSERT INTO schedules
+       (id, target_chat_id, target_kind, content, tag_user_ids, send_at_ms, timezone,
+        raw_phrasing, confirm_phrasing, created_by, creator_chat_id, status,
+        confirm_code, attempt_count, ts_created, ts_updated)
      VALUES ($id, $dich, $loai, $nd, $tag, $luc, $mg, $goc, $xn, $nguoi, $dat,
              $tt, $ma, 0, $ts, $ts)`,
   ).run({
@@ -167,38 +167,38 @@ export function createSchedule(db, p) {
  * Chốt lịch. Trả `null` nếu không tìm thấy / sai mã / sai người / sai trạng thái —
  * KHÔNG ném, để tầng tool trả mã lỗi tử tế.
  *
- * ⚠️ Kiểm CẢ `nguoi_dat`: chỉ người đặt mới chốt được lịch của mình.
+ * ⚠️ Kiểm CẢ `created_by`: chỉ người đặt mới chốt được lịch của mình.
  */
 export function confirmSchedule(db, { id, ma, nguoiDat }) {
   const dong = db
-    .prepare('SELECT * FROM lich_hen WHERE (id = $k OR ma_xac_nhan = $k)')
+    .prepare('SELECT * FROM schedules WHERE (id = $k OR confirm_code = $k)')
     .get({ k: String(id ?? ma ?? '') });
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
-  if (dong.trang_thai !== TRANG_THAI_LICH.CHO_XAC_NHAN) {
+  if (dong.status !== TRANG_THAI_LICH.CHO_XAC_NHAN) {
     return { ok: false, ly: 'SAI_TRANG_THAI', dong };
   }
-  if (String(dong.ma_xac_nhan) !== String(ma)) return { ok: false, ly: 'SAI_MA', dong };
-  if (nguoiDat && String(dong.nguoi_dat) !== String(nguoiDat)) {
+  if (String(dong.confirm_code) !== String(ma)) return { ok: false, ly: 'SAI_MA', dong };
+  if (nguoiDat && String(dong.created_by) !== String(nguoiDat)) {
     return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT', dong };
   }
   db.prepare(
-    'UPDATE lich_hen SET trang_thai = $tt, ts_cap_nhat = $ts WHERE id = $id',
+    'UPDATE schedules SET status = $tt, ts_updated = $ts WHERE id = $id',
   ).run({ tt: TRANG_THAI_LICH.DA_LEN_LICH, ts: new Date().toISOString(), id: dong.id });
-  return { ok: true, dong: { ...dong, trang_thai: TRANG_THAI_LICH.DA_LEN_LICH } };
+  return { ok: true, dong: { ...dong, status: TRANG_THAI_LICH.DA_LEN_LICH } };
 }
 
 export function cancelSchedule(db, { id, nguoiDat }) {
   const dong = db
-    .prepare('SELECT * FROM lich_hen WHERE (id = $k OR ma_xac_nhan = $k)')
+    .prepare('SELECT * FROM schedules WHERE (id = $k OR confirm_code = $k)')
     .get({ k: String(id ?? '') });
   if (!dong) return { ok: false, ly: 'KHONG_TIM_THAY' };
-  if (nguoiDat && String(dong.nguoi_dat) !== String(nguoiDat)) {
+  if (nguoiDat && String(dong.created_by) !== String(nguoiDat)) {
     return { ok: false, ly: 'KHONG_PHAI_NGUOI_DAT' };
   }
-  if ([TRANG_THAI_LICH.DA_GUI, TRANG_THAI_LICH.DA_HUY].includes(dong.trang_thai)) {
+  if ([TRANG_THAI_LICH.DA_GUI, TRANG_THAI_LICH.DA_HUY].includes(dong.status)) {
     return { ok: false, ly: 'SAI_TRANG_THAI', dong };
   }
-  db.prepare('UPDATE lich_hen SET trang_thai = $tt, ts_cap_nhat = $ts WHERE id = $id')
+  db.prepare('UPDATE schedules SET status = $tt, ts_updated = $ts WHERE id = $id')
     .run({ tt: TRANG_THAI_LICH.DA_HUY, ts: new Date().toISOString(), id: dong.id });
   return { ok: true, dong };
 }
@@ -206,13 +206,13 @@ export function cancelSchedule(db, { id, nguoiDat }) {
 export function listSchedules(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) {
   const dk = [];
   const b = { n: Math.max(1, Math.min(200, Number(soLuong) || 50)) };
-  if (trangThai) { dk.push('trang_thai = $tt'); b.tt = String(trangThai); }
-  if (chatId) { dk.push('chat_id_dich = $c'); b.c = toIdRequired(chatId, 'listSchedules.chatId'); }
-  if (nguoiDat) { dk.push('nguoi_dat = $u'); b.u = String(nguoiDat); }
+  if (trangThai) { dk.push('status = $tt'); b.tt = String(trangThai); }
+  if (chatId) { dk.push('target_chat_id = $c'); b.c = toIdRequired(chatId, 'listSchedules.chatId'); }
+  if (nguoiDat) { dk.push('created_by = $u'); b.u = String(nguoiDat); }
   return db
     .prepare(
-      `SELECT * FROM lich_hen${dk.length ? ` WHERE ${dk.join(' AND ')}` : ''}
-        ORDER BY gui_luc_ms ASC LIMIT $n`,
+      `SELECT * FROM schedules${dk.length ? ` WHERE ${dk.join(' AND ')}` : ''}
+        ORDER BY send_at_ms ASC LIMIT $n`,
     )
     .all(b);
 }
@@ -221,8 +221,8 @@ export function countPending(db) {
   return Number(
     db
       .prepare(
-        `SELECT count(*) c FROM lich_hen
-          WHERE trang_thai IN ('${TRANG_THAI_LICH.CHO_XAC_NHAN}','${TRANG_THAI_LICH.DA_LEN_LICH}')`,
+        `SELECT count(*) c FROM schedules
+          WHERE status IN ('${TRANG_THAI_LICH.CHO_XAC_NHAN}','${TRANG_THAI_LICH.DA_LEN_LICH}')`,
       )
       .get()?.c ?? 0,
   );
@@ -231,34 +231,34 @@ export function countPending(db) {
 /**
  * Lịch MỘT LẦN đã tới hạn. Chỉ `da_len_lich` — `cho_xac_nhan` KHÔNG BAO GIỜ được gửi.
  *
- * 🔴 `la_theo_duoi = 0` KHÔNG phải bộ lọc cho gọn — nó là RANH GIỚI GIỮA HAI BỘ CHẠY.
+ * 🔴 `is_follow_up = 0` KHÔNG phải bộ lọc cho gọn — nó là RANH GIỚI GIỮA HAI BỘ CHẠY.
  * Thiếu nó thì lời nhắc THEO ĐUỔI (cũng ở `da_len_lich` sau khi host chốt, vì dùng
  * chung `confirmSchedule`) lọt vào đây, và `runOneTick` sẽ `claimSending()` lật nó sang
  * `da_gui`. Mà `dueFollowUps()` ĐÒI `da_len_lich` ⇒ dòng rơi khỏi CẢ HAI truy vấn
  * VĨNH VIỄN: tính năng "theo đuổi tới khi xong" chết sau đúng MỘT phát, trong khi
- * `trang_thai_td` vẫn là `dang_theo_duoi` nên sổ nhắc vẫn báo "đang theo đuổi".
+ * `follow_up_status` vẫn là `dang_theo_duoi` nên sổ nhắc vẫn báo "đang theo đuổi".
  * Hỏng CÂM, và sổ sách nói dối.
  *
- * 🔴 Đã xảy ra THẬT 20/08/2026 (dòng `CGKJ`): `so_lan_thu=1` + `trang_thai='da_gui'`
- * + `so_lan_da_nhac=0` — tổ hợp chỉ `claimSending()` tạo ra được, mà nó chỉ được gọi
+ * 🔴 Đã xảy ra THẬT 20/08/2026 (dòng `CGKJ`): `attempt_count=1` + `status='da_gui'`
+ * + `remind_count=0` — tổ hợp chỉ `claimSending()` tạo ra được, mà nó chỉ được gọi
  * từ `runOneTick()`.
  *
- * ⚠️ Đây KHÔNG phải "cuộc đua CAS": `claimSending` khoá trên cột `trang_thai`, còn
- * `claimReminderTurn` khoá trên `gui_luc_ms` — hai `UPDATE` KHÔNG loại trừ nhau. Loại
+ * ⚠️ Đây KHÔNG phải "cuộc đua CAS": `claimSending` khoá trên cột `status`, còn
+ * `claimReminderTurn` khoá trên `send_at_ms` — hai `UPDATE` KHÔNG loại trừ nhau. Loại
  * trừ chỉ xảy ra ở tầng `SELECT` này. Vì vậy bộ lọc ở đây và mệnh đề `WHERE` của
  * `claimSending` PHẢI khớp nhau — xem chú thích ở `claimSending`.
  *
- * ⚠️ Chỉ mục `idx_lich_den_han` CỐ Ý không đổi: `WHERE trang_thai='da_len_lich'` của
- * nó vẫn bao hàm truy vấn này nên SQLite vẫn dùng được, chỉ lọc thêm `la_theo_duoi`
+ * ⚠️ Chỉ mục `idx_lich_den_han` CỐ Ý không đổi: `WHERE status='da_len_lich'` của
+ * nó vẫn bao hàm truy vấn này nên SQLite vẫn dùng được, chỉ lọc thêm `is_follow_up`
  * sau. Đổi định nghĩa một chỉ mục đã tồn tại thì `CREATE INDEX IF NOT EXISTS` không
  * làm được — phải DROP trong một bước migrate, mà luật migrate của pack cấm DROP.
  */
 export function dueSchedules(db, bayGioMs) {
   return db
     .prepare(
-      `SELECT * FROM lich_hen
-        WHERE trang_thai = $tt AND la_theo_duoi = 0 AND gui_luc_ms <= $now
-        ORDER BY gui_luc_ms ASC LIMIT 20`,
+      `SELECT * FROM schedules
+        WHERE status = $tt AND is_follow_up = 0 AND send_at_ms <= $now
+        ORDER BY send_at_ms ASC LIMIT 20`,
     )
     .all({ tt: TRANG_THAI_LICH.DA_LEN_LICH, now: Math.floor(bayGioMs) });
 }
@@ -285,23 +285,23 @@ export function decideLateness(treMs) {
 }
 
 /**
- * Đánh dấu ĐÃ GỬI. Chuyển trạng thái + tăng `so_lan_thu` trong CÙNG một lệnh,
+ * Đánh dấu ĐÃ GỬI. Chuyển trạng thái + tăng `attempt_count` trong CÙNG một lệnh,
  * và chỉ đổi khi trạng thái vẫn là `da_len_lich`.
  *
  * 🔴 `changes === 0` nghĩa là AI ĐÓ ĐÃ GỬI RỒI (hoặc vừa huỷ). Bộ chạy PHẢI
  * kiểm giá trị này TRƯỚC khi gọi mạng — đó là thứ bảo đảm "một lịch gửi đúng
  * một lần" kể cả khi daemon restart giữa chừng hoặc hai nhịp timer chồng nhau.
  *
- * ═══ 🔴 `AND la_theo_duoi = 0` — BỊT CỬA SỔ ẢNH-TĨNH-CŨ ═══
+ * ═══ 🔴 `AND is_follow_up = 0` — BỊT CỬA SỔ ẢNH-TĨNH-CŨ ═══
  * LUẬT: **mọi cột mà câu `SELECT` lọc thì mệnh đề `WHERE` của lệnh dành chỗ cũng
  * phải lọc.** Không phải cho đẹp — đây là thứ duy nhất chặn được ca dưới đây.
  *
  * `runOneTick` chụp `ds = dueSchedules(...)` MỘT LẦN rồi lặp, mà trong vòng lặp
  * có `await` (gửi tin / DM host). Lúc `await` nhả quyền điều khiển, `runFollowUpTick`
  * — được gọi ngay sau đó trong CÙNG một tick ở `index.js` — chạy, dành chỗ một dòng
- * theo đuổi bằng `claimReminderTurn` (chỉ đổi `gui_luc_ms`, KHÔNG đụng `trang_thai`)
+ * theo đuổi bằng `claimReminderTurn` (chỉ đổi `send_at_ms`, KHÔNG đụng `status`)
  * rồi gửi. `runOneTick` tỉnh lại, xử tiếp dòng đó **trong ảnh tĩnh CŨ**; nếu ở đây
- * chỉ khoá `trang_thai` thì nó vẫn thấy `da_len_lich` ⇒ TRẢ TRUE ⇒ **gửi tin thứ hai
+ * chỉ khoá `status` thì nó vẫn thấy `da_len_lich` ⇒ TRẢ TRUE ⇒ **gửi tin thứ hai
  * vào nhóm có người thật**. Đúng thứ khối chú thích đầu `runner.js` tuyên bố đã chặn
  * — chốt chặn đó có thật, nhưng chỉ chặn trong phạm vi MỘT bộ chạy.
  *
@@ -311,8 +311,8 @@ export function decideLateness(treMs) {
 export function claimSending(db, id) {
   const kq = db
     .prepare(
-      `UPDATE lich_hen SET trang_thai = $moi, so_lan_thu = so_lan_thu + 1, ts_cap_nhat = $ts
-        WHERE id = $id AND trang_thai = $cu AND la_theo_duoi = 0`,
+      `UPDATE schedules SET status = $moi, attempt_count = attempt_count + 1, ts_updated = $ts
+        WHERE id = $id AND status = $cu AND is_follow_up = 0`,
     )
     .run({ moi: TRANG_THAI_LICH.DA_GUI, cu: TRANG_THAI_LICH.DA_LEN_LICH, ts: new Date().toISOString(), id: String(id) });
   return Number(kq.changes) === 1;
@@ -320,7 +320,7 @@ export function claimSending(db, id) {
 
 export function writeSendOutcome(db, id, { msgId = null, loi = null } = {}) {
   db.prepare(
-    `UPDATE lich_hen SET msg_id_da_gui = $m, ly_do_loi = $l, trang_thai = $tt, ts_cap_nhat = $ts
+    `UPDATE schedules SET sent_msg_id = $m, error_reason = $l, status = $tt, ts_updated = $ts
       WHERE id = $id`,
   ).run({
     m: toId(msgId, 'lich.msgIdDaGui'),
@@ -333,8 +333,8 @@ export function writeSendOutcome(db, id, { msgId = null, loi = null } = {}) {
 
 export function markOverdue(db, id, lyDo) {
   db.prepare(
-    `UPDATE lich_hen SET trang_thai = $tt, ly_do_loi = $l, ts_cap_nhat = $ts
-      WHERE id = $id AND trang_thai = $cu`,
+    `UPDATE schedules SET status = $tt, error_reason = $l, ts_updated = $ts
+      WHERE id = $id AND status = $cu`,
   ).run({
     tt: TRANG_THAI_LICH.QUA_HAN,
     l: String(lyDo).slice(0, 300),

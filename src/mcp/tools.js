@@ -6,7 +6,7 @@
  *   lich_su(request_id, {chatId?, tuKhoa?, soLuong?, tuNgay?, denNgay?})
  *   tra_loi(request_id, text)
  *   nhan_rieng_host(request_id, text)
- *   trang_thai()                                  ← KHÔNG tham số
+ *   status()                                  ← KHÔNG tham số
  *
  * ⚠️ MCP chỉ truyền được MỘT object đối số ⇒ inputSchema là object PHẲNG,
  *    `request_id` nằm CÙNG CẤP với chatId/tuKhoa/... Xem ThamSoToolLichSu.
@@ -23,13 +23,13 @@
  *
  * 🔴 Thứ tự bắt buộc trong tra_loi(), TRƯỚC KHI chạm mạng:
  *      nguon  = boTichLuy.lay(requestId)          // do query.js đặt
- *      hoi_o  = hang_doi_hoi[requestId].chat_id_hoi
+ *      hoi_o  = ask_queue[requestId].asking_chat_id
  *      requestId không tồn tại      → TỪ CHỐI (fail-closed)
  *      nguon \ {hoi_o} rỗng         → gửi text vào nhóm hoi_o
  *      ngược lại (CÓ nhóm khác)     → ⛔ KHÔNG gửi text vào nhóm
  *                                      ├─ DM host: text đầy đủ
  *                                      └─ nhóm: cauHinh.cauTrungTinh (HẰNG SỐ)
- *      ghi nhat_ky_truy_van(...)
+ *      ghi query_log(...)
  *
  *    ⚠️ "TRƯỚC KHI CHẠM MẠNG" là chữ quan trọng nhất của đoạn trên: mọi phép
  *    quyết định + tra cứu DM host phải xong SẠCH trước lời gọi gửi tin đầu
@@ -467,7 +467,7 @@ export const TOOL_DECLARATIONS = Object.freeze([
     },
   },
 
-  // ─── 13. ghi_nho — chỗ ĐÁP cho chữ "lưu lại" (v6, 21/08/2026) ────────
+  // ─── 13. memories — chỗ ĐÁP cho chữ "lưu lại" (v6, 21/08/2026) ────────
   {
     name: TEN_TOOL_GHI.GHI_NHO,
     description:
@@ -736,7 +736,7 @@ function _kiemPhien(kho, db, thamSo) {
   // câu trả lời cho cùng một câu hỏi — mà tin Zalo thì không thu hồi được.
   // ⚠️ Chốt nằm ở ĐÂY chứ không ở tầng đẩy: tầng đẩy không biết Claude đã trả
   // lời hay chưa, chỉ dòng `da_tra_loi` trên đĩa mới là bằng chứng.
-  if (dong.trang_thai === TRANG_THAI_HANG_DOI.DA_TRA_LOI) {
+  if (dong.status === TRANG_THAI_HANG_DOI.DA_TRA_LOI) {
     return {
       loi: _loi(
         MA_LOI.HANG_DOI_HET_HAN,
@@ -745,7 +745,7 @@ function _kiemPhien(kho, db, thamSo) {
       ),
     };
   }
-  if (dong.trang_thai === TRANG_THAI_HANG_DOI.HET_HAN) {
+  if (dong.status === TRANG_THAI_HANG_DOI.HET_HAN) {
     return {
       loi: _loi(
         MA_LOI.HANG_DOI_HET_HAN,
@@ -756,9 +756,9 @@ function _kiemPhien(kho, db, thamSo) {
   return {
     dong,
     requestId,
-    chiNghe: Number(dong.chi_nghe) === 1,
+    chiNghe: Number(dong.listen_only) === 1,
     // v10 — CỬA 2. Đọc từ ĐĨA, ⛔ không nhận từ tham số tool.
-    idViecMoCua: dong.id_viec_mo_cua ? String(dong.id_viec_mo_cua) : null,
+    idViecMoCua: dong.open_pane_job_id ? String(dong.open_pane_job_id) : null,
   };
 }
 
@@ -1030,11 +1030,11 @@ export function registerTools(server, phuThuoc) {
         try { _phien = kho.getQueueRow(db, thamSo.request_id.trim()); } catch { /* để tool tự báo */ }
         _tt = _phien
           ? {
-            chiNghe: Number(_phien.chi_nghe) === 1,
-            idViecMoCua: _phien.id_viec_mo_cua ? String(_phien.id_viec_mo_cua) : null,
+            chiNghe: Number(_phien.listen_only) === 1,
+            idViecMoCua: _phien.open_pane_job_id ? String(_phien.open_pane_job_id) : null,
           }
           : null;
-        if (_tt) _tt.chatIdHoi = String(_phien.chat_id_hoi);
+        if (_tt) _tt.chatIdHoi = String(_phien.asking_chat_id);
         const _chan = _tt
           ? (_chanKhiChiNghe(ten, _tt)
              ?? _chanThieuNguon(ten, _tt, thamSo)
@@ -1135,16 +1135,16 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
   const tin = (kq.rows ?? []).map((r) => ({
     chatId: String(r.chat_id),
     tenHoiThoai: ten.get(String(r.chat_id)) ?? null,
-    nguoiGui: r.ten_luc_gui ?? (r.user_id ? String(r.user_id) : null),
-    noiDung: r.noi_dung ?? null,
+    nguoiGui: r.name_at_send ?? (r.user_id ? String(r.user_id) : null),
+    noiDung: r.content ?? null,
     msgType: String(r.msg_type),
     thoiGian: _iso(r.ts_zalo),
-    daThuHoi: Number(r.da_thu_hoi) === 1,
+    daThuHoi: Number(r.recalled) === 1,
     // 🔴 KHÔNG BAO GIỜ trả `daThuHoi` trần. Cờ này do tầng truy vấn đặt
     // (query.describeRecall) và nói rõ mình chắc tới đâu:
     //   nguon='SU_KIEN'   -> biết ai + lúc nào
     //   nguon='DOI_CHIEU' -> chỉ biết KHOẢNG giữa hai lượt quét
-    // Thiếu nó thì model sẽ đọc `thu_hoi_luc` của dòng DOI_CHIEU (vốn là lúc
+    // Thiếu nó thì model sẽ đọc `recalled_at` của dòng DOI_CHIEU (vốn là lúc
     // QUÉT) rồi nói với anh một mốc giờ chính xác — sai mà không ai biết.
     thuHoi: r._thu_hoi ?? null,
   }));
@@ -1180,7 +1180,7 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
  *
  * ⚠️ Đây là câu SQL DUY NHẤT nằm ngoài `src/store/` trong cả gói G5, cố ý và
  * đã báo Router: `DuLieuLichSu.tin[].tenHoiThoai` là hợp đồng G0 nhưng
- * `queryHistory()` chỉ trả cột của `tin_nhan` nên không có tên. Chỉ ĐỌC, chỉ
+ * `queryHistory()` chỉ trả cột của `messages` nên không có tên. Chỉ ĐỌC, chỉ
  * lấy đúng 2 cột, hỏng thì trả map rỗng (tên là thứ trang trí — mất tên không
  * được phép làm hỏng câu trả lời).
  */
@@ -1191,8 +1191,8 @@ function _bangTenHoiThoai(db, chatIds) {
     const cho = chatIds.map((_, i) => `$c${i}`).join(', ');
     const bien = {};
     chatIds.forEach((c, i) => { bien[`c${i}`] = String(c); });
-    const rows = db.prepare(`SELECT chat_id, ten FROM hoi_thoai WHERE chat_id IN (${cho})`).all(bien);
-    for (const r of rows ?? []) ra.set(String(r.chat_id), r.ten ?? null);
+    const rows = db.prepare(`SELECT chat_id, name FROM conversations WHERE chat_id IN (${cho})`).all(bien);
+    for (const r of rows ?? []) ra.set(String(r.chat_id), r.name ?? null);
   } catch (e) {
     _log(cleanError('không lấy được tên hội thoại (bỏ qua, chỉ mất phần trang trí)', e).message);
   }
@@ -1206,11 +1206,11 @@ function _bangTenHoiThoai(db, chatIds) {
 /**
  * Phiên này có phải do một LỜI NHẮC THEO ĐUỔI sinh ra không?
  *
- * Dấu nhận: `hang_doi_hoi.msg_id` được `runner.js` đặt là `nhac:<idLichHen>:<lần>`.
+ * Dấu nhận: `ask_queue.msg_id` được `runner.js` đặt là `nhac:<idLichHen>:<lần>`.
  * Không dựa vào bất cứ thứ gì model khai — model không tự nhận mình đang trả lời
  * lượt nhắc nào, và nếu để nó khai thì nó khai sai là cưỡng chế trượt.
  *
- * @returns {string|null} id của dòng `lich_hen`, hoặc null nếu là câu hỏi thường
+ * @returns {string|null} id của dòng `schedules`, hoặc null nếu là câu hỏi thường
  */
 function _idNhacCuaPhien(dong) {
   const m = /^nhac:([^:]+):/.exec(String(dong?.msg_id ?? ''));
@@ -1228,10 +1228,10 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 
   // Luật 3 của pack: ID đi qua toId(), không String() rải rác. Ở đây ID lấy
   // từ DB (đã là TEXT) nên toId chỉ là lớp canh — nhưng chính lớp canh đó bắt
-  // được ca chat_id_hoi rỗng/hỏng trước khi nó thành một lời gọi gửi tin.
-  const chatIdHoi = toId(phien.dong.chat_id_hoi, 'hangDoi.chat_id_hoi');
+  // được ca asking_chat_id rỗng/hỏng trước khi nó thành một lời gọi gửi tin.
+  const chatIdHoi = toId(phien.dong.asking_chat_id, 'hangDoi.asking_chat_id');
   if (chatIdHoi === null) {
-    return _loi(MA_LOI.DB_LOI, 'hàng đợi thiếu chat_id_hoi -> không biết gửi đi đâu, từ chối.');
+    return _loi(MA_LOI.DB_LOI, 'hàng đợi thiếu asking_chat_id -> không biết gửi đi đâu, từ chối.');
   }
 
   // 🔴 Nơi hỏi là NHÓM hay DM — phải biết TRƯỚC khi chạm mạng, vì nó quyết
@@ -1289,7 +1289,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 
   // ═══ 🔴 A3 — CƯỠNG CHẾ TAG. Chạy TRƯỚC khi chạm mạng, SAU khi đã biết hướng. ═══
   // Luật nằm ở `ensureMention()` (zalo/send.js) — ở đây CHỈ cấp dữ kiện cho nó:
-  // uid lấy từ chính dòng `lich_hen`, tên tra từ nhóm TẠI THỜI ĐIỂM NÀY.
+  // uid lấy từ chính dòng `schedules`, tên tra từ nhóm TẠI THỜI ĐIỂM NÀY.
   // ⛔ KHÔNG hỏi model tag ai, KHÔNG tin chuỗi model viết. Model đã chứng minh
   // là kênh chép chuỗi không đáng tin: nó viết "Trọng ơi" (chữ trần) cho một
   // lời nhắc mà cả tính năng sinh ra để tag người đó.
@@ -1316,7 +1316,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
       // MỘT tin, vừa ghi nhận với người phụ trách, vừa tag host để xin duyệt —
       // ⛔ không phải một tin trong nhóm + một tin riêng.
       //
-      // 🔴 Uid host lấy từ `nguoi_dat` của CHÍNH việc đang mở cửa, ⛔ KHÔNG
+      // 🔴 Uid host lấy từ `created_by` của CHÍNH việc đang mở cửa, ⛔ KHÔNG
       // theo người gửi (người gửi là người phụ trách, không phải host) và
       // ⛔ KHÔNG phải `hosts[0]` (nhiều host thì tag nhầm người, mà tag nhầm
       // là kéo người ngoài cuộc vào một việc không phải của họ).
@@ -1337,7 +1337,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
         }
       }
       // Lớp chặn thứ hai. `groupMembers` đã lọc bot ở tầng truy vấn rồi,
-      // nhưng `can.uids` đến từ bảng `lich_hen` — dữ liệu cũ hoặc sai vẫn có
+      // nhưng `can.uids` đến từ bảng `schedules` — dữ liệu cũ hoặc sai vẫn có
       // thể chứa uid bot, và không tầng nào khác chặn đường đó.
       const kqTag = ensureMention(
         text, dsNguoiNhom, [...(can?.uids ?? []), ...canTagThem], _uidTroLyTuApi(api),
@@ -1357,7 +1357,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
 
   // ═══ 🔴 GIÀNH QUYỀN GỬI — chốt chống MỘT LƯỢT ĐI HAI TIN ═══
   // Lượt nhắc có HAI bên cùng có thể gửi: model (đường này) và lưới an toàn
-  // (`runner.js` gửi câu dự phòng khi model im quá trần). `cho_model_tu_ms` là
+  // (`runner.js` gửi câu dự phòng khi model im quá trần). `model_wait_since_ms` là
   // TOKEN: ai CAS được về NULL thì bên đó gửi, bên kia im.
   //
   // ⚠️ Giành TRƯỚC khi chạm mạng, KHÔNG phải sau. Gỡ-sau chỉ vá được ca model
@@ -1501,7 +1501,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
   }
 
   // 🔴 GHI BẰNG CHỨNG ĐÃ GỬI cho đường model. Trước bản này chỉ đường dự phòng
-  // ghi `msg_id_da_gui`, nên một lời nhắc model gửi thành công 10 lượt vẫn để
+  // ghi `sent_msg_id`, nên một lời nhắc model gửi thành công 10 lượt vẫn để
   // cột đó NULL ⇒ câu báo hết lượt kèm cảnh báo "em KHÔNG có bằng chứng tin nào
   // đã gửi". Báo động giả lặp lại là host thôi tin cả cảnh báo đúng.
   if (idNhac && qd.huong !== HUONG_TRA_LOI.TU_CHOI) {
@@ -1573,7 +1573,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
  *
  * 🔴 VÌ SAO PHẢI CÓ: trước bản này, 4 chỗ gọi `sendToGroup`/`sendHostDm` đều
  * KHÔNG truyền `ghiLai` ⇒ câu trả lời của trợ lý KHÔNG vào kho. Đo thật
- * 20/08/2026: `SELECT * FROM tin_nhan WHERE do_tro_ly_tao=1` ra RỖNG trong khi
+ * 20/08/2026: `SELECT * FROM messages WHERE made_by_assistant=1` ra RỖNG trong khi
  * trợ lý đã trả lời thật trong nhóm. Đọc lại lịch sử chỉ thấy câu hỏi, không
  * thấy câu trả lời — mất một nửa hội thoại, và mất im lặng.
  * `send.js` CÓ kêu cảnh báo chuyện này, nhưng cảnh báo nằm ở stderr của tiến
@@ -1581,7 +1581,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
  *
  * ═══ 🔴 CHÚ THÍCH CŨ Ở ĐÂY ĐÃ SAI — GIỮ LẠI ĐỂ KHÔNG AI TIN LẠI LẦN NỮA ═══
  * Bản cũ viết: *"Không cần cờ hay bộ nhớ tạm nào — `INSERT OR IGNORE` ⇒ lần ghi
- * THỨ HAI bị bỏ, dòng đầu (mang `do_tro_ly_tao = 1`) giữ nguyên."*
+ * THỨ HAI bị bỏ, dòng đầu (mang `made_by_assistant = 1`) giữ nguyên."*
  * Câu đó ngầm giả định **dòng đầu luôn là dòng của ta**. Đó là một CUỘC ĐUA,
  * không phải một bảo đảm: tin trợ lý tự gửi quay lại qua listener với
  * `tuToi = true`, và bản echo có thể tới TRƯỚC `ghiLai`.
@@ -1593,7 +1593,7 @@ async function _traLoi({ kho, chinhSach, guiTin, db, cauHinh, boTichLuy, api, nh
  *
  * ✅ Nay `writeMessage()` tự ép cờ bằng `UPDATE` sau `INSERT OR IGNORE` (xem A8 trong
  * `store/write.js`) ⇒ thắng bất kể ai tới trước. Vẫn KHÔNG được đổi sang
- * `INSERT OR REPLACE`: nó sẽ đè mất `noi_dung`/`ts_zalo` của bản ghi đúng.
+ * `INSERT OR REPLACE`: nó sẽ đè mất `content`/`ts_zalo` của bản ghi đúng.
  *
  * @param {object} kho
  * @param {any} db
@@ -1630,17 +1630,17 @@ function _uidTroLyTuApi(api) {
  * 🔴 CA HỎNG THẬT 21/08/2026: host nhắn DM riêng, trợ lý trả lời và nhận
  * `Gửi tin vào <id> thất bại — Nhóm này không tồn tại`. Chuỗi đó KHÔNG có
  * trong `src/` — **Zalo trả về**, vì mình gửi bằng `ThreadType.Group` tới một
- * id DM. `reply` trước bản này KHÔNG BAO GIỜ hỏi `chat_id_hoi` là loại gì.
+ * id DM. `reply` trước bản này KHÔNG BAO GIỜ hỏi `asking_chat_id` là loại gì.
  *
  * Hai nguồn, theo thứ tự:
- *   1. `hoi_thoai.loai` — ghi lúc nhận tin, là SỰ THẬT ĐÃ QUAN SÁT của chính
+ *   1. `conversations.kind` — ghi lúc nhận tin, là SỰ THẬT ĐÃ QUAN SÁT của chính
  *      hội thoại đó.
- *   2. Config (`hosts[].dmChatId`) — dùng khi chưa có dòng nào trong `hoi_thoai`
+ *   2. Config (`hosts[].dmChatId`) — dùng khi chưa có dòng nào trong `conversations`
  *      (vd DB vừa dựng lại, hoặc lượt đầu tiên chưa kịp ghi).
  *
  * ⚠️ Không tra ra ⇒ trả `false` (coi là NHÓM) và **NÓI RA**. Đây là giữ nguyên
  * hành vi cũ chứ không phải đoán mới: đổi mặc định sang DM sẽ làm hỏng mọi nhóm
- * chưa kịp có dòng `hoi_thoai`, đắt hơn hẳn. Cả hai chiều sai đều chỉ làm Zalo
+ * chưa kịp có dòng `conversations`, đắt hơn hẳn. Cả hai chiều sai đều chỉ làm Zalo
  * từ chối gửi — ⛔ không rò dữ liệu sang đâu.
  */
 function _laDmDich(kho, db, cauHinh, chatId) {
@@ -1858,7 +1858,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
     // ═══ 🔴 v10 — CỬA 2: người gửi KHÔNG phải host ═══
     // Tra DM theo NGƯỜI GỬI thì ở lượt cửa 2 luôn ra `null` (người gửi là
     // người phụ trách), nên hai ca "XIN dời lịch" / "XIN đóng" mà anh duyệt
-    // **không chạy được**. Lùi về host của CHÍNH VIỆC đó (`nguoi_dat`) — đúng
+    // **không chạy được**. Lùi về host của CHÍNH VIỆC đó (`created_by`) — đúng
     // tinh thần "quyền đi theo VIỆC".
     // ⚠️ CHỈ khi phiên MANG `idViecMoCua`. ⛔ Không nới đại trà: nếu không thì
     // bất kỳ ai cũng có một đường nhắn thẳng vào DM của anh.
@@ -1893,7 +1893,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
 
   // CỐ Ý ghi nhật ký với huong='dm_host': đây cũng là một lần dữ liệu rời hệ,
   // không ghi thì nhật ký chống rò chéo khuyết một đường.
-  _ghiNhatKy(kho, db, phien.requestId, String(phien.dong.chat_id_hoi), [], { coCheo: false }, HUONG_TRA_LOI.DM_HOST);
+  _ghiNhatKy(kho, db, phien.requestId, String(phien.dong.asking_chat_id), [], { coCheo: false }, HUONG_TRA_LOI.DM_HOST);
   // ⚠️ KHÔNG đóng phiên ở đây: Claude thường nhắn riêng host TRƯỚC rồi mới
   // trả lời trong nhóm. Đóng sớm là mất luôn nguồn đã tích luỹ và lượt
   // `reply` kế tiếp sẽ tưởng không có nguồn nào — tức mất cưỡng chế.
@@ -1901,7 +1901,7 @@ async function _nhanRiengHost({ kho, chinhSach, guiTin, db, cauHinh, api }, tham
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 4. trang_thai
+// 4. status
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
@@ -1969,7 +1969,7 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
     const phien = _kiemPhien(kho, db, thamSo);
     if (!phien.loi) isHost = _laHost(cauHinh, phien);
   } catch (e) {
-    _log(cleanError('không xác định được người gọi trang_thai -> coi là người ngoài', e).message);
+    _log(cleanError('không xác định được người gọi status -> coi là người ngoài', e).message);
   }
 
   if (!isHost) return _ok({ sucKhoe: _sucKhoeGon(sucKhoe) });
@@ -2034,7 +2034,7 @@ function _ghiNhatKy(kho, db, requestId, chatIdHoi, nguon, qd, huong) {
   } catch (e) {
     // Nhật ký là BẰNG CHỨNG NGHIỆM THU, mất nó là mất khả năng chứng minh
     // luật chạy đúng — nhưng tin đã gửi rồi, không quay lại được. Kêu to.
-    _log(cleanError(`KHÔNG ghi được nhat_ky_truy_van cho ${requestId} (tin ĐÃ gửi)`, e).message);
+    _log(cleanError(`KHÔNG ghi được query_log cho ${requestId} (tin ĐÃ gửi)`, e).message);
   }
 }
 
@@ -2132,7 +2132,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
     );
   }
 
-  const chatIdDich = toId(thamSo.chatIdDich, 'lich.chatIdDich') ?? String(phien.dong.chat_id_hoi);
+  const chatIdDich = toId(thamSo.chatIdDich, 'lich.chatIdDich') ?? String(phien.dong.asking_chat_id);
   const nhom = layNhomChoLich(cauHinh, chatIdDich);
   if (!nhom) {
     // Nhóm ngoài allowlist ⇒ TỪ CHỐI, kể cả khi biết chat_id. Đây là hàng rào
@@ -2174,7 +2174,7 @@ function _datLichNhap({ kho, lich, db, cauHinh }, thamSo) {
     }
   }
 
-  const chatIdDat = String(phien.dong.chat_id_hoi);
+  const chatIdDat = String(phien.dong.asking_chat_id);
   const cheo = chatIdDat !== chatIdDich;
 
   let ghi;
@@ -2259,7 +2259,7 @@ function layNhomChoLich(cauHinh, chatId) {
 /**
  * Các lịch ĐANG CHỜ XÁC NHẬN **của chính người gọi**.
  *
- * 🔴 Lọc theo `nguoiDat` là chốt chặn, không phải tối ưu: `lich_hen` là bảng
+ * 🔴 Lọc theo `nguoiDat` là chốt chặn, không phải tối ưu: `schedules` là bảng
  * CHUNG cho mọi nhóm/mọi người. Đếm cả bảng thì một chữ "ok" của anh có thể
  * chốt nhầm lịch người khác đặt — mà lịch nhắc thì GỬI VÀO NHÓM CÓ NGƯỜI
  * THẬT, sai là không rút lại được.
@@ -2276,9 +2276,9 @@ function _lichChoCuaToi(lich, db, nguoiDat) {
 
 /** Mô tả ngắn một lịch chờ, để anh chọn khi có nhiều cái. */
 function _dongChon(d) {
-  const luc = d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : '(chưa rõ giờ)';
-  const loai = Number(d.la_theo_duoi) === 1 ? ' [nhắc lặp]' : '';
-  return `· ${d.ma_xac_nhan}${loai} — ${luc} — "${d.noi_dung}"`;
+  const luc = d.send_at_ms ? formatVn(Number(d.send_at_ms), d.timezone) : '(chưa rõ giờ)';
+  const loai = Number(d.is_follow_up) === 1 ? ' [nhắc lặp]' : '';
+  return `· ${d.confirm_code}${loai} — ${luc} — "${d.content}"`;
 }
 
 /**
@@ -2315,7 +2315,7 @@ function _datLichChot({ kho, lich, db }, thamSo) {
   if (!ma) {
     const suy = _suyRaLichCho(lich, db, nguoiDat, 'chốt');
     if (suy.loi) return suy.loi;
-    ma = String(suy.dong.ma_xac_nhan);
+    ma = String(suy.dong.confirm_code);
   }
 
   let kq;
@@ -2328,7 +2328,7 @@ function _datLichChot({ kho, lich, db }, thamSo) {
     const noi = {
       KHONG_TIM_THAY: `Không có lịch nào mang mã '${ma}'.`,
       SAI_MA: 'Mã xác nhận không khớp — KHÔNG chốt.',
-      SAI_TRANG_THAI: `Lịch này đang ở trạng thái '${kq.dong?.trang_thai}', không phải chờ xác nhận.`,
+      SAI_TRANG_THAI: `Lịch này đang ở trạng thái '${kq.dong?.status}', không phải chờ xác nhận.`,
       KHONG_PHAI_NGUOI_DAT: 'Chỉ người đã đặt mới chốt được lịch này.',
     }[kq.ly] ?? 'Không chốt được.';
     return _loi(MA_LOI.KHONG_RO, noi);
@@ -2337,8 +2337,8 @@ function _datLichChot({ kho, lich, db }, thamSo) {
   return _ok({
     id: d.id,
     trangThai: TRANG_THAI_LICH.DA_LEN_LICH,
-    guiLuc: formatVn(Number(d.gui_luc_ms), d.mui_gio),
-    timeUntil: timeUntil(Date.now(), Number(d.gui_luc_ms)),
+    guiLuc: formatVn(Number(d.send_at_ms), d.timezone),
+    timeUntil: timeUntil(Date.now(), Number(d.send_at_ms)),
   });
 }
 
@@ -2347,7 +2347,7 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
   if (phien.loi) return phien.loi;
 
   // 🔴 CÙNG HỌ LỖI với `followup_list` — tìm ra khi rà theo lời dặn "bắt được 1 cái
-  // thì rất có thể còn". `lich_hen` cũng là bảng CHUNG cho mọi nhóm, mà hàm
+  // thì rất có thể còn". `schedules` cũng là bảng CHUNG cho mọi nhóm, mà hàm
   // trả về cả `chatIdDich` lẫn `noiDung` ⇒ người nhóm A đọc được lịch nhóm B.
   if (!_laHost(cauHinh, phien)) {
     return _loi(MA_LOI.KHONG_RO, 'Chỉ host mới xem được danh sách lịch nhắc.');
@@ -2368,22 +2368,22 @@ function _xemLich({ kho, lich, db, cauHinh }, thamSo) {
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
   // nơi khác. (Hai hàm kia nằm trong `src/lich/`, ngoài phạm vi lượt sửa này.)
   const _pv = getReadScope();
-  if (_pv !== null) ds = ds.filter((d) => String(d.chat_id_dich) === _pv);
+  if (_pv !== null) ds = ds.filter((d) => String(d.target_chat_id) === _pv);
   const bayGio = Date.now();
   return _ok({
     soDong: ds.length,
     lich: ds.map((d) => ({
       id: d.id,
-      ma: d.ma_xac_nhan,
-      trangThai: d.trang_thai,
-      chatIdDich: String(d.chat_id_dich),
-      guiLuc: formatVn(Number(d.gui_luc_ms), d.mui_gio),
-      timeUntil: timeUntil(bayGio, Number(d.gui_luc_ms)),
-      noiDung: d.noi_dung,
+      ma: d.confirm_code,
+      trangThai: d.status,
+      chatIdDich: String(d.target_chat_id),
+      guiLuc: formatVn(Number(d.send_at_ms), d.timezone),
+      timeUntil: timeUntil(bayGio, Number(d.send_at_ms)),
+      noiDung: d.content,
       // Giữ nguyên văn câu anh nói: đây là thứ duy nhất kiểm chứng được model
       // đã quy đổi đúng hay chưa, sau khi mọi thứ đã thành con số.
-      dienGiaiGoc: d.dien_giai_goc,
-      lyDoLoi: d.ly_do_loi ?? null,
+      dienGiaiGoc: d.raw_phrasing,
+      lyDoLoi: d.error_reason ?? null,
     })),
   });
 }
@@ -2396,7 +2396,7 @@ function _huyLich({ kho, lich, db }, thamSo) {
   if (!id) {
     const suy = _suyRaLichCho(lich, db, nguoiDat, 'huỷ');
     if (suy.loi) return suy.loi;
-    id = String(suy.dong.ma_xac_nhan);
+    id = String(suy.dong.confirm_code);
   }
 
   let kq;
@@ -2409,7 +2409,7 @@ function _huyLich({ kho, lich, db }, thamSo) {
     const noi = {
       KHONG_TIM_THAY: 'Không tìm thấy lịch đó.',
       KHONG_PHAI_NGUOI_DAT: 'Chỉ người đã đặt mới huỷ được lịch này.',
-      SAI_TRANG_THAI: `Lịch đang ở '${kq.dong?.trang_thai}' — không huỷ được nữa.`,
+      SAI_TRANG_THAI: `Lịch đang ở '${kq.dong?.status}' — không huỷ được nữa.`,
     }[kq.ly] ?? 'Không huỷ được.';
     return _loi(MA_LOI.KHONG_RO, noi);
   }
@@ -2545,7 +2545,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
     );
   }
 
-  const chatIdDat = String(phien.dong.chat_id_hoi);
+  const chatIdDat = String(phien.dong.asking_chat_id);
   const chatIdDich = String(thamSo.chatIdDich ?? chatIdDat);
   const nhom = layNhomChoLich(cauHinh, chatIdDich);
   if (!nhom) {
@@ -2627,7 +2627,7 @@ function _datNhacTheoDuoi({ kho, nhac, lich, db, cauHinh }, thamSo) {
     }
     const kt = validateAttemptCap(thamSo.tranSoLan);
     if (!kt.ok) return _loi(MA_LOI.CAU_HINH_SAI, kt.ly);
-    const nhip = parseCadence({ chu_ky_phut: chuKyPhut, chu_ky_ngay: chuKyNgay });
+    const nhip = parseCadence({ cycle_minutes: chuKyPhut, cycle_days: chuKyNgay });
     tranSoLan = thamSo.tranSoLan === undefined ? defaultAttemptCap(nhip) : kt.tran;
     const mocDauMs = nextReminderAt(bayGio, {
       chuKyNgay, chuKyPhut, gioNhac, boChuNhat: NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH, laLanDau: true,
@@ -2769,10 +2769,10 @@ function _chinhNhipNhac({ kho, nhac, db, cauHinh }, thamSo) {
   const d = kq.dong ?? {};
   return _ok({
     id: d.id ?? id,
-    chuKyNgay: d.chu_ky_ngay ?? null,
-    gioNhac: d.gio_nhac ?? null,
-    trangThaiTd: d.trang_thai_td ?? null,
-    lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+    chuKyNgay: d.cycle_days ?? null,
+    gioNhac: d.remind_time ?? null,
+    trangThaiTd: d.follow_up_status ?? null,
+    lanKeTiep: d.send_at_ms ? formatVn(Number(d.send_at_ms), d.timezone) : null,
   });
 }
 
@@ -2796,7 +2796,7 @@ function _dongNhac({ kho, nhac, db, cauHinh }, thamSo) {
   }
   if (!kq.ok) return _loi(MA_LOI.KHONG_RO, _noiLyDoNhac(kq.ly, id));
 
-  return _ok({ id: kq.dong?.id ?? id, trangThaiTd: kq.dong?.trang_thai_td ?? null, daDong: true });
+  return _ok({ id: kq.dong?.id ?? id, trangThaiTd: kq.dong?.follow_up_status ?? null, daDong: true });
 }
 
 function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
@@ -2825,19 +2825,19 @@ function _xemNhac({ kho, nhac, db, cauHinh }, thamSo) {
   // ⚠️ Lọc Ở ĐÂY, trước khi trả ra — model không bao giờ nhìn thấy dòng của
   // nơi khác. (Hai hàm kia nằm trong `src/lich/`, ngoài phạm vi lượt sửa này.)
   const _pv = getReadScope();
-  if (_pv !== null) ds = ds.filter((d) => String(d.chat_id_dich) === _pv);
+  if (_pv !== null) ds = ds.filter((d) => String(d.target_chat_id) === _pv);
 
   return _ok({
     soLuong: ds.length,
     danhSach: ds.map((d) => ({
       id: d.id,
-      maXacNhan: d.ma_xac_nhan,
-      noiDung: d.noi_dung,
-      chuKyNgay: d.chu_ky_ngay,
-      gioNhac: d.gio_nhac,
-      trangThaiTd: d.trang_thai_td,
-      soLanDaNhac: d.so_lan_da_nhac,
-      lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+      maXacNhan: d.confirm_code,
+      noiDung: d.content,
+      chuKyNgay: d.cycle_days,
+      gioNhac: d.remind_time,
+      trangThaiTd: d.follow_up_status,
+      soLanDaNhac: d.remind_count,
+      lanKeTiep: d.send_at_ms ? formatVn(Number(d.send_at_ms), d.timezone) : null,
     })),
   });
 }
@@ -2866,7 +2866,7 @@ function _xinDuyet({ kho, db, cauHinh, api }, thamSo) {
   let ra;
   try {
     ra = kho.requestApproval(db, {
-      chatIdXin: String(phien.dong.chat_id_hoi),
+      chatIdXin: String(phien.dong.asking_chat_id),
       requestId: phien.requestId,
       nguoiNoi: thamSo?.nguonNguoi ?? null,
       nguyenVan: thamSo?.nguonNguyenVan ?? null,
@@ -2880,7 +2880,7 @@ function _xinDuyet({ kho, db, cauHinh, api }, thamSo) {
   // ⚠️ Báo host MỘT DÒNG. ⛔ Không mở đường mới ra Zalo từ client: `notifyHost`
   // với `api: null` đi đường lệnh shell của config (`notifyCommand`) + log.
   _baoHostMotDong(cauHinh, api,
-    `Nhóm ${phien.dong.chat_id_hoi} xin duyệt: ${viec.slice(0, 200)}`, kho?.notifyHost);
+    `Nhóm ${phien.dong.asking_chat_id} xin duyệt: ${viec.slice(0, 200)}`, kho?.notifyHost);
 
   return _ok({
     id: ra.id,
@@ -2912,14 +2912,14 @@ function _xemYeuCau({ kho, db }, thamSo) {
     soLuong: ds.length,
     danhSach: ds.map((d) => ({
       id: d.id,
-      chatIdXin: String(d.chat_id_xin),
-      viec: d.viec,
-      lyDo: d.ly_do ?? null,
+      chatIdXin: String(d.requesting_chat_id),
+      viec: d.task,
+      lyDo: d.reason ?? null,
       // 🔴 Người duyệt PHẢI thấy ai đẩy việc này lên và họ gõ đúng chữ gì —
       // người trong nhóm *gợi ý* được, nhưng ⛔ không ra lệnh được.
-      nguoiNoi: d.nguoi_noi ?? null,
-      nguyenVan: d.nguyen_van ?? null,
-      tsTao: d.ts_tao,
+      nguoiNoi: d.said_by ?? null,
+      nguyenVan: d.verbatim ?? null,
+      tsTao: d.ts_created,
     })),
   });
 }
@@ -3084,7 +3084,7 @@ function _noiLyDoNhac(ly, id) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// 13. ghi_nho — chỗ ĐÁP cho chữ "lưu lại"
+// 13. memories — chỗ ĐÁP cho chữ "lưu lại"
 // ═══════════════════════════════════════════════════════════════════════
 
 function _ghiNho({ kho, db, cauHinh }, thamSo) {
@@ -3104,7 +3104,7 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
       + 'thông tin sai vào bộ nhớ.');
   }
 
-  const chatId = toId(thamSo.chatId ?? phien.dong.chat_id_hoi, 'ghiNho.chatId');
+  const chatId = toId(thamSo.chatId ?? phien.dong.asking_chat_id, 'ghiNho.chatId');
   if (!chatId) return _loi(MA_LOI.DB_LOI, 'Không biết ghi nhớ này thuộc hội thoại nào.');
 
   const _ngGhi = _nguonCuaHanhDong(cauHinh, phien, thamSo);
@@ -3137,15 +3137,15 @@ function _ghiNho({ kho, db, cauHinh }, thamSo) {
   _danhDauDaGhi(phien.requestId, TEN_TOOL_GHI.GHI_NHO);
 
   const d = ghi.dong ?? {};
-  const khiNao = d.khi_nao_ms ? formatVn(Number(d.khi_nao_ms), GIOI_HAN_LICH.MUI_GIO_MAC_DINH) : null;
+  const khiNao = d.when_ms ? formatVn(Number(d.when_ms), GIOI_HAN_LICH.MUI_GIO_MAC_DINH) : null;
   return _ok({
     id: ghi.id,
-    loai: d.loai,
-    noiDung: d.noi_dung,
+    loai: d.kind,
+    noiDung: d.content,
     khiNao,
     // Gợi ý CHỦ ĐỘNG: host nói một mốc tương lai thì rất có thể muốn được nhắc
     // — nhưng đó là việc của host quyết, nên gợi ý chứ ⛔ không tự đặt.
-    ...(d.khi_nao_ms && Number(d.khi_nao_ms) > Date.now()
+    ...(d.when_ms && Number(d.when_ms) > Date.now()
       ? { goiY: `Đã lưu. Mốc này ở tương lai (${khiNao}) — hỏi anh có muốn đặt nhắc trước giờ đó không.` }
       : {}),
   });
@@ -3163,7 +3163,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
   try {
     kq = kho.reopenReminder(db, {
       id: thamSo.id,
-      chatId: phien.dong.chat_id_hoi,
+      chatId: phien.dong.asking_chat_id,
       nguoiMo: String(phien.dong.user_id ?? ''),
       isHost: _duocLamNghiepVu(cauHinh, phien, thamSo),
       noiTran: thamSo.noiTran === true,
@@ -3192,12 +3192,12 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
   const d = kq.dong ?? {};
   return _ok({
     id: d.id,
-    noiDung: d.noi_dung,
-    trangThaiTd: d.trang_thai_td,
-    soLanDaNhac: d.so_lan_da_nhac,
+    noiDung: d.content,
+    trangThaiTd: d.follow_up_status,
+    soLanDaNhac: d.remind_count,
     tranSoLan: kq.tranMoi,
     daNoiTran: kq.daNoiTran,
-    lanKeTiep: d.gui_luc_ms ? formatVn(Number(d.gui_luc_ms), d.mui_gio) : null,
+    lanKeTiep: d.send_at_ms ? formatVn(Number(d.send_at_ms), d.timezone) : null,
   });
 }
 
@@ -3208,7 +3208,7 @@ function _moLaiNhac({ kho, db, cauHinh }, thamSo) {
 /**
  * 🔴 CA HỎNG THẬT 08:03 21/08/2026 — đây là thứ chốt chặn này sinh ra để chặn.
  * Host nhắn *"chốt lịch t7, 7h30 đi ăn lòng rồi nhé. Lưu lại"*. Trợ lý đáp
- * *"Dạ em ghi nhận rồi ạ"* rồi **KHÔNG GHI GÌ**. `lich_hen` không sinh dòng nào.
+ * *"Dạ em ghi nhận rồi ạ"* rồi **KHÔNG GHI GÌ**. `schedules` không sinh dòng nào.
  *
  * Hai nguyên nhân, và cái thứ hai mới là cái đắt:
  *   1. Không tool nào đáp được chữ "lưu lại" ⇒ đã vá bằng `memo_save`.
@@ -3314,10 +3314,10 @@ function _congGhi({ kho, db, cauHinh }, phien, thamSo, laLuotNhac) {
   if (laLuotNhac) return null;
   if (!_laHost(cauHinh, phien)) return null;
 
-  const cue = _cueTrung(phien.dong?.noi_dung, cauHinh);
+  const cue = _cueTrung(phien.dong?.content, cauHinh);
   if (!cue.length) return null;
 
-  const chatId = phien.dong?.chat_id_hoi ?? null;
+  const chatId = phien.dong?.asking_chat_id ?? null;
   const ghiLai = (suKien, lyDo) => {
     try {
       kho.writeWriteGateLog(db, { requestId: phien.requestId, chatId, suKien, cueTrung: cue, lyDo });

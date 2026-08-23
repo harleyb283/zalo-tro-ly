@@ -436,7 +436,7 @@ export function findGroup(cauHinh, chatId) {
 }
 
 /**
- * "Được nghe" = có tên trong `groups`. Khớp đúng nghĩa cột `hoi_thoai.duoc_nghe`
+ * "Được nghe" = có tên trong `groups`. Khớp đúng nghĩa cột `conversations.listened`
  * trong schema.sql ("1 = nằm trong allowlist config").
  *
  * ⚠️ KHÁC với `ghiLichSu`: nhóm có thể được nghe mà vẫn không ghi DB. Ai cần

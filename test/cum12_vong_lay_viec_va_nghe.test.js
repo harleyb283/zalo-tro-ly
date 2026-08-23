@@ -234,7 +234,7 @@ test('★★★ K3 đẩy HỎNG sau khi đã cầm -> TRẢ LẠI về `cho` (�
     db, queueTtlMs: 600_000, takePendingQueue, updateQueueState, claimQuestion, gomDaDay: false,
     guiThongBao: async () => false,
   });
-  assert.equal(getQueueRow(db, 'r-hong').trang_thai, TRANG_THAI_HANG_DOI.CHO,
+  assert.equal(getQueueRow(db, 'r-hong').status, TRANG_THAI_HANG_DOI.CHO,
     'kẹt `dang_xu_ly` = câu hỏi bốc hơi tới lần khởi động sau');
   closeDb(db);
 });
@@ -275,8 +275,8 @@ test('★★★ K6 THUA CAS -> ⛔ không đẩy, ⛔ không ghi độ trễ', a
   const kq = await pushPendingQueue({
     db: {}, queueTtlMs: 600_000,
     takePendingQueue: () => ([{
-      request_id: 'r1', chat_id_hoi: NHOM, user_id: NGUOI_LA, noi_dung: 'x',
-      ts_tao: '2026-08-21T00:00:00.000Z', trang_thai: 'cho', chi_nghe: 1,
+      request_id: 'r1', asking_chat_id: NHOM, user_id: NGUOI_LA, content: 'x',
+      ts_created: '2026-08-21T00:00:00.000Z', status: 'cho', listen_only: 1,
     }]),
     updateQueueState: () => true,
     claimQuestion: () => false,                       // ★ luôn THUA
@@ -526,7 +526,7 @@ test('★★★ S5 `skip` đóng lượt, ⛔ KHÔNG gửi gì, và ĐÓNG THẬ
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.duLieu.chiNghe, true);
   assert.deepEqual(daGui, [], 'bo_qua mà gửi gì đó là phản bội đúng tên của nó');
-  assert.equal(getQueueRow(db, rid).trang_thai, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
+  assert.equal(getQueueRow(db, rid).status, TRANG_THAI_HANG_DOI.DA_TRA_LOI,
     'không đóng thật thì lượt bị đẩy lại ở lần khởi động sau');
   const lai = await goi(TEN_TOOL_GHI.BO_QUA, { request_id: rid });
   assert.equal(lai.ok, false, 'đóng rồi thì lượt phải khoá — chống đẩy bù hai lần');
@@ -565,10 +565,10 @@ test('★★★ S7 tin báo cho model PHẢI mang dấu "chỉ nghe" ngay trong 
   assert.equal(nhan.length, 2, 'không đẩy được thì bài này không chứng minh gì');
 
   assert.ok(nhan[0].params.content.startsWith(LISTEN_ONLY_LABEL), 'dấu phải ở ĐẦU content');
-  assert.equal(nhan[0].params.meta.chi_nghe, '1');
+  assert.equal(nhan[0].params.meta.listen_only, '1');
   // Đối chứng: lượt ĐƯỢC NÓI ⛔ không được dính nhãn.
   assert.ok(!nhan[1].params.content.includes(LISTEN_ONLY_LABEL), 'lượt host bị gắn nhãn là trợ lý tự câm');
-  assert.equal(nhan[1].params.meta.chi_nghe, undefined, '`_metaSach` phải BỎ HẲN khoá rỗng');
+  assert.equal(nhan[1].params.meta.listen_only, undefined, '`_metaSach` phải BỎ HẲN khoá rỗng');
 
   assert.ok(LISTEN_ONLY_LABEL.length < 80, `nhãn ${LISTEN_ONLY_LABEL.length} ký tự — nhân với ~450 lượt/ngày`);
   await kenh.dong();
@@ -603,8 +603,8 @@ test('★★★ P1 NGHIỆM THU: chỉ thị NGƯỜI LẠ, ⛔ KHÔNG khai ngu�
   ];
   const db = dbTam();
   const { goi, daGui } = dungTool(db);
-  const truocGhiNho = db.prepare('SELECT COUNT(*) n FROM ghi_nho').get().n;
-  const truocLich = db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n;
+  const truocGhiNho = db.prepare('SELECT COUNT(*) n FROM memories').get().n;
+  const truocLich = db.prepare('SELECT COUNT(*) n FROM schedules').get().n;
 
   for (const [i, cau] of CAU.entries()) {
     const rid = phien(db, `rp${i}`, true, cau);
@@ -623,9 +623,9 @@ test('★★★ P1 NGHIỆM THU: chỉ thị NGƯỜI LẠ, ⛔ KHÔNG khai ngu�
   }
 
   assert.deepEqual(daGui, [], `🔴 CÓ ${daGui.length} TIN ĐI RA từ chỉ thị của người lạ`);
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM ghi_nho').get().n, truocGhiNho,
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM memories').get().n, truocGhiNho,
     '🔴 người lạ GHI ĐƯỢC vào bộ nhớ — injection đi vòng, lần sau trợ lý đọc lại như sự thật');
-  assert.equal(db.prepare('SELECT COUNT(*) n FROM lich_hen').get().n, truocLich,
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM schedules').get().n, truocLich,
     '🔴 người lạ đặt/huỷ được lịch');
   closeDb(db);
 });
@@ -648,7 +648,7 @@ test('★★★ P3 cờ chỉ-nghe lấy từ ĐĨA, ⛔ KHÔNG nhận từ tham
   const db = dbTam();
   const { goi, daGui } = dungTool(db);
   const rid = phien(db, 'r-khai', true);
-  for (const doi of [{ chiNghe: false }, { chi_nghe: 0 }, { chiNghe: 'false' }]) {
+  for (const doi of [{ chiNghe: false }, { listen_only: 0 }, { chiNghe: 'false' }]) {
     // eslint-disable-next-line no-await-in-loop
     const r = await goi(TEN_TOOL.TRA_LOI, { request_id: rid, text: 'x', ...doi });
     assert.equal(r.ok, false, `model tự khai ${JSON.stringify(doi)} mà lọt`);
@@ -675,7 +675,7 @@ test('★★★ H1 lượt CHỈ NGHE quá hạn -> ⛔ KHÔNG báo host (449 ti
   takePendingQueue(db, 60_000, { khiHetHan: (r) => bao.push(String(r.request_id)) });
   assert.deepEqual(bao, ['r-hoi-cu'],
     '🔴 báo cả lượt nghe = ~449 tin cảnh báo/ngày, và câu hỏi THẬT chìm nghỉm trong đó');
-  assert.equal(getQueueRow(db, 'r-nghe-cu').trang_thai, TRANG_THAI_HANG_DOI.HET_HAN,
+  assert.equal(getQueueRow(db, 'r-nghe-cu').status, TRANG_THAI_HANG_DOI.HET_HAN,
     'vẫn phải đánh het_han — chỉ là không làm phiền');
   closeDb(db);
 });

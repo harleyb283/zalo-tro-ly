@@ -115,7 +115,7 @@ test('B1 ★ tạo xong vẫn phải CHỜ XÁC NHẬN — chưa chốt thì kh�
   const { db } = dbTam();
   nhacGia(db);
   // Kể cả đã quá giờ.
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   assert.deepEqual(dueFollowUps(db, Date.now()), []);
   closeDb(db);
 });
@@ -124,7 +124,7 @@ test('B2 chốt rồi mới vào danh sách tới hạn', () => {
   const { db } = dbTam();
   nhacGia(db);
   chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   assert.equal(dueFollowUps(db, Date.now()).length, 1);
   closeDb(db);
 });
@@ -136,14 +136,14 @@ test('B3 ★ mặc định đúng 5 điều anh chốt: 1 ngày, 08:00, CN VẪN
   // anh từng muốn — nên khi anh đổi ý thì bài này phải đổi theo, có ghi lý do.
   const { db } = dbTam();
   nhacGia(db);
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
-  assert.equal(Number(d.la_theo_duoi), 1);
-  assert.equal(Number(d.chu_ky_ngay), NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH);
-  assert.equal(Number(d.chu_ky_ngay), 1);
-  assert.equal(d.gio_nhac, '08:00');
-  assert.equal(Number(d.bo_chu_nhat), 0, '🔴 mặc định nay là CHỦ NHẬT VẪN NHẮC');
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
+  assert.equal(Number(d.is_follow_up), 1);
+  assert.equal(Number(d.cycle_days), NHAC_THEO_DUOI.CHU_KY_NGAY_MAC_DINH);
+  assert.equal(Number(d.cycle_days), 1);
+  assert.equal(d.remind_time, '08:00');
+  assert.equal(Number(d.skip_sunday), 0, '🔴 mặc định nay là CHỦ NHẬT VẪN NHẮC');
   assert.equal(NHAC_THEO_DUOI.BO_CHU_NHAT_MAC_DINH, false);
-  assert.equal(d.trang_thai_td, TRANG_THAI_TD.DANG_THEO_DUOI);
+  assert.equal(d.follow_up_status, TRANG_THAI_TD.DANG_THEO_DUOI);
   closeDb(db);
 });
 
@@ -152,8 +152,8 @@ test('B3b ★ vẫn KHAI RIÊNG được "chừa Chủ Nhật" cho một lời n
   // vẫn phải khai được — bỏ hẳn cờ đi là lấy mất lựa chọn của anh.
   const { db } = dbTam();
   nhacGia(db, { boChuNhat: true });
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
-  assert.equal(Number(d.bo_chu_nhat), 1);
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
+  assert.equal(Number(d.skip_sunday), 1);
   closeDb(db);
 });
 
@@ -161,7 +161,7 @@ test('B4 ★★ KHÔNG CÓ TRẦN LEO THANG — nhắc 500 lần vẫn còn số
   // Anh BÁC trần leo thang. Bài này canh để không ai lặng lẽ thêm lại.
   const { db } = dbTam();
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET so_lan_da_nhac = 500, gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET remind_count = 500, send_at_ms = 1');
   assert.equal(dueFollowUps(db, Date.now()).length, 1, 'đã nhắc 500 lần vẫn phải tiếp tục');
   closeDb(db);
 });
@@ -173,16 +173,16 @@ test('B4 ★★ KHÔNG CÓ TRẦN LEO THANG — nhắc 500 lần vẫn còn số
 test('C1 ★ claimReminderTurn chỉ thành công MỘT lần, và DỜI mốc ngay', () => {
   const { db } = dbTam();
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
+  db.exec('UPDATE schedules SET send_at_ms = 1');
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
   const a = claimReminderTurn(db, d, Date.now());
   assert.equal(a.ok, true);
   assert.ok(a.mocKeTiepMs > Date.now(), 'mốc kế tiếp phải nằm ở tương lai');
   // Nhịp thứ hai cầm bản ghi CŨ -> phải trượt.
   assert.equal(claimReminderTurn(db, d, Date.now()).ok, false, 'nhắc hai lần là làm phiền người thật');
-  const sau = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
-  assert.equal(Number(sau.so_lan_da_nhac), 1);
-  assert.ok(Number(sau.nhac_lan_cuoi_ms) > 0);
+  const sau = db.prepare('SELECT * FROM schedules LIMIT 1').get();
+  assert.equal(Number(sau.remind_count), 1);
+  assert.ok(Number(sau.last_remind_ms) > 0);
   closeDb(db);
 });
 
@@ -190,7 +190,7 @@ test('C2 ★ hai nhịp CHỒNG NHAU -> chỉ gửi 1 tin', async () => {
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   const gui = [];
   const p = {
     db,
@@ -216,7 +216,7 @@ test('D1 ★★ NGƯỜI KHÁC trong nhóm KHÔNG đổi được nhịp', () =>
   const kq = adjustCadence(db, { id, isHost: false, chuKyNgay: 30 });
   assert.equal(kq.ok, false);
   assert.equal(kq.ly, 'KHONG_PHAI_HOST');
-  assert.equal(Number(db.prepare('SELECT chu_ky_ngay c FROM lich_hen LIMIT 1').get().c), 1);
+  assert.equal(Number(db.prepare('SELECT cycle_days c FROM schedules LIMIT 1').get().c), 1);
   closeDb(db);
 });
 
@@ -232,12 +232,12 @@ test('D2 ★★ host giãn nhịp -> chu kỳ ĐỔI và mốc kế tiếp DỜI
   // dời mốc hay không" — chứ ⛔ không đo hôm nay là thứ mấy.
   const { db } = dbTam();
   const { id } = nhacGia(db, { boChuNhat: false }); chot(db);
-  const truoc = Number(db.prepare('SELECT gui_luc_ms g FROM lich_hen LIMIT 1').get().g);
+  const truoc = Number(db.prepare('SELECT send_at_ms g FROM schedules LIMIT 1').get().g);
   const kq = adjustCadence(db, { id, isHost: true, chuKyNgay: 2 });
   assert.equal(kq.ok, true);
-  assert.equal(Number(kq.dong.chu_ky_ngay), 2);
+  assert.equal(Number(kq.dong.cycle_days), 2);
   assert.ok(
-    Number(kq.dong.gui_luc_ms) > truoc,
+    Number(kq.dong.send_at_ms) > truoc,
     'đổi nhịp mà mốc kế tiếp không dời thì lượt sau vẫn chạy nhịp cũ — van xả thành trang trí',
   );
   closeDb(db);
@@ -246,7 +246,7 @@ test('D2 ★★ host giãn nhịp -> chu kỳ ĐỔI và mốc kế tiếp DỜI
 test('D3 ★ host TẠM DỪNG -> không còn tới hạn nữa', () => {
   const { db } = dbTam();
   const { id } = nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   assert.equal(dueFollowUps(db, Date.now()).length, 1);
   adjustCadence(db, { id, isHost: true, tamDungToiMs: Date.now() + 86_400_000 });
   assert.deepEqual(dueFollowUps(db, Date.now()), []);
@@ -257,7 +257,7 @@ test('D4 tạm dừng hết hạn -> tự chạy lại, không cần ai bật', 
   const { db } = dbTam();
   const { id } = nhacGia(db); chot(db);
   adjustCadence(db, { id, isHost: true, tamDungToiMs: Date.now() - 1000 });
-  db.exec(`UPDATE lich_hen SET gui_luc_ms = 1, trang_thai_td = '${TRANG_THAI_TD.DANG_THEO_DUOI}'`);
+  db.exec(`UPDATE schedules SET send_at_ms = 1, follow_up_status = '${TRANG_THAI_TD.DANG_THEO_DUOI}'`);
   assert.equal(dueFollowUps(db, Date.now()).length, 1);
   closeDb(db);
 });
@@ -283,7 +283,7 @@ test('E1 ★★ NGƯỜI KHÁC nói "xong rồi" KHÔNG đóng được lời nh
   assert.equal(kq.ok, false);
   assert.equal(kq.ly, 'KHONG_PHAI_HOST');
   assert.equal(
-    db.prepare('SELECT trang_thai_td t FROM lich_hen LIMIT 1').get().t,
+    db.prepare('SELECT follow_up_status t FROM schedules LIMIT 1').get().t,
     TRANG_THAI_TD.DANG_THEO_DUOI,
     'vẫn phải theo đuổi tiếp',
   );
@@ -293,13 +293,13 @@ test('E1 ★★ NGƯỜI KHÁC nói "xong rồi" KHÔNG đóng được lời nh
 test('E2 host đóng -> ghi rõ AI đóng và LÚC NÀO, hết tới hạn', () => {
   const { db } = dbTam();
   const { id } = nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   const kq = closeFollowUp(db, { id, nguoiDong: HOST, isHost: true, bayGioMs: 1_700_000_000_000 });
   assert.equal(kq.ok, true);
-  assert.equal(kq.dong.trang_thai_td, TRANG_THAI_TD.DA_XONG);
-  assert.equal(kq.dong.dong_boi, HOST);
-  assert.equal(Number(kq.dong.dong_luc_ms), 1_700_000_000_000);
-  assert.equal(kq.dong.ly_do_dong, 'HOST_DONG');
+  assert.equal(kq.dong.follow_up_status, TRANG_THAI_TD.DA_XONG);
+  assert.equal(kq.dong.closed_by, HOST);
+  assert.equal(Number(kq.dong.closed_at_ms), 1_700_000_000_000);
+  assert.equal(kq.dong.close_reason, 'HOST_DONG');
   assert.deepEqual(dueFollowUps(db, Date.now()), []);
   closeDb(db);
 });
@@ -329,13 +329,13 @@ test('F1 ★ tầng truy vấn cấp SỐ NGÀY và LỜI NGƯỜI ĐÓ ĐÃ NÓ
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
   const bayGio = Date.parse('2026-08-25T02:00:00Z');
-  db.exec(`UPDATE lich_hen SET nhac_lan_cuoi_ms = ${bayGio - 86_400_000}, so_lan_da_nhac = 3`);
+  db.exec(`UPDATE schedules SET last_remind_ms = ${bayGio - 86_400_000}, remind_count = 3`);
   writeMessage(db, {
     chatId: NHOM, msgId: 'm1', cliMsgId: null, userId: NGUOI, tenLucGui: 'Anh B',
     msgType: 'chat.text', noiDung: 'em đang làm, mai gửi nhé', contentRaw: null,
     tsZalo: bayGio - 3_600_000, tuToi: false, hasHostMention: false,
   });
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
   const bc = reminderContext(db, d, { bayGioMs: bayGio, truyVan: queryHistory });
   assert.equal(bc.soLanDaNhac, 3);
   assert.equal(bc.soNgayTuLanNhacTruoc, 1);
@@ -348,7 +348,7 @@ test('F2 người phụ trách CHƯA nói gì -> danh sách rỗng (không bịa
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
   const bc = reminderContext(db, d, { bayGioMs: Date.now(), truyVan: queryHistory });
   assert.deepEqual(bc.nguoiPhuTrachDaNoiGi, []);
   closeDb(db);
@@ -358,7 +358,7 @@ test('F3 ★ bối cảnh KHÔNG có trường "nghi đã xong" — cấm suy h�
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  const d = db.prepare('SELECT * FROM lich_hen LIMIT 1').get();
+  const d = db.prepare('SELECT * FROM schedules LIMIT 1').get();
   const bc = reminderContext(db, d, { truyVan: queryHistory });
   for (const k of Object.keys(bc)) {
     assert.ok(!/xong|hoanThanh|daXong/i.test(k), `bối cảnh không được gợi ý kết luận: ${k}`);
@@ -367,7 +367,7 @@ test('F3 ★ bối cảnh KHÔNG có trường "nghi đã xong" — cấm suy h�
 });
 
 test('F4 ★ câu dự phòng KHÁC nhau theo số lần đã nhắc (không lặp y nguyên)', () => {
-  const d = { noi_dung: 'gửi báo giá' };
+  const d = { content: 'gửi báo giá' };
   const a = fallbackReminderText(d, { soLanDaNhac: 0, soNgayTuKhiDat: 0, nguoiPhuTrachDaNoiGi: [] });
   const b = fallbackReminderText(d, { soLanDaNhac: 4, soNgayTuKhiDat: 5, nguoiPhuTrachDaNoiGi: [] });
   const c = fallbackReminderText(d, {
@@ -387,7 +387,7 @@ test('G1 ★ có Claude -> giao model viết câu, KHÔNG tự gửi câu cứng
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   const gui = [];
   const bao = [];
   const kq = await runFollowUpTick({
@@ -409,7 +409,7 @@ test('G2 ★★ KHÔNG có Claude -> code vẫn gửi, lời nhắc không biế
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   const gui = [];
   const kq = await runFollowUpTick({
     db, api: {}, queryHistory,
@@ -430,7 +430,7 @@ test('G3 ★★ model IM quá trần -> code gửi bù, không bỏ lượt', as
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
   // Giả lập: đã giao model từ lâu mà chưa có tin nào gửi đi.
-  db.exec(`UPDATE lich_hen SET cho_model_tu_ms = ${Date.now() - NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS - 1000}`);
+  db.exec(`UPDATE schedules SET model_wait_since_ms = ${Date.now() - NHAC_THEO_DUOI.TRAN_CHO_MODEL_MS - 1000}`);
   const gui = [];
   const kq = await runFollowUpTick({
     db, api: {}, queryHistory, enqueueQuestion,
@@ -442,7 +442,7 @@ test('G3 ★★ model IM quá trần -> code gửi bù, không bỏ lượt', as
   assert.equal(kq.duPhong, 1, 'model im mà cũng im theo là để việc rơi không ai biết');
   assert.equal(gui.length, 1);
   assert.equal(
-    db.prepare('SELECT cho_model_tu_ms c FROM lich_hen LIMIT 1').get().c, null,
+    db.prepare('SELECT model_wait_since_ms c FROM schedules LIMIT 1').get().c, null,
     'gửi bù xong phải xoá cờ chờ, không gửi bù mãi',
   );
   closeDb(db);
@@ -452,7 +452,7 @@ test('G4 uid không tra ra tên -> BỎ tag, tin VẪN gửi (cấm bịa tên)'
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
   const gui = [];
   await runFollowUpTick({
     db, api: {}, queryHistory,
@@ -526,32 +526,32 @@ test('H5 listFollowUps lọc theo trạng thái', () => {
 test('H1 ★ nhịp phút lưu xuống DB và dời mốc đúng N phút', () => {
   const { db } = dbTam();
   nhacGia(db, { chuKyPhut: 2 }); chot(db);
-  const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA');
-  assert.equal(Number(d.chu_ky_phut), 2);
-  assert.equal(Number(d.tran_so_lan), 10, 'nhịp dày phải tự có trần mặc định');
+  const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('AAAA');
+  assert.equal(Number(d.cycle_minutes), 2);
+  assert.equal(Number(d.max_reminds), 10, 'nhịp dày phải tự có trần mặc định');
 
   const t = Date.now();
-  const cho = claimReminderTurn(db, { ...d, gui_luc_ms: d.gui_luc_ms }, t);
+  const cho = claimReminderTurn(db, { ...d, send_at_ms: d.send_at_ms }, t);
   assert.equal(cho.ok, true);
   assert.equal(cho.mocKeTiepMs - t, 120_000, 'phải là đúng 2 phút kể từ BÂY GIỜ');
   closeDb(db);
 });
 
-test('H2 ★★ chạm trần -> DỪNG THẬT: đóng dòng, ly_do_dong = HET_LUOT', () => {
+test('H2 ★★ chạm trần -> DỪNG THẬT: đóng dòng, close_reason = HET_LUOT', () => {
   const { db } = dbTam();
   nhacGia(db, { chuKyPhut: 1, tranSoLan: 3 }); chot(db);
 
   let cho;
   for (let i = 1; i <= 3; i += 1) {
-    const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA');
+    const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('AAAA');
     cho = claimReminderTurn(db, d, Date.now());
     assert.equal(cho.ok, true, `lượt ${i}`);
     assert.equal(cho.hetLuot, i === 3, `lượt ${i} hetLuot`);
   }
-  const sau = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA');
-  assert.equal(Number(sau.so_lan_da_nhac), 3, 'trần 3 = nhắc ĐỦ 3 lần, không phải 2');
-  assert.equal(sau.trang_thai_td, TRANG_THAI_TD.DA_XONG);
-  assert.equal(sau.ly_do_dong, 'HET_LUOT',
+  const sau = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('AAAA');
+  assert.equal(Number(sau.remind_count), 3, 'trần 3 = nhắc ĐỦ 3 lần, không phải 2');
+  assert.equal(sau.follow_up_status, TRANG_THAI_TD.DA_XONG);
+  assert.equal(sau.close_reason, 'HET_LUOT',
     'dùng HOST_DONG ở đây là host tưởng có ai đó đã xong việc');
   // Đã đóng thì nhịp sau KHÔNG được lấy ra nữa.
   assert.equal(dueFollowUps(db, Date.now() + 86_400_000).length, 0);
@@ -562,7 +562,7 @@ test('H3 ★★ hết lượt -> BÁO HOST, nói rõ dừng vì hết lượt KH
   const { db } = dbTam();
   upsertConversation(db, { chatId: NHOM, loai: 'GROUP', ten: 'N', duocNghe: true });
   nhacGia(db, { chuKyPhut: 1, tranSoLan: 1 }); chot(db);
-  db.exec('UPDATE lich_hen SET gui_luc_ms = 1');
+  db.exec('UPDATE schedules SET send_at_ms = 1');
 
   const dm = [];
   await runFollowUpTick({
@@ -584,17 +584,17 @@ test('H3 ★★ hết lượt -> BÁO HOST, nói rõ dừng vì hết lượt KH
 test('H4 🔴 nhịp NGÀY không bị gắn trần -> nhắc mãi tới khi host đóng', () => {
   const { db } = dbTam();
   nhacGia(db); chot(db);   // mặc định: nhịp ngày
-  const d = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA');
-  assert.equal(d.chu_ky_phut, null);
-  assert.equal(d.tran_so_lan, null, 'trần KHÔNG được lây sang nhịp ngày');
+  const d = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('AAAA');
+  assert.equal(d.cycle_minutes, null);
+  assert.equal(d.max_reminds, null, 'trần KHÔNG được lây sang nhịp ngày');
 
   for (let i = 0; i < 20; i += 1) {
-    const cur = db.prepare('SELECT * FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA');
-    const cho = claimReminderTurn(db, cur, Number(cur.gui_luc_ms));
+    const cur = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get('AAAA');
+    const cho = claimReminderTurn(db, cur, Number(cur.send_at_ms));
     assert.equal(cho.hetLuot, false, `lượt ${i} không được tự tắt`);
   }
   assert.equal(
-    db.prepare('SELECT trang_thai_td t FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA').t,
+    db.prepare('SELECT follow_up_status t FROM schedules WHERE confirm_code = ?').get('AAAA').t,
     TRANG_THAI_TD.DANG_THEO_DUOI,
   );
   closeDb(db);
@@ -603,16 +603,16 @@ test('H4 🔴 nhịp NGÀY không bị gắn trần -> nhắc mãi tới khi hos
 test('H5 adjustCadence đổi được nhịp phút và trần; null = bỏ hẳn', () => {
   const { db } = dbTam();
   nhacGia(db, { chuKyPhut: 2 }); chot(db);
-  const id = db.prepare('SELECT id FROM lich_hen WHERE ma_xac_nhan = ?').get('AAAA').id;
+  const id = db.prepare('SELECT id FROM schedules WHERE confirm_code = ?').get('AAAA').id;
 
   assert.equal(adjustCadence(db, { id, isHost: true, chuKyPhut: 5, tranSoLan: 20 }).ok, true);
-  let d = db.prepare('SELECT * FROM lich_hen WHERE id = ?').get(id);
-  assert.equal(Number(d.chu_ky_phut), 5);
-  assert.equal(Number(d.tran_so_lan), 20);
+  let d = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id);
+  assert.equal(Number(d.cycle_minutes), 5);
+  assert.equal(Number(d.max_reminds), 20);
 
   assert.equal(adjustCadence(db, { id, isHost: true, chuKyPhut: null, tranSoLan: null }).ok, true);
-  d = db.prepare('SELECT * FROM lich_hen WHERE id = ?').get(id);
-  assert.equal(d.chu_ky_phut, null, 'null = quay về nhịp ngày');
-  assert.equal(d.tran_so_lan, null, 'null = bỏ trần');
+  d = db.prepare('SELECT * FROM schedules WHERE id = ?').get(id);
+  assert.equal(d.cycle_minutes, null, 'null = quay về nhịp ngày');
+  assert.equal(d.max_reminds, null, 'null = bỏ trần');
   closeDb(db);
 });
