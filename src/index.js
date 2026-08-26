@@ -70,6 +70,9 @@ import { writeHealth } from './ops/health.js';
 import { notifyHost } from './ops/notify_host.js';
 import { createPaneLedger } from './ops/pane_ledger.js';
 import { createHotReloader } from './ops/hot_reload.js';
+import {
+  decideRetry, readyToRetry, byteCapFor, deadLetterMessage,
+} from './ops/send_retry.js';
 import { newGroupHostMessage, decideNewGroup, addGroupToConfig } from './ops/new_group.js';
 import {
   RESCUE_TICK_MS, MAX_RESCUE_ATTEMPTS, ORPHAN_AGE_MS, UNCLAIMED_AGE_MS, createRescueLedger,
@@ -980,8 +983,9 @@ async function chayClient(co, log, cauHinh) {
  * mới là chỗ quyết định có thử lại hay báo host.
  */
 export async function drainOutbox(p) {
-  const ra = { daGui: 0, loi: 0 };
+  const ra = { daGui: 0, loi: 0, thuLai: 0, choBackoff: 0 };
   const { takePendingOutbound, claimOutbound, writeSendResult } = p.kho;
+  const bayGio = p.bayGioMs ?? Date.now();
   let ds;
   try {
     ds = takePendingOutbound(p.db, p.soLuong ?? 20);
@@ -991,6 +995,19 @@ export async function drainOutbox(p) {
   }
 
   for (const d of ds) {
+    // 🔴 CÒN TRONG GIỜ CHỜ THÌ BỎ QUA — chốt này PHẢI đứng TRƯỚC `claimOutbound`.
+    // Nhịp rút là 2 giây; thiếu nó thì "thử lại" thành bắn 30 lần/phút vào đúng
+    // cái tin Zalo vừa từ chối, tức tự nộp mình cho bộ lọc spam. Mà claim rồi
+    // mới bỏ qua thì `attempt_count` vẫn cộng ⇒ đốt sạch trần thử lại trong
+    // vài giây, ⛔ không tin nào kịp chờ hết backoff.
+    if (!readyToRetry(
+      { soLanDaThu: Number(d.attempt_count ?? 0), tsCapNhatMs: Date.parse(d.ts_updated ?? '') },
+      bayGio,
+    )) {
+      ra.choBackoff += 1;
+      continue;
+    }
+
     // CAS: chỉ MỘT bên nhận được việc này.
     let nhanDuoc = false;
     try {
@@ -1005,13 +1022,48 @@ export async function drainOutbox(p) {
 
     try {
       // eslint-disable-next-line no-await-in-loop
-      const kq = await p.gui(String(d.target_chat_id), String(d.text), uids);
+      const kq = await p.gui(String(d.target_chat_id), String(d.text), uids, byteCapFor({
+        soLanDaThu: Number(d.attempt_count ?? 1) - 1,
+      }));
       writeSendResult(p.db, d.id, { msgId: kq?.msgId ?? null, lyDo: kq?.msgId ? null : 'Zalo không trả msgId' });
       if (kq?.msgId) ra.daGui += 1; else ra.loi += 1;
     } catch (e) {
-      ra.loi += 1;
+      // ═══ HỎNG THÌ THỬ LẠI, ⛔ ĐỪNG CHÔN ═══
+      // 🔴 Nhánh này trước đây gọi thẳng `writeSendResult` ⇒ `status='loi'`,
+      // trạng thái CUỐI. Tin bốc hơi, ⛔ không ai báo. Mất 3 tin thật kiểu đó
+      // (22–26/08/2026) trước khi chính anh hỏi "sao không trả lời".
+      const lyDo = safeLogText(e);
+      const qd = decideRetry({ soLanDaThu: Number(d.attempt_count ?? 1), lyDo });
       try {
-        writeSendResult(p.db, d.id, { lyDo: safeLogText(e) });
+        if (qd.thuLai && !p.kho.requeueOutbound) {
+          // ⛔ ĐỪNG âm thầm rơi xuống nhánh chôn tin: thiếu dây nối là LỖI LẬP
+          // TRÌNH, và nó phải lộ ra ở đây chứ không phải sáu ngày sau khi anh
+          // hỏi "sao không trả lời". Đúng cái bẫy đã dính hôm nay: hàm có sẵn
+          // mà không ai nối, cú pháp vẫn xanh.
+          p.log('[daemon] 🔴 THIẾU DÂY NỐI `requeueOutbound` -> tin hỏng sẽ bị chôn thay vì thử lại');
+        }
+        if (qd.thuLai && p.kho.requeueOutbound) {
+          p.kho.requeueOutbound(p.db, d.id, lyDo);
+          ra.thuLai += 1;
+          p.log(`[daemon] gửi ${d.id} hỏng lượt ${d.attempt_count} -> chờ ${Math.round(qd.choMs / 1000)}s thử lại (trần ${qd.tranByte}B): ${lyDo}`);
+        } else {
+          ra.loi += 1;
+          writeSendResult(p.db, d.id, { lyDo });
+          // 🔴 KÊU TO. Đây là chỗ DUY NHẤT anh biết mình vừa mất một tin —
+          // ⛔ đừng nuốt lỗi của lời báo động, nhưng cũng ⛔ đừng để nó làm
+          // chết vòng rút outbox.
+          try {
+            p.baoHost?.(deadLetterMessage({
+              chatIdDich: String(d.target_chat_id),
+              soLanDaThu: Number(d.attempt_count ?? 0),
+              text: String(d.text ?? ''),
+              lyDo,
+              kieu: qd.kieu,
+            }));
+          } catch (e3) {
+            p.log(`[daemon] ⛔ KHÔNG báo được host về tin chết ${d.id}: ${safeLogText(e3)}`);
+          }
+        }
       } catch (e2) {
         p.log(`[daemon] không ghi được kết quả gửi ${d.id}: ${safeLogText(e2)}`);
       }
@@ -1499,7 +1551,9 @@ export async function main(argv = process.argv) {
       const { sendInParts } = await import('./zalo/send.js');
       const { TRAN_BYTE_TIN_ZALO } = await import('./lib/hang_so.js');
       const { groupMembers } = await import('./store/query.js');
-      const { takePendingOutbound, claimOutbound, writeSendResult } = await import('./store/write.js');
+      const {
+        takePendingOutbound, claimOutbound, writeSendResult, requeueOutbound,
+      } = await import('./store/write.js');
       const { conversationKind } = await import('./store/query.js');
       const uidTL = toId(api?.getOwnId?.(), 'index.uidTroLy');
 
@@ -1507,8 +1561,13 @@ export async function main(argv = process.argv) {
         drainOutbox({
           db,
           log,
-          kho: { takePendingOutbound, claimOutbound, writeSendResult },
-          gui: async (chatId, text, uids) => {
+          kho: { takePendingOutbound, claimOutbound, writeSendResult, requeueOutbound },
+          // ⚠️ Báo host đi thẳng qua `xepHangDm` chứ ⛔ KHÔNG gọi lại
+          // `enqueueOutbound`: lời báo "một tin ⛔ không gửi được" mà cũng đi
+          // vào đúng hàng đợi vừa hỏng thì nó cũng hỏng theo, và anh ⛔ không
+          // bao giờ biết. Câu báo cố ý NGẮN, ít định dạng, để nó nhẹ nhất có thể.
+          baoHost: (loi) => baoHostDaemon(loi),
+          gui: async (chatId, text, uids, tranByte) => {
             // Chọn ĐÚNG kiểu luồng — bài học 21/08: `HUONG_TRA_LOI.NHOM` nghĩa
             // là "trả lời nơi đã hỏi", KHÔNG có nghĩa "nơi đó là một nhóm".
             const laDm = conversationKind(db, chatId) === LOAI_HOI_THOAI.DM;
@@ -1526,8 +1585,10 @@ export async function main(argv = process.argv) {
             // chính anh hỏi "sao không trả lời".
             // `tranByte` là thứ khiến nó chia ĐÚNG: Zalo đếm byte, ⛔ không
             // đếm ký tự.
+            // `tranByte` do tầng thử lại quyết: lượt sau lại nhỏ hơn lượt trước.
+            // Bỏ trống ⇒ dùng trần mặc định (lượt đầu).
             return sendInParts(api, chatId, text, {
-              ...tuyChon, laDm, tranByte: TRAN_BYTE_TIN_ZALO,
+              ...tuyChon, laDm, tranByte: tranByte || TRAN_BYTE_TIN_ZALO,
             });
           },
         }).catch((e) => log(`[daemon] rút outbox lỗi (đã nuốt): ${safeLogText(e)}`));

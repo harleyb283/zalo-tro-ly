@@ -21,7 +21,8 @@ import test from 'node:test';
 
 import { closeDb, openDb } from '../src/store/db.js';
 import {
-  writeSendResult, writeMessage, takePendingOutbound, claimOutbound, enqueueQuestion,
+  writeSendResult,
+  requeueOutbound, writeMessage, takePendingOutbound, claimOutbound, enqueueQuestion,
   upsertConversation, enqueueOutbound,
 } from '../src/store/write.js';
 import {
@@ -395,12 +396,17 @@ test('★★★ K2 daemon lên lại GỬI TIẾP đúng một lần (chạy `dr
   const gui = async (chatId, text) => { daGui.push({ chatId, text }); return { msgId: '9996000000001' }; };
 
   const r1 = await drainOutbox({ db, log: () => {}, kho, gui });
-  assert.deepEqual(r1, { daGui: 1, loi: 0 });
+  assert.equal(r1.daGui, 1);
+  assert.equal(r1.loi, 0);
   assert.equal(daGui.length, 1);
 
   // Chạy lại nhịp -> ⛔ KHÔNG được gửi lần hai.
   const r2 = await drainOutbox({ db, log: () => {}, kho, gui });
-  assert.deepEqual(r2, { daGui: 0, loi: 0 });
+  // ⚠️ So từng ô chứ ⛔ không `deepEqual` cả object: bộ đếm còn `thuLai` /
+  // `choBackoff` thêm về sau, mà bài này canh "⛔ KHÔNG gửi lần hai" chứ ⛔
+  // không canh hình dạng bộ đếm.
+  assert.equal(r2.daGui, 0, 'gửi lần hai = hai tin vào nhóm người thật');
+  assert.equal(r2.loi, 0);
   assert.equal(daGui.length, 1, '🔴 gửi đôi — tin Zalo KHÔNG thu hồi được');
 
   const d = db.prepare('SELECT * FROM send_queue').get();
@@ -430,23 +436,44 @@ test('★★★ K3 HAI vòng rút chồng nhau -> ĐÚNG MỘT bên gửi', asyn
   closeDb(db);
 });
 
-test('★★★ K4 gửi HỎNG -> ghi "loi" + LÝ DO, ⛔ không tự thử lại vô hạn', async () => {
-  // Zalo có thể ĐÃ NHẬN mà mình không biết (ca "không rõ đã gửi hay chưa").
-  // Thử lại mù là rủi ro hai tin — quyết định thử lại thuộc về lưới canh.
+test('★★★ K4 ĐỨT MẠNG (⛔ không rõ đã gửi chưa) -> ghi "loi" NGAY, ⛔ KHÔNG thử lại', async () => {
+  // 🔴 Ý ĐỊNH GỐC CỦA BÀI NÀY, giữ nguyên khi thêm cơ chế thử lại 26/08/2026:
+  // Zalo có thể ĐÃ NHẬN mà mình không biết. Thử lại mù = HAI TIN giống hệt nhau
+  // vào nhóm người thật. Nên lỗi kiểu ĐỨT ĐƯỜNG thì ⛔ TUYỆT ĐỐI không thử lại,
+  // dù cơ chế thử lại đã tồn tại và dù mới hỏng lần đầu.
   const db = dbTam();
   enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
-  const kho = { takePendingOutbound, claimOutbound, writeSendResult };
-  const gui = async () => { throw new Error('mạng rớt'); };
+  const baoHost = [];
+  const kho = { takePendingOutbound, claimOutbound, writeSendResult, requeueOutbound };
+  const gui = async () => { throw new Error('mạng rớt: ECONNRESET'); };
 
-  const r1 = await drainOutbox({ db, log: () => {}, kho, gui });
-  assert.deepEqual(r1, { daGui: 0, loi: 1 });
+  const r1 = await drainOutbox({ db, log: () => {}, kho, gui, baoHost: (m) => baoHost.push(m) });
+  assert.equal(r1.loi, 1);
+  assert.equal(r1.thuLai, 0, '🔴 ĐỨT MẠNG mà vẫn thử lại ⇒ rủi ro gửi hai lần');
   const d = db.prepare('SELECT * FROM send_queue').get();
   assert.equal(d.status, TRANG_THAI_GUI.LOI);
-  assert.match(d.reason, /mạng rớt/);
+  assert.match(d.reason, /ECONNRESET/);
   assert.equal(d.msg_id, null, 'gửi hỏng mà ghi msgId = sổ sách nói dối');
+  assert.equal(baoHost.length, 1, '⛔ mất tin mà ⛔ không báo host = đúng con bug 26/08');
+  assert.match(baoHost[0], /không rõ|KHÔNG thử lại/i, 'phải nói rõ VÌ SAO ⛔ không thử lại');
 
-  const r2 = await drainOutbox({ db, log: () => {}, kho, gui });
-  assert.deepEqual(r2, { daGui: 0, loi: 0 }, "dòng 'loi' ⛔ không được tự quay lại hàng chờ");
+  const r2 = await drainOutbox({ db, log: () => {}, kho, gui, baoHost: () => {} });
+  assert.equal(r2.loi, 0, "dòng 'loi' ⛔ không được tự quay lại hàng chờ");
+  closeDb(db);
+});
+
+test('★★★ K4b MÁY CHỦ TỪ CHỐI (chắc chắn CHƯA gửi) -> THỬ LẠI, ⛔ không chôn tin', async () => {
+  // Đối lập với K4: máy chủ đã TRẢ LỜI là từ chối ⇒ chắc chắn tin chưa đi ⇒
+  // thử lại an toàn. Đây là ca đã làm mất 3 tin thật vì trước đó ⛔ không thử lại.
+  const db = dbTam();
+  enqueueOutbound(db, { requestId: 'r1', chatIdDich: NHOM, text: 'tin A' });
+  const kho = { takePendingOutbound, claimOutbound, writeSendResult, requeueOutbound };
+  const gui = async () => { throw new Error('Gửi tin thất bại — nguyên nhân: Lỗi không xác định'); };
+
+  const r1 = await drainOutbox({ db, log: () => {}, kho, gui, baoHost: () => {} });
+  assert.equal(r1.thuLai, 1, '🔴 máy chủ từ chối mà lại chôn tin ⇒ đúng con bug cũ');
+  const d = db.prepare('SELECT * FROM send_queue').get();
+  assert.equal(d.status, TRANG_THAI_GUI.CHO, 'tin phải còn SỐNG trong hàng đợi');
   closeDb(db);
 });
 
@@ -458,7 +485,8 @@ test('★★ K5 đọc hàng đợi HỎNG -> nuốt và báo, ⛔ không làm c
     kho: { takePendingOutbound: () => { throw new Error('DB khoá'); }, claimOutbound, writeSendResult },
     gui: async () => ({ msgId: 'x' }),
   });
-  assert.deepEqual(ra, { daGui: 0, loi: 0 });
+  assert.equal(ra.daGui, 0);
+  assert.equal(ra.loi, 0);
   assert.match(noi.join(' '), /DB khoá|hàng đợi gửi/);
   closeDb(db);
 });

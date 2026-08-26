@@ -1108,6 +1108,37 @@ export function writeSendResult(db, id, { msgId, lyDo } = {}) {
 }
 
 /**
+ * ★ Trả một tin ĐANG GỬI về lại hàng đợi để lượt sau thử tiếp.
+ *
+ * 🔴 KHÁC `writeSendResult(..., {msgId: null})`: hàm kia đánh dấu `'loi'` —
+ * trạng thái CUỐI, ⛔ không ai đụng tới nữa, tin coi như mất. Hàm này giữ tin
+ * SỐNG. Đó là toàn bộ khác biệt giữa "mất một tin của người thật" và "chậm
+ * vài giây".
+ *
+ * ⚠️ ⛔ KHÔNG cộng `attempt_count` ở đây — `claimOutbound` đã cộng khi nhận
+ * việc. Cộng cả hai chỗ là đếm đôi, và trần thử lại tụt còn một nửa mà ⛔
+ * không ai nhận ra (số vẫn tăng đều, chỉ là tăng nhanh gấp đôi).
+ *
+ * @param {TDb} db
+ * @param {string} id
+ * @param {string} lyDo vì sao lượt vừa rồi hỏng — giữ lại để còn lần ra
+ * @returns {boolean} true = đã trả về hàng đợi thật
+ */
+export function requeueOutbound(db, id, lyDo) {
+  const kq = db.prepare(
+    `UPDATE send_queue SET status = $cho, reason = $ly, ts_updated = $ts
+      WHERE id = $id AND status = $dangGui`,
+  ).run({
+    cho: TRANG_THAI_GUI.CHO,
+    dangGui: TRANG_THAI_GUI.DANG_GUI,
+    ly: String(lyDo ?? '(không rõ lý do)'),
+    ts: _bayGio(),
+    id: String(id),
+  });
+  return Number(kq.changes) === 1;
+}
+
+/**
  * Các tin ĐANG CHỜ gửi, cũ nhất trước.
  * ⚠️ CHỈ trả `'cho'` — `'dang_gui'` là việc người khác đang cầm.
  */

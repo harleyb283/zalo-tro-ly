@@ -614,7 +614,7 @@ test('🔴 BY5 đường gửi outbox PHẢI đi qua sendInParts kèm tranByte',
   const than = src.slice(src.indexOf('drainOutbox({'), src.indexOf('}, 2000));'));
   assert.ok(than.length > 100, 'cắt trượt vùng nối dây outbox ⇒ bài này vô nghĩa');
   assert.match(than, /sendInParts\(/, 'outbox ⛔ không gọi sendInParts ⇒ tin dài lại mất');
-  assert.match(than, /tranByte:\s*TRAN_BYTE_TIN_ZALO/, 'thiếu tranByte ⇒ chia theo ký tự, emoji vẫn vượt');
+  assert.match(than, /tranByte:/, 'thiếu tranByte ⇒ chia theo ký tự, emoji vẫn vượt');
   assert.doesNotMatch(
     than,
     /\bsendHostDm\(|\bsendToGroup\(/,
