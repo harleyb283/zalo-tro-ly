@@ -1496,7 +1496,8 @@ export async function main(argv = process.argv) {
     // ⑬ v7 — RÚT OUTBOX. Chỉ ở chế độ TÁCH: đây là chỗ DUY NHẤT chạm Zalo,
     // và là chỗ throttle được thi hành TOÀN CỤC (xem chú thích ở `drainOutbox`).
     if (che.cheDo === CHE_DO.TACH) {
-      const { sendToGroup, sendHostDm } = await import('./zalo/send.js');
+      const { sendInParts } = await import('./zalo/send.js');
+      const { TRAN_BYTE_TIN_ZALO } = await import('./lib/hang_so.js');
       const { groupMembers } = await import('./store/query.js');
       const { takePendingOutbound, claimOutbound, writeSendResult } = await import('./store/write.js');
       const { conversationKind } = await import('./store/query.js');
@@ -1517,9 +1518,17 @@ export async function main(argv = process.argv) {
               ...(laDm ? {} : { dsNguoi: groupMembers(db, chatId) }),
             };
             void uids;
-            return laDm
-              ? sendHostDm(api, chatId, text, tuyChon)
-              : sendToGroup(api, chatId, text, tuyChon);
+            // 🔴 PHẢI đi qua `sendInParts`, ⛔ ĐỪNG gọi thẳng `sendToGroup`/
+            // `sendHostDm` như trước 26/08/2026. Hai hàm kia gửi NGUYÊN CỤC:
+            // tin vượt trần byte của Zalo bị TỪ CHỐI, outbox ghi `loi` rồi
+            // thôi — ⛔ không chia, ⛔ không thử lại, ⛔ không báo ai. Đo được
+            // 2 tin thật đã mất y như vậy (2.051 và 1.965 ký tự) trước khi
+            // chính anh hỏi "sao không trả lời".
+            // `tranByte` là thứ khiến nó chia ĐÚNG: Zalo đếm byte, ⛔ không
+            // đếm ký tự.
+            return sendInParts(api, chatId, text, {
+              ...tuyChon, laDm, tranByte: TRAN_BYTE_TIN_ZALO,
+            });
           },
         }).catch((e) => log(`[daemon] rút outbox lỗi (đã nuốt): ${safeLogText(e)}`));
       }, 2000));

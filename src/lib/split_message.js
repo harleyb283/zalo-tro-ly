@@ -36,6 +36,16 @@ export function charLength(s) {
   return [...String(s)].length;
 }
 
+/**
+ * Độ dài tính bằng **BYTE UTF-8** — đơn vị Zalo thật sự đếm khi từ chối tin.
+ * ⛔ Đừng thay bằng `.length`: tiếng Việt có dấu ~1,3 byte/ký tự, emoji 4.
+ */
+export function byteLength(s) {
+  return _BO_MA.encode(String(s)).length;
+}
+
+const _BO_MA = new TextEncoder();
+
 function catTheoDiemMa(s, tu, den) {
   return [...String(s)].slice(tu, den).join('');
 }
@@ -73,6 +83,46 @@ export function findSplitPoint(khoi, toiDa) {
  *   `daCat = true` nghĩa là nội dung KHÔNG được gửi đủ (chạm trần số tin).
  */
 export function splitMessage(text, tuyChon = {}) {
+  const tranByte = tuyChon.tranByte ?? null;
+  if (!tranByte) return _chiaTheoDiemMa(text, tuyChon);
+
+  // ═══ CHIA THEO BYTE — vòng CO DẦN ═══
+  //
+  // 🔴 Bộ chia bên dưới đo bằng ĐIỂM MÃ, còn Zalo đếm BYTE. Không có tỉ lệ cố
+  // định giữa hai đơn vị: ASCII 1 byte/điểm mã, tiếng Việt có dấu ~1,3, emoji 4.
+  // Nên: ước tỉ lệ từ CHÍNH đoạn chữ này, chia thử, rồi ĐO LẠI từng phần bằng
+  // byte. Phần nào vượt thì co ngân sách 15% và chia lại.
+  //
+  // ⛔ ĐỪNG thay bằng một hằng số kiểu "chia 1.500 ký tự cho chắc": đoạn toàn
+  // emoji vẫn vượt, mà đoạn toàn ASCII thì bị chẻ vụn vô cớ thành 3 tin.
+  const s0 = String(text ?? '').trim();
+  const soDiem = charLength(s0);
+  if (soDiem === 0) return { phan: [], daCat: false, originalLength: 0, soPhan: 0 };
+
+  const tyLe = Math.max(1, byteLength(s0) / soDiem);   // byte mỗi điểm mã
+  let tran = Math.max(80, Math.floor(tranByte / tyLe));
+
+  let kq = _chiaTheoDiemMa(text, { ...tuyChon, tran });
+  for (let lan = 0; lan < 5; lan += 1) {
+    if (kq.phan.every((p) => byteLength(p) <= tranByte)) return kq;
+    tran = Math.max(80, Math.floor(tran * 0.85));
+    kq = _chiaTheoDiemMa(text, { ...tuyChon, tran });
+  }
+  // Hết lượt co mà vẫn vượt: trả về bản cuối. Tầng gửi có cảnh báo riêng cho
+  // ca này (`sendInParts` kêu khi một phần bị `truncateSafely` cắt), nên ⛔
+  // không nuốt im — nhưng cũng ⛔ không ném, vì gửi thiếu còn hơn ⛔ không gửi.
+  return kq;
+}
+
+/**
+ * Bộ chia gốc, đo bằng ĐIỂM MÃ. Giữ nguyên hành vi cũ cho mọi lời gọi ⛔ không
+ * khai `tranByte` — đó là điều kiện để bản vá này ⛔ không đổi gì ở đường cũ.
+ *
+ * @param {string} text
+ * @param {{tran?: number, soTinToiDa?: number, danhSo?: boolean}} [tuyChon]
+ * @returns {{phan: string[], daCat: boolean, originalLength: number, soPhan: number}}
+ */
+function _chiaTheoDiemMa(text, tuyChon = {}) {
   const tran = tuyChon.tran ?? GIOI_HAN.DO_DAI_TIN_TOI_DA;
   const soTinToiDa = tuyChon.soTinToiDa ?? MAX_PARTS;
   const danhSo = tuyChon.danhSo !== false;

@@ -162,6 +162,27 @@ export const GIOI_HAN = Object.freeze({
   SO_LAN_NOI_LAI_TOI_DA: 5,
 });
 
+/**
+ * ★ TRẦN THẬT CỦA MỘT TIN ZALO — tính bằng **BYTE UTF-8**, không phải ký tự.
+ *
+ * 🔴 ĐO THẬT 26/08/2026 trên kho gửi đi, ⛔ không phải đọc tài liệu:
+ *      2.450 byte (1.920 ký tự)  -> GỬI LỌT
+ *      2.531 byte (1.965 ký tự)  -> ZALO TỪ CHỐI
+ *      2.616 byte (2.051 ký tự)  -> ZALO TỪ CHỐI
+ *    Ranh giới nằm giữa 2.450 và 2.531; con số TRÒN duy nhất lọt vào khoảng
+ *    đó là 2.500 byte. Ta lấy 2.200 để còn biên an toàn.
+ *
+ * 🔴 VÌ SAO PHẢI ĐẾM BYTE: `GIOI_HAN.DO_DAI_TIN_TOI_DA` khai 4.000 **ký tự**,
+ *    gấp đôi mức Zalo chịu được, nên ⛔ không có gì chặn — tin 1.965 ký tự đi
+ *    thẳng ra và bị từ chối. Mà đếm ký tự cũng ⛔ không cứu được: tiếng Việt có
+ *    dấu tốn ~1,3 byte/ký tự (đo được 2.450/1.920), emoji tốn 4. Cùng một số
+ *    ký tự, tin này lọt tin kia trượt — đúng kiểu hỏng lúc được lúc không.
+ *
+ * ⚠️ Hỏng này CÂM: outbox ghi `loi` rồi thôi, ⛔ không thử lại, ⛔ không báo ai.
+ *    Chỉ người đang chờ tin mới biết. Đã mất 2 tin thật trước khi bị phát hiện.
+ */
+export const TRAN_BYTE_TIN_ZALO = 2200;
+
 /** Backoff nối lại (ms) — thiết kế 5.2. Vượt mảng thì dùng phần tử cuối. */
 export const BACKOFF_NOI_LAI_MS = Object.freeze([5000, 15000, 60000, 300000, 300000]);
 

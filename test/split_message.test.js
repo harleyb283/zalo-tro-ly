@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { splitMessage, findSplitPoint, charLength, MAX_PARTS } from '../src/lib/split_message.js';
+import { splitMessage, findSplitPoint, charLength, byteLength, MAX_PARTS } from '../src/lib/split_message.js';
+import { TRAN_BYTE_TIN_ZALO } from '../src/lib/hang_so.js';
 import { validateConfig, VALID_SIDE_CHANNELS } from '../src/policy/access.js';
 
 const nhoHon = (phan, tran) => phan.every((p) => charLength(p) <= tran);
@@ -549,4 +550,74 @@ test('🔴 C3 file cấu hình MẪU chỉ chứa giá trị giả + tích hợp
   for (const h of c.hosts) assert.match(h.userId, /^0+$/, 'userId mẫu phải là số 0');
   for (const g of c.groups) assert.match(g.chatId, /^0+$/, 'chatId mẫu phải là số 0');
   assert.ok(JSON.stringify(c).indexOf('/Users/') === -1, 'không đường dẫn tuyệt đối');
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// ★ CHIA THEO BYTE (26/08/2026) — vá ca MẤT TIN THẬT
+//
+// 🔴 Bối cảnh, ⛔ đừng xoá: pack khai trần 4.000 KÝ TỰ, còn Zalo từ chối theo
+// BYTE. Đo trên kho gửi đi: 2.450 byte lọt, 2.531 byte bị từ chối. Hai tin
+// thật đã mất y như vậy — outbox ghi `loi` rồi thôi, ⛔ không chia, ⛔ không
+// thử lại, ⛔ không báo ai. Chỉ người đang ngồi chờ mới biết.
+// ═══════════════════════════════════════════════════════════════════════
+
+test('★★★ BY1 mọi phần đều ≤ trần BYTE, kể cả chữ có dấu và emoji', () => {
+  const ca = [
+    ['tiếng Việt (đúng ca hỏng thật)', 'Nhắc anh hoàn thành cập nhật thiết kế báo cáo công nợ và gửi cho Trọng. '.repeat(40)],
+    ['ASCII thuần', 'The quick brown fox jumps over the lazy dog. '.repeat(70)],
+    // 🔴 Ca emoji là lý do PHẢI đếm byte: 4 byte/điểm mã. Chia theo ký tự thì
+    // "1.500 ký tự" ở đây thành 6.000 byte — vượt gấp gần ba mà ⛔ không ai biết.
+    ['toàn emoji', '🔴⛔✅⚠️😄'.repeat(400)],
+  ];
+  for (const [ten, s] of ca) {
+    const kq = splitMessage(s, { tranByte: TRAN_BYTE_TIN_ZALO });
+    assert.ok(kq.soPhan >= 1, `${ten}: ⛔ không chia được gì`);
+    for (const p of kq.phan) {
+      assert.ok(
+        byteLength(p) <= TRAN_BYTE_TIN_ZALO,
+        `${ten}: một phần nặng ${byteLength(p)} byte > trần ${TRAN_BYTE_TIN_ZALO} ⇒ Zalo sẽ TỪ CHỐI`,
+      );
+    }
+  }
+});
+
+test('★★ BY2 tin ĐÚNG độ dài từng làm mất tin thật thì nay chia được', () => {
+  // Dựng đoạn dài cỡ 2.531 byte — con số CHÍNH XÁC của tin bị Zalo từ chối.
+  let s = '';
+  while (byteLength(s) < 2531) s += 'Trả lời anh về chuyện đo năng lực máy tính. ';
+  assert.ok(byteLength(s) > TRAN_BYTE_TIN_ZALO, 'dựng sai tiền đề');
+  const kq = splitMessage(s, { tranByte: TRAN_BYTE_TIN_ZALO });
+  assert.ok(kq.soPhan >= 2, 'phải chia làm nhiều tin chứ ⛔ không gửi nguyên cục');
+  assert.equal(kq.daCat, false, '⛔ không được mất chữ ở độ dài này');
+});
+
+test('★★ BY3 ⛔ KHÔNG chia vô cớ khi tin đã nằm dưới trần', () => {
+  const kq = splitMessage('Dạ em đây anh 👋', { tranByte: TRAN_BYTE_TIN_ZALO });
+  assert.equal(kq.soPhan, 1);
+  assert.equal(kq.phan[0], 'Dạ em đây anh 👋', '⛔ không được thêm tiền tố "1/1"');
+});
+
+test('🔴 BY4 ⛔ KHÔNG khai tranByte thì hành vi CŨ giữ nguyên từng chữ', () => {
+  // Điều kiện để bản vá này an toàn: mọi lời gọi cũ ⛔ không đổi kết quả.
+  const s = 'Câu dài để thử. '.repeat(300);
+  assert.deepEqual(
+    splitMessage(s, { tran: 400 }),
+    splitMessage(s, { tran: 400, tranByte: null }),
+  );
+});
+
+test('🔴 BY5 đường gửi outbox PHẢI đi qua sendInParts kèm tranByte', () => {
+  // ⚠️ Bài này canh CHỖ NỐI DÂY, ⛔ không canh hàm chia. `split_message.js`
+  // từng đúng suốt mà vẫn mất tin, vì ⛔ không ai gọi tới nó — chính file đó
+  // tự ghi "CHƯA ĐƯỢC NỐI DÂY". Test hàm lá ⇒ xanh; test chỗ nối ⇒ mới bắt được.
+  const src = fs.readFileSync(path.join(GOC, 'src', 'index.js'), 'utf8');
+  const than = src.slice(src.indexOf('drainOutbox({'), src.indexOf('}, 2000));'));
+  assert.ok(than.length > 100, 'cắt trượt vùng nối dây outbox ⇒ bài này vô nghĩa');
+  assert.match(than, /sendInParts\(/, 'outbox ⛔ không gọi sendInParts ⇒ tin dài lại mất');
+  assert.match(than, /tranByte:\s*TRAN_BYTE_TIN_ZALO/, 'thiếu tranByte ⇒ chia theo ký tự, emoji vẫn vượt');
+  assert.doesNotMatch(
+    than,
+    /\bsendHostDm\(|\bsendToGroup\(/,
+    'gọi thẳng hàm gửi nguyên cục = đúng con bug 26/08',
+  );
 });
