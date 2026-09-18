@@ -77,6 +77,7 @@ import { newGroupHostMessage, decideNewGroup, addGroupToConfig } from './ops/new
 import {
   RESCUE_TICK_MS, MAX_RESCUE_ATTEMPTS, ORPHAN_AGE_MS, UNCLAIMED_AGE_MS, createRescueLedger,
 } from './ops/rescue_orphans.js';
+import { createMuteWatcher, MUTE_TICK_MS, NGUONG_CAM_MS } from './ops/pane_cam.js';
 
 /** @typedef {import('./types.d.ts').CauHinh} CauHinh */
 /** @typedef {import('./types.d.ts').TinChuanHoa} TinChuanHoa */
@@ -805,6 +806,8 @@ async function chayClient(co, log, cauHinh) {
   let vong = null;
   /** @type {any} */
   let henVot = null;
+  /** v13 — bộ hẹn của lưới soi PANE CÂM. Xem `ops/pane_cam.js`. */
+  let henCam = null;
 
   // ═══ 🔴 ĐƯỜNG BÁO HOST CỦA CLIENT — qua OUTBOX, ⛔ không qua Zalo ═══
   // Client ⛔ không có `api` (cố ý). Trước v11 nghĩa là mọi cảnh báo của nó
@@ -935,6 +938,21 @@ async function chayClient(co, log, cauHinh) {
       henVot.unref?.();
       log(`[client] lưới vớt BẬT: mỗi ${RESCUE_TICK_MS / 1000}s, vớt dòng quá `
         + `${ORPHAN_AGE_MS / 1000}s, tối đa ${MAX_RESCUE_ATTEMPTS} lần rồi báo host`);
+
+      // ═══ 🔴 v13 — LƯỚI PHÁT HIỆN **PANE CÂM** (18/09/2026) ═══
+      // Lưới vớt ở trên ĐẨY LẠI dòng mồ côi — vô dụng khi phiên vẫn sống mà
+      // ĐIẾC (pane mở thiếu cờ dev-channel): đẩy lại cũng rơi vào hư không.
+      // Lưới này hỏi câu khác hẳn: *"đẩy rồi, nhưng có ai trả lời không?"* và
+      // báo qua OUTBOX của daemon — ⛔ không qua phiên đang hỏng, vì cảnh báo
+      // đi bằng chính con đường đã đứt thì ⛔ không tới được ai.
+      // Ca thật 18/09/2026: anh nhắn 5 câu trong 23 phút, ⛔ không một lỗi nào
+      // nổ ra, và trợ lý chỉ biết vì tình cờ tự mở kho ra soi.
+      const soiCam = createMuteWatcher((loiNhan) => baoHostClient(loiNhan));
+      henCam = setInterval(() => {
+        try { soiCam(db); } catch (e) { log(`[client] soi pane câm lỗi (đã nuốt): ${safeLogText(e)}`); }
+      }, MUTE_TICK_MS);
+      henCam.unref?.();
+      log(`[client] lưới soi PANE CÂM BẬT: mỗi ${MUTE_TICK_MS / 1000}s, ngưỡng ${NGUONG_CAM_MS / 60000} phút`);
     },
   });
 
@@ -958,6 +976,7 @@ async function chayClient(co, log, cauHinh) {
       log(`[client] nhận ${tin} -> tắt sạch`);
       try { napNongClient?.dung(); } catch { /* nuốt */ }
       try { if (henVot) clearInterval(henVot); } catch { /* nuốt */ }
+      try { if (henCam) clearInterval(henCam); } catch { /* nuốt */ }
       try { vong?.dung(); } catch { /* nuốt */ }
       try { closeDb(db); } catch { /* nuốt */ }
       process.exit(EXIT_CODE.OK);
