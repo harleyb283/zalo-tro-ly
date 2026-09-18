@@ -15,7 +15,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { createChannel, CHANNEL_METHOD, CHANNEL_CAPABILITY, pushPendingQueue } from '../src/mcp/channel.js';
-import { TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_GHI, TEN_TOOL_DUYET } from '../src/lib/hang_so.js';
+import {
+  TEN_TOOL, TEN_TOOL_LICH, TEN_TOOL_NHAC, TEN_TOOL_GHI, TEN_TOOL_DUYET, TEN_TOOL_MEDIA,
+} from '../src/lib/hang_so.js';
 
 /** Nuốt stderr — file này cố ý kêu nhiều ra stderr. */
 async function imLang(fn) {
@@ -170,7 +172,7 @@ test('B6 soDaDay đếm số lần ĐẨY ĐI — CỐ Ý không gọi là "đã
 });
 
 // ═══ C. tools/list qua client thật ═══
-test('C1 client thấy ĐÚNG 18 tool (4 gốc + 4 lịch + 4 nhắc + 3 ghi nhớ + 3 duyệt v11), tên lấy từ hằng số', async () => {
+test('C1 client thấy ĐÚNG 20 tool (4 gốc + 4 lịch + 4 nhắc + 3 ghi nhớ + 3 duyệt + 2 media v13), tên lấy từ hằng số', async () => {
   const { registerTools } = await import('../src/mcp/tools.js');
   const { kenh, client } = await dungCap({
     registerTools: (server) => registerTools(server, {
@@ -189,6 +191,7 @@ test('C1 client thấy ĐÚNG 18 tool (4 gốc + 4 lịch + 4 nhắc + 3 ghi nh�
       TEN_TOOL_NHAC.DAT_NHAC_THEO_DUOI, TEN_TOOL_NHAC.CHINH_NHIP_NHAC,
       TEN_TOOL_NHAC.DONG_NHAC, TEN_TOOL_NHAC.XEM_NHAC,
       TEN_TOOL_GHI.GHI_NHO, TEN_TOOL_GHI.MO_LAI_NHAC, TEN_TOOL_GHI.BO_QUA,
+      TEN_TOOL_MEDIA.TAI_MEDIA, TEN_TOOL_MEDIA.LUU_CHU_ANH,
       TEN_TOOL_DUYET.XIN_DUYET, TEN_TOOL_DUYET.XEM_YEU_CAU, TEN_TOOL_DUYET.DUYET_YEU_CAU,
     ].sort(),
   );

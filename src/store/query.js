@@ -850,3 +850,54 @@ export function countTurnMemos(db, requestId) {
     .get({ r: String(requestId ?? '') });
   return Number(r?.c ?? 0);
 }
+
+/**
+ * ★ v13 — TIN CÓ ẢNH/FILE để tải về đọc (anh chốt 17/09/2026).
+ *
+ * 🔴 VÌ SAO KHÔNG DÙNG `queryHistory`: hàm đó CẮT `content_raw` khỏi kết quả
+ * (tin phi-text có `content = NULL`, phần metadata chỉ dùng nội bộ). Mà đường
+ * tải ảnh nằm đúng trong `content_raw`. Viết một truy vấn riêng, hẹp, trả đúng
+ * một dòng — thay vì nới `queryHistory` ra cho mọi lời gọi khác cùng thấy.
+ *
+ * ⚠️ VẪN đi qua `enforceChatId` như mọi đường đọc khác: pane khoá vào nhóm A
+ * ⛔ không được mượn hàm này để đọc metadata của nhóm B.
+ *
+ * @param {TDb} db
+ * @param {{chatId: string, msgId?: string|null}} p
+ * @returns {{chatId: string, msgId: string, msgType: string, contentRaw: string|null,
+ *            mediaText: string|null, mediaTextAt: string|null, tsZalo: number}|null}
+ */
+export function mediaMessage(db, p) {
+  const chatId = enforceChatId(p?.chatId);
+  if (!chatId) return null;
+  const msgId = p?.msgId ? String(p.msgId) : null;
+
+  const dong = msgId
+    ? db.prepare(
+      `SELECT chat_id, msg_id, msg_type, content_raw, media_text, media_text_at, ts_zalo
+         FROM messages WHERE chat_id = $c AND msg_id = $m`,
+    ).get({ c: chatId, m: msgId })
+    // ⚠️ Không có msgId thì lấy tin phi-text GẦN NHẤT — đúng thói quen thật của
+    // anh: gửi ảnh xong nhắn "đọc hộ cái ảnh". ⛔ Không lấy tin text, vì tin
+    // text ⛔ không có gì để tải.
+    : db.prepare(
+      `SELECT chat_id, msg_id, msg_type, content_raw, media_text, media_text_at, ts_zalo
+         FROM messages
+        WHERE chat_id = $c AND content_raw IS NOT NULL AND msg_type != 'chat.text'
+        ORDER BY ts_zalo DESC LIMIT 1`,
+    ).get({ c: chatId });
+
+  if (!dong) return null;
+  return {
+    chatId: String(dong.chat_id),
+    msgId: String(dong.msg_id),
+    msgType: String(dong.msg_type ?? ''),
+    contentRaw: dong.content_raw === null || dong.content_raw === undefined
+      ? null : String(dong.content_raw),
+    mediaText: dong.media_text === null || dong.media_text === undefined
+      ? null : String(dong.media_text),
+    mediaTextAt: dong.media_text_at === null || dong.media_text_at === undefined
+      ? null : String(dong.media_text_at),
+    tsZalo: Number(dong.ts_zalo ?? 0),
+  };
+}

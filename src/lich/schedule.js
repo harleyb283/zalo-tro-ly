@@ -27,7 +27,9 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { GIOI_HAN_LICH, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH } from '../lib/hang_so.js';
+import {
+  GIOI_HAN_LICH, LY_DO_DONG, TIEN_TO_NHAC_MUON, TRANG_THAI_LICH, TRANG_THAI_TD,
+} from '../lib/hang_so.js';
 import { toId, toIdRequired } from '../lib/ids.js';
 
 function _log(msg) {
@@ -187,7 +189,31 @@ export function confirmSchedule(db, { id, ma, nguoiDat }) {
   return { ok: true, dong: { ...dong, status: TRANG_THAI_LICH.DA_LEN_LICH } };
 }
 
-export function cancelSchedule(db, { id, nguoiDat }) {
+/**
+ * Huỷ một dòng lịch.
+ *
+ * ═══ 🔴 HUỶ PHẢI ĐÓNG CẢ HAI SỔ ═══
+ * `schedules` mang HAI đường trạng thái song song trên cùng một dòng:
+ *   · `status`           — vòng đời của LỊCH  (cho_xac_nhan -> da_len_lich -> …)
+ *   · `follow_up_status` — vòng đời của LỜI NHẮC THEO ĐUỔI (chỉ có nghĩa khi
+ *                          `is_follow_up = 1`)
+ *
+ * Bản cũ chỉ lật `status` sang `da_huy`. Với một dòng theo đuổi, hậu quả là:
+ *   · `dueFollowUps()` đòi `status = 'da_len_lich'` ⇒ dòng KHÔNG BAO GIỜ nhắc nữa
+ *   · `listFollowUps()` KHÔNG lọc `status` ⇒ sổ vẫn khoe "dang_theo_duoi"
+ * Tức lời nhắc đã chết mà sổ sách nói nó đang sống. Đây đúng họ lỗi mà
+ * `brokenInvariantReminders()` sinh ra để bắt, chỉ khác lối vào.
+ *
+ * 🔴 Đã dính thật 15/09/2026 (dòng `75CE`): huỷ xong, `followup_list` vẫn báo
+ * đang theo đuổi, và Router đọc sổ rồi báo host một kết luận SAI. Cái giá không
+ * phải là tin gửi trùng — mà là **không còn tin ai được nữa**: cùng một dòng,
+ * hai sổ trả lời hai đằng thì mọi câu trả lời dựa trên nó đều đáng ngờ.
+ *
+ * ⚠️ Lý do đóng là `HUY_LICH`, KHÔNG phải `HOST_DONG`: huỷ lời nhắc ⛔ không có
+ * nghĩa là việc đã xong. Trộn hai thứ đó là chỗ `followup_reopen` và sổ báo cáo
+ * bắt đầu nói sai về chuyện gì đã thực sự được giải quyết.
+ */
+export function cancelSchedule(db, { id, nguoiDat, bayGioMs } = {}) {
   const dong = db
     .prepare('SELECT * FROM schedules WHERE (id = $k OR confirm_code = $k)')
     .get({ k: String(id ?? '') });
@@ -198,9 +224,35 @@ export function cancelSchedule(db, { id, nguoiDat }) {
   if ([TRANG_THAI_LICH.DA_GUI, TRANG_THAI_LICH.DA_HUY].includes(dong.status)) {
     return { ok: false, ly: 'SAI_TRANG_THAI', dong };
   }
-  db.prepare('UPDATE schedules SET status = $tt, ts_updated = $ts WHERE id = $id')
-    .run({ tt: TRANG_THAI_LICH.DA_HUY, ts: new Date().toISOString(), id: dong.id });
-  return { ok: true, dong };
+
+  const laTheoDuoi = Number(dong.is_follow_up) === 1;
+  const dangChay = dong.follow_up_status !== TRANG_THAI_TD.DA_XONG;
+
+  // 🔴 MỘT lệnh UPDATE cho cả hai sổ. Tách làm hai lệnh là mở lại đúng cửa sổ
+  // vừa vá: tiến trình chết giữa chừng thì dòng lại lệch y như cũ.
+  if (laTheoDuoi && dangChay) {
+    db.prepare(
+      `UPDATE schedules
+          SET status = $tt, follow_up_status = $ttd, closed_by = $boi,
+              closed_at_ms = $luc, close_reason = $ly,
+              model_wait_since_ms = NULL, ts_updated = $ts
+        WHERE id = $id`,
+    ).run({
+      tt: TRANG_THAI_LICH.DA_HUY,
+      ttd: TRANG_THAI_TD.DA_XONG,
+      boi: nguoiDat ? String(nguoiDat) : String(dong.created_by ?? ''),
+      luc: Math.floor(bayGioMs ?? Date.now()),
+      ly: LY_DO_DONG.HUY_LICH,
+      // `model_wait_since_ms = NULL`: còn để lại mốc chờ model thì bộ quét treo
+      // vẫn bắn câu dự phòng ≤10 phút sau — nhắn người thật về lời nhắc ĐÃ HUỶ.
+      ts: new Date().toISOString(),
+      id: dong.id,
+    });
+  } else {
+    db.prepare('UPDATE schedules SET status = $tt, ts_updated = $ts WHERE id = $id')
+      .run({ tt: TRANG_THAI_LICH.DA_HUY, ts: new Date().toISOString(), id: dong.id });
+  }
+  return { ok: true, dong, daDongSoTheoDuoi: laTheoDuoi && dangChay };
 }
 
 export function listSchedules(db, { trangThai, chatId, nguoiDat, soLuong = 50 } = {}) {

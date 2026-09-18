@@ -758,14 +758,34 @@ export function claimedButUnsent(db) {
  */
 export function brokenInvariantReminders(db) {
   try {
+    // 🔴 KHÔNG chỉ `da_gui`. Bất biến thật là: `dueFollowUps()` đòi
+    // `status = 'da_len_lich'`, nên MỌI trạng thái khác đều có nghĩa "dòng này
+    // sẽ không bao giờ nhắc nữa" — và nếu sổ theo đuổi vẫn ghi `dang_theo_duoi`
+    // thì nó đang nói dối, bất kể lối vào là `claimSending`, `cancelSchedule`
+    // hay một lỗi ghi nào chưa biết. Liệt kê theo `da_gui` thôi là dò đúng MỘT
+    // lối vào đã biết, tức vá theo triệu chứng. Dính thật 15/09/2026: dòng
+    // `75CE` bị huỷ (`da_huy`) lọt qua bộ dò này trong im lặng.
+    const chotSo = [
+      TRANG_THAI_LICH.DA_GUI, TRANG_THAI_LICH.DA_HUY,
+      TRANG_THAI_LICH.QUA_HAN, TRANG_THAI_LICH.LOI,
+    ];
     return db
       .prepare(
-        `SELECT id, confirm_code, content FROM schedules
-          WHERE is_follow_up = 1 AND follow_up_status = $ttd AND status = $tt
+        `SELECT id, confirm_code, content, status FROM schedules
+          WHERE is_follow_up = 1 AND follow_up_status = $ttd
+            AND status IN (${chotSo.map((_, i) => `$t${i}`).join(',')})
           LIMIT 50`,
       )
-      .all({ ttd: TRANG_THAI_TD.DANG_THEO_DUOI, tt: TRANG_THAI_LICH.DA_GUI })
-      .map((r) => ({ id: String(r.id), ma: r.confirm_code ? String(r.confirm_code) : null, noiDung: String(r.content ?? '') }));
+      .all({
+        ttd: TRANG_THAI_TD.DANG_THEO_DUOI,
+        ...Object.fromEntries(chotSo.map((t, i) => [`t${i}`, t])),
+      })
+      .map((r) => ({
+        id: String(r.id),
+        ma: r.confirm_code ? String(r.confirm_code) : null,
+        noiDung: String(r.content ?? ''),
+        trangThai: String(r.status ?? ''),
+      }));
   } catch (e) {
     _log(`không dò được bất biến sổ nhắc: ${e?.message ?? e}`);
     return [];

@@ -26,9 +26,10 @@ import {
 } from '../src/store/write.js';
 import { groupMembers, queryHistory } from '../src/store/query.js';
 import { HUONG_TRA_LOI, TEN_TOOL, TEN_TOOL_LICH, TRANG_THAI_HANG_DOI } from '../src/lib/hang_so.js';
-import { confirmSchedule, claimSending, createSchedule } from '../src/lich/schedule.js';
+import { confirmSchedule, claimSending, createSchedule, cancelSchedule } from '../src/lich/schedule.js';
 import {
   claimReminderTurn, claimedButUnsent, brokenInvariantReminders, writeReminderBook, createFollowUp,
+  listFollowUps,
 } from '../src/lich/follow_up.js';
 import { runFollowUpTick } from '../src/lich/runner.js';
 import { pushPendingQueue } from '../src/mcp/channel.js';
@@ -411,4 +412,76 @@ test('T3d-3 ★★★ bộ đếm lỗi: 2 nhịp liên tiếp -> BÁO host; bá
   dem('gì đó', null);
   dem('gì đó', undefined);
   assert.equal(bao.length, 3, 'runner ném lỗi (ra = null) không được làm bộ đếm nổ');
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// T3g — HUỶ MỘT LỜI NHẮC THEO ĐUỔI PHẢI ĐÓNG CẢ HAI SỔ
+//
+// 🔴 CA THẬT 15/09/2026, dòng `75CE`: Router huỷ một lời nhắc theo đuổi bằng
+//    `schedule_cancel`. Lệnh chỉ lật `status -> da_huy`, `follow_up_status` nằm
+//    lại `dang_theo_duoi`. Hậu quả KHÔNG phải gửi trùng (dueFollowUps đòi
+//    `da_len_lich` nên nó im hẳn) mà là SỔ SÁCH NÓI DỐI: `followup_list` khoe
+//    "đang theo đuổi" cho một dòng đã chết. Router đọc sổ đó rồi báo host một
+//    kết luận sai — cái giá thật là host không còn tin được sổ nào nữa.
+//
+// ⚠️ Bài này KHÔNG kiểm "DB có cột close_reason": nó hỏi thứ đi tới mắt anh —
+//    dòng đó còn hiện ra như đang chạy nữa không, và bộ dò bất biến có bắt được
+//    dòng cũ đã lỡ lệch hay không.
+// ═══════════════════════════════════════════════════════════════════════
+
+test('T3g ★★★ huỷ lời nhắc theo đuổi -> sổ theo đuổi đóng theo, không còn báo "đang chạy"', () => {
+  const { db } = dbTam();
+  const dong = nhacDaChot(db, { ma: 'HUY1' });
+  assert.equal(dong.follow_up_status, 'dang_theo_duoi');
+
+  const kq = cancelSchedule(db, { id: 'HUY1', nguoiDat: HOST });
+  assert.equal(kq.ok, true);
+  assert.equal(kq.daDongSoTheoDuoi, true, 'phải nói ra rằng nó vừa đóng luôn sổ theo đuổi');
+
+  const sau = db.prepare("SELECT * FROM schedules WHERE confirm_code = 'HUY1'").get();
+  assert.equal(sau.status, 'da_huy');
+  assert.equal(sau.follow_up_status, 'da_xong', '🔴 đây chính là dòng đã hỏng ở ca 75CE');
+  assert.equal(sau.close_reason, 'HUY_LICH',
+    'huỷ KHÁC host-bảo-xong: trộn hai thứ là báo cáo nói sai việc nào đã thực sự giải quyết');
+  assert.equal(sau.model_wait_since_ms, null,
+    'còn mốc chờ model thì bộ quét treo vẫn bắn câu dự phòng cho một lời nhắc ĐÃ HUỶ');
+
+  // Thứ đi tới mắt anh: sổ không được liệt kê nó như đang chạy nữa.
+  const dangChay = listFollowUps(db, { trangThaiTd: 'dang_theo_duoi' });
+  assert.equal(dangChay.length, 0, 'followup_list vẫn khoe "đang theo đuổi" = đúng lỗi cũ');
+
+  // Và nó cũng KHÔNG được coi là bất biến vỡ — vì hai sổ giờ đã khớp nhau.
+  assert.equal(brokenInvariantReminders(db).length, 0);
+  closeDb(db);
+});
+
+test('T3g-2 ★★ bộ dò bất biến bắt cả dòng CŨ bị huỷ mà sổ chưa đóng (dữ liệu trước khi vá)', () => {
+  const { db } = dbTam();
+  nhacDaChot(db, { ma: 'CU1' });
+  // Dựng lại đúng trạng thái lệch mà bản cũ để lại trong DB thật.
+  db.prepare("UPDATE schedules SET status = 'da_huy' WHERE confirm_code = 'CU1'").run();
+
+  const vo = brokenInvariantReminders(db);
+  assert.equal(vo.length, 1, '🔴 bản cũ chỉ dò `da_gui` nên dòng da_huy lọt qua trong im lặng');
+  assert.equal(vo[0].ma, 'CU1');
+  assert.equal(vo[0].trangThai, 'da_huy', 'phải nói rõ nó chốt sổ bằng đường nào');
+  closeDb(db);
+});
+
+test('T3g-3 ★★ lịch MỘT LẦN huỷ như cũ, không đụng cột theo đuổi (chống vá quá tay)', () => {
+  const { db } = dbTam();
+  const ma = 'MOT1';
+  createSchedule(db, {
+    chatIdDich: NHOM, loaiDich: 'GROUP', noiDung: 'nhắc một lần',
+    guiLucMs: Date.now() + 3_600_000, dienGiaiGoc: '1 tiếng nữa', dienGiaiXacNhan: 'đọc lại',
+    nguoiDat: HOST, chatIdDat: NHOM, ma,
+  });
+  const kq = cancelSchedule(db, { id: ma, nguoiDat: HOST });
+  assert.equal(kq.ok, true);
+  assert.equal(kq.daDongSoTheoDuoi, false, 'lịch một lần KHÔNG có sổ theo đuổi để đóng');
+
+  const sau = db.prepare('SELECT * FROM schedules WHERE confirm_code = ?').get(ma);
+  assert.equal(sau.status, 'da_huy');
+  assert.equal(sau.close_reason, null, 'đừng gắn lý do đóng cho thứ vốn không phải lời nhắc theo đuổi');
+  closeDb(db);
 });

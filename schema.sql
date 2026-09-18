@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- zalo-tro-ly · HỢP ĐỒNG LƯU TRỮ · schema_version = '12'
+-- zalo-tro-ly · HỢP ĐỒNG LƯU TRỮ · schema_version = '13'
 -- Khoá ở gói G0. G1–G10 KHÔNG được sửa file này.
 -- Cần đổi schema ⇒ báo Router, tăng schema_version, viết bước migrate.
 --
@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS meta (
   value  TEXT NOT NULL
 );
 
-INSERT OR IGNORE INTO meta (name, value) VALUES ('schema_version', '12');
+INSERT OR IGNORE INTO meta (name, value) VALUES ('schema_version', '13');
 -- ⚠️ OR IGNORE: DB CŨ giữ nguyên giá trị cũ ở đây. Việc nâng phiên bản là
 --    của BUOC_MIGRATE trong src/store/db.js, KHÔNG phải của dòng này.
 
@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS messages (
   recall_confidence  TEXT,
   absent_first_ms    TEXT,                        -- ISO, lượt quét đầu thấy vắng
   absent_count     INTEGER NOT NULL DEFAULT 0,
+  -- ─── v13: CHỮ ĐỌC RA TỪ ẢNH / FILE (anh chốt 17/09/2026) ─────────────
+  -- 🔴 KHÔNG phá spec H. Spec H cấm giữ MEDIA của người khác (bytes ảnh, file,
+  --    giọng nói) — cột này giữ CHỮ mà trợ lý đọc được từ đó, và chỉ cho những
+  --    hội thoại anh cho phép (hiện tại: DM của host). File tải về là TẠM,
+  --    nằm ngoài repo, xoá ngay sau khi đọc; `content` của tin phi-text VẪN
+  --    phải là NULL, ràng buộc cũ nguyên vẹn.
+  -- ⚠️ `media_text_at` cho biết chữ này đọc LÚC NÀO. Thiếu nó thì ⛔ không phân
+  --    biệt được "ảnh chưa đọc" với "đã đọc nhưng không có chữ nào".
+  media_text        TEXT,
+  media_text_at     TEXT,
   PRIMARY KEY (chat_id, msg_id)
 );
 

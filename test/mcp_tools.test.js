@@ -197,8 +197,12 @@ test('B1 trả tin đã rút gọn + nguonChatIds, KHÔNG trả nguyên dòng DB
   // Danh sách ĐÓNG, cố ý: đây là hàng rào chặn cột nội bộ lọt vào prompt.
   // `thuHoi` thêm ở v3 — nó KHÔNG phải cột DB thô mà là mô tả độ tin cậy do
   // query.describeRecall() dựng (SU_KIEN = biết chắc giờ / DOI_CHIEU = chỉ biết khoảng).
+  // `chuTuAnh` thêm ở v13 — chữ đọc ra từ ảnh/file. Nó KHÔNG phải cột DB thô
+  // lọt ra: `media_text` được đổi tên và chỉ trả đúng giá trị chữ, còn
+  // `content_raw` (nơi chứa đường tải) VẪN bị chặn — hai dòng assert dưới canh.
   assert.deepEqual(Object.keys(tin).sort(),
-    ['chatId', 'daThuHoi', 'msgType', 'nguoiGui', 'noiDung', 'tenHoiThoai', 'thoiGian', 'thuHoi']);
+    ['chatId', 'chuTuAnh', 'daThuHoi', 'msgType', 'nguoiGui', 'noiDung', 'tenHoiThoai',
+      'thoiGian', 'thuHoi']);
   assert.equal(tin.content_raw, undefined, 'cột nội bộ KHÔNG được lọt ra prompt');
   assert.equal(tin.recall_source, undefined, 'cột DB thô KHÔNG được lọt ra prompt');
   assert.equal(tin.thoiGian, new Date(1755678901234).toISOString());

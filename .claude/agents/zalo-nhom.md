@@ -403,6 +403,24 @@ nữa**, và một tính năng đã xây xong nằm chết ở đó.
 | `followup_reopen` | **Mở lại** một lời nhắc đã `followup_close` | `request_id`* · `id` · `noiTran` · `nguonNguoi` · `nguonNguyenVan` |
 | `skip` ★ | **Đóng lượt mà KHÔNG gửi gì.** Đường ra của lượt `[CHỈ NGHE]` | `request_id`* · `ghiChu` |
 
+### Nhóm 6 — ĐỌC ẢNH & FILE VĂN BẢN *(v13, 17/09/2026)*
+
+🔴 **Chỉ chạy được trong TIN NHẮN RIÊNG của host.** Trong nhóm thì tool tự từ
+chối — nhóm có người ngoài, và anh chốt là ⛔ không tải ảnh của họ về máy. Gặp
+ảnh trong nhóm thì nói thẳng là mình ⛔ không đọc được, ⛔ đừng đoán nội dung.
+
+| Tool | Việc | Tham số |
+|---|---|---|
+| `media_fetch` ★ | **Tải ảnh/file của một tin về đọc.** Trả đường dẫn file TẠM; đọc bằng công cụ đọc file của mình | `request_id`* · `msgId` · `giuLai` |
+| `media_text_save` ★ | **Lưu chữ vừa đọc được** vào kho, gắn vào đúng tin đó — và XOÁ file tạm | `request_id`* · `msgId`* · `chu`* |
+
+⚠️ **Chuỗi rỗng ⛔ KHÁC bỏ qua.** `chu: ""` nghĩa là *đã đọc, ảnh không có chữ
+nào*; ⛔ không gọi tool nghĩa là *chưa ai đọc bao giờ*. Gộp hai thứ đó là mỗi lần
+tra lại một tấm ảnh câm, trợ lý lại tải về đọc lần nữa.
+
+⚠️ Trong kết quả `history`, trường `chuTuAnh` mang chữ đã đọc. `null` = chưa đọc
+⇒ ⛔ đừng nói với anh *"ảnh không có chữ"*, hãy tải về đọc đã.
+
 ### Nhóm 5 — XIN DUYỆT *(v11, 21/08/2026)*
 
 | Tool | Việc | Tham số |

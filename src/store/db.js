@@ -570,6 +570,20 @@ export const MIGRATION_STEPS = [
       }
     },
   },
+  {
+    tu: '12',
+    den: '13',
+    moTa: 'messages: chữ đọc ra từ ảnh/file văn bản (media_text) — anh chốt 17/09/2026',
+    chay(db) {
+      // ⚠️ CHỈ CỘNG THÊM, cho phép NULL. NULL ở đây MANG NGHĨA: "chưa đọc bao
+      // giờ" — khác hẳn chuỗi rỗng, nghĩa là "đã đọc mà không thấy chữ nào".
+      // Gộp hai thứ đó làm một là mỗi lần tra lại một tấm ảnh câm, trợ lý lại
+      // tải nó về đọc lần nữa mà không biết lần trước đã đọc rồi.
+      _themCot(db, 'messages', 'media_text', 'TEXT');
+      _themCot(db, 'messages', 'media_text_at', 'TEXT');
+      // ⛔ KHÔNG đụng dòng cũ: mọi tin ảnh đã có đều chưa từng được đọc.
+    },
+  },
 ];
 
 /**

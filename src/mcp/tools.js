@@ -51,7 +51,7 @@ import {
   TEN_TOOL_NHAC,
   TEN_TOOL_GHI, TEN_TOOL_DUYET, TRANG_THAI_DUYET, LOAI_HOI_THOAI,
   CUE_GHI_NHO_MAC_DINH, SU_KIEN_CONG_GHI,
-  NHAC_THEO_DUOI, TRANG_THAI_LICH, GIOI_HAN_LICH,
+  NHAC_THEO_DUOI, TRANG_THAI_LICH, TRANG_THAI_TD, GIOI_HAN_LICH, TEN_TOOL_MEDIA,
 } from '../lib/hang_so.js';
 import {
   confirmSchedule, timeUntil, countPending, formatVn, buildConfirmText, cancelSchedule, createSchedule, makeConfirmCode, listSchedules,
@@ -69,13 +69,17 @@ import {
   queryHistory, storeStats, groupMembers, reminderTagUids, setAssistantUid,
 } from '../store/query.js';
 import { claimedButUnsent, brokenInvariantReminders } from '../lich/follow_up.js';
+import {
+  duocPhepDocMedia, layMediaTuTin, taiVeTam, thuMucTam, donFileCu, GIOI_HAN_MEDIA,
+} from '../zalo/media.js';
 import { writeMemo, writeWriteGateLog, reopenReminder, writeActionTrail, readActionTrail } from '../store/write.js';
 import {
   readMemos, countTurnMemos, conversationKind, getClientId, getReadScope, taskOwnerHost,
+  mediaMessage,
 } from '../store/query.js';
 import {
   getQueueRow, updateQueueState, writeQueryLog, writeMessage,
-  requestApproval, listApprovalRequests, resolveApproval,
+  requestApproval, listApprovalRequests, resolveApproval, writeMediaText,
 } from '../store/write.js';
 import { getSources, recordSources, decideReplyRoute, clearSession } from '../policy/leak_guard.js';
 import { hostDmChatId } from '../policy/access.js';
@@ -590,6 +594,66 @@ export const TOOL_DECLARATIONS = Object.freeze([
       required: ['request_id', 'id', 'dongY'],
     },
   },
+  // ─── v13. ĐỌC ẢNH / FILE VĂN BẢN (anh chốt 17/09/2026) ───────────────
+  {
+    name: TEN_TOOL_MEDIA.TAI_MEDIA,
+    description:
+      '★ TẢI ẢNH hoặc FILE VĂN BẢN của một tin về máy để ĐỌC. Dùng khi anh gửi ảnh '
+      + '(chụp màn hình lịch học, giấy tờ, hoá đơn) rồi bảo "đọc hộ", "trong ảnh ghi gì", '
+      + '"xem cái này". Tool trả về ĐƯỜNG DẪN một file tạm — bạn dùng công cụ đọc file '
+      + 'của mình để xem, ảnh thì nhìn thẳng, file chữ thì đọc nội dung. '
+      + '🔴 CHỈ chạy được trong TIN NHẮN RIÊNG của host. Trong nhóm thì tool TỪ CHỐI, '
+      + 'vì nhóm có người ngoài và anh đã chốt là ⛔ không tải ảnh của họ về máy. '
+      + '⚠️ File tạm sẽ TỰ XOÁ (đọc xong hoặc quá 30 phút). Cần lại thì gọi tool này lần nữa — '
+      + `⛔ đừng giữ đường dẫn cũ. Đọc xong có chữ thì nhớ gọi ${TEN_TOOL_MEDIA.LUU_CHU_ANH} `
+      + 'để lưu vào kho, ⛔ không thì lần sau hỏi lại là phải tải và đọc lại từ đầu.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        request_id: { type: 'string', description: MO_TA_REQUEST_ID },
+        msgId: {
+          type: 'string',
+          description:
+            'msg_id của tin mang ảnh/file. Bỏ trống = tin ảnh/file GẦN NHẤT trong chính '
+            + 'hội thoại này — đúng ca thường gặp: anh vừa gửi ảnh xong rồi bảo đọc.',
+        },
+        giuLai: {
+          type: 'boolean',
+          description:
+            'Mặc định false = xoá file ngay sau khi bạn báo đã đọc xong. Chỉ đặt true khi '
+            + 'bạn cần mở lại nhiều lần trong CÙNG một lượt.',
+        },
+      },
+      required: ['request_id'],
+    },
+  },
+  {
+    name: TEN_TOOL_MEDIA.LUU_CHU_ANH,
+    description:
+      '★ LƯU CHỮ bạn vừa đọc được từ ảnh/file vào kho, gắn thẳng vào tin đó. '
+      + 'Nhờ vậy lần sau anh hỏi "hôm nọ chị gửi lịch gì" là tra ra ngay, ⛔ không phải '
+      + 'tải và đọc lại. '
+      + '⚠️ Chép lại ĐÚNG những gì NHÌN THẤY trong ảnh, ⛔ đừng tóm tắt và ⛔ đừng suy diễn — '
+      + 'đây là thứ sẽ được đọc lại như bằng chứng, nên nó phải là chữ trong ảnh chứ ⛔ không '
+      + 'phải cách hiểu của bạn. Ảnh ⛔ không có chữ nào thì truyền chuỗi RỖNG: nó có nghĩa '
+      + '"đã đọc, không có chữ", khác hẳn việc ⛔ không gọi tool này (= chưa ai đọc bao giờ).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        request_id: { type: 'string', description: MO_TA_REQUEST_ID },
+        msgId: {
+          type: 'string',
+          description: `msg_id của tin — lấy từ kết quả ${TEN_TOOL_MEDIA.TAI_MEDIA}.`,
+        },
+        chu: {
+          type: 'string',
+          description:
+            'Chữ đọc được, chép nguyên. Chuỗi rỗng = đã đọc mà không có chữ nào.',
+        },
+      },
+      required: ['request_id', 'msgId', 'chu'],
+    },
+  },
   {
     name: TEN_TOOL_GHI.BO_QUA,
     description:
@@ -987,6 +1051,10 @@ export function registerTools(server, phuThuoc) {
     writeMemo, readMemos, countTurnMemos, writeWriteGateLog, reopenReminder,
     writeActionTrail, readActionTrail,
     conversationKind, taskOwnerHost,
+    // v13 — đọc ảnh/file: một đường ĐỌC metadata (mediaMessage) và một đường
+    // GHI chữ đọc được (writeMediaText). Cả hai vẫn đi qua tầng kho như mọi
+    // truy vấn khác, ⛔ không mở đường đọc DB thứ hai.
+    mediaMessage, writeMediaText,
     requestApproval, listApprovalRequests, resolveApproval,
     // ⚠️ CỐ Ý KHÔNG có mặc định. `xepHangGuiRa` chỉ được nối ở chế độ TÁCH
     // (`src/index.js` truyền vào). Vắng nó ⇒ `reply` gửi thẳng như hôm nay.
@@ -1071,6 +1139,10 @@ export function registerTools(server, phuThuoc) {
           return _goi(_ghiVetNeuOk(nen, _tt, TEN_TOOL_GHI.GHI_NHO, thamSo, _ghiNho({ kho, db, cauHinh }, thamSo)));
         case TEN_TOOL_GHI.MO_LAI_NHAC:
           return _goi(_ghiVetNeuOk(nen, _tt, TEN_TOOL_GHI.MO_LAI_NHAC, thamSo, _moLaiNhac({ kho, db, cauHinh }, thamSo)));
+        case TEN_TOOL_MEDIA.TAI_MEDIA:
+          return _goi(await _taiMedia({ kho, db, cauHinh }, thamSo));
+        case TEN_TOOL_MEDIA.LUU_CHU_ANH:
+          return _goi(_luuChuAnh({ kho, db, cauHinh }, thamSo));
         case TEN_TOOL_GHI.BO_QUA:
           return _goi(_boQua({ kho, db }, thamSo));
         case TEN_TOOL_DUYET.XIN_DUYET:
@@ -1138,6 +1210,11 @@ async function _lichSu({ kho, chinhSach, db, boTichLuy }, thamSo) {
     nguoiGui: r.name_at_send ?? (r.user_id ? String(r.user_id) : null),
     noiDung: r.content ?? null,
     msgType: String(r.msg_type),
+    // v13 — CHỮ ĐỌC RA TỪ ẢNH/FILE. `null` = chưa ai đọc tấm ảnh đó bao giờ;
+    // chuỗi rỗng = đã đọc mà ⛔ không có chữ nào. ⚠️ Hai thứ đó KHÁC nhau, và
+    // model phải nói đúng thứ nó biết: thấy `null` thì đừng bảo anh "ảnh không
+    // có chữ", hãy tải về đọc.
+    chuTuAnh: r.media_text === null || r.media_text === undefined ? null : String(r.media_text),
     thoiGian: _iso(r.ts_zalo),
     daThuHoi: Number(r.recalled) === 1,
     // 🔴 KHÔNG BAO GIỜ trả `daThuHoi` trần. Cờ này do tầng truy vấn đặt
@@ -1997,8 +2074,9 @@ function _trangThai({ kho, db, docSucKhoe, cauHinh }, thamSo = {}) {
   if (batBienVo.length) {
     canhBao.push(
       `🔴 ${batBienVo.length} lời nhắc theo đuổi đã CHỐT SỔ nhưng sổ vẫn ghi "đang theo đuổi" `
-      + `(${batBienVo.map((t) => t.ma ?? t.id).join(', ')}) ⇒ chúng SẼ KHÔNG BAO GIỜ NHẮC NỮA `
-      + 'dù nhìn vào tưởng đang chạy. Báo host để Router xử tay.',
+      + `(${batBienVo.map((t) => `${t.ma ?? t.id}${t.trangThai ? `/${t.trangThai}` : ''}`).join(', ')}) `
+      + '⇒ chúng SẼ KHÔNG BAO GIỜ NHẮC NỮA dù nhìn vào tưởng đang chạy. '
+      + 'Báo host để Router xử tay.',
     );
   }
 
@@ -2413,7 +2491,16 @@ function _huyLich({ kho, lich, db }, thamSo) {
     }[kq.ly] ?? 'Không huỷ được.';
     return _loi(MA_LOI.KHONG_RO, noi);
   }
-  return _ok({ id: kq.dong.id, trangThai: TRANG_THAI_LICH.DA_HUY });
+  // `daDongSoTheoDuoi` phải ĐI RA tới model: huỷ một lời nhắc theo đuổi cũng là
+  // đóng nó, mà model đọc kết quả rỗng thì lại đi gọi `followup_close` lần nữa
+  // (hoặc tệ hơn: báo host rằng nó "vẫn đang chạy").
+  return _ok({
+    id: kq.dong.id,
+    trangThai: TRANG_THAI_LICH.DA_HUY,
+    ...(kq.daDongSoTheoDuoi
+      ? { trangThaiTd: TRANG_THAI_TD.DA_XONG, nhac: 'Đây là lời nhắc THEO ĐUỔI — huỷ lịch đã đóng luôn sổ theo đuổi, ⛔ không cần gọi followup_close nữa.' }
+      : {}),
+  });
 }
 
 export const _noiBoChoTest = { _kiemPhien, _cat, _goi, _datLichNhap, _datLichChot, layNhomChoLich };
@@ -3068,6 +3155,127 @@ function _boQua({ kho, db }, thamSo) {
     // ⚠️ Nói THẲNG là không có tin nào đi ra. Model rất dễ tự kể lại với người
     // dùng rằng "em đã nhắn rồi" khi thấy `ok: true` — ca hỏng 08:03 y hệt.
     ghiChu: 'Không có tin nào được gửi. Lượt đã đóng.',
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// v13 — ĐỌC ẢNH / FILE VĂN BẢN (anh chốt 17/09/2026)
+//
+// 🔴 BA RÀNG BUỘC ANH ĐẶT, thi hành ở ĐÂY chứ không chỉ dặn bằng lời:
+//   1. CHỈ tin nhắn riêng của host  -> `duocPhepDocMedia()` chặn ngay đầu.
+//   2. Đọc xong XOÁ                  -> xoá ngay trong `luuChuAnh`, và mọi lần
+//      tải đều dọn file quá tuổi (lưới hai, cho ca model chết giữa chừng).
+//   3. Chữ đọc được thì LƯU vào kho  -> `media_text`, cột riêng, ⛔ không đụng
+//      `content` (spec H vẫn nguyên: ⛔ không giữ media của người khác).
+//
+// ⚠️ Vì sao chốt chặn 1 nằm ở tool chứ ⛔ không ở tầng nhận tin: tầng nhận tin
+// ⛔ không biết model sẽ làm gì với tin đó. Chặn ở đúng chỗ THỰC HIỆN hành vi
+// là chặn được mọi đường vào, kể cả đường sau này ai đó thêm mà quên luật.
+// ═══════════════════════════════════════════════════════════════════════
+
+async function _taiMedia({ kho, db, cauHinh }, thamSo) {
+  const phien = _kiemPhien(kho, db, thamSo);
+  if (phien.loi) return phien.loi;
+
+  const chatId = String(phien.dong.asking_chat_id ?? '');
+  if (!duocPhepDocMedia(chatId, cauHinh)) {
+    return _loi(MA_LOI.KHONG_RO,
+      'Chỉ đọc được ảnh/file trong TIN NHẮN RIÊNG của host. Đây là nhóm có người '
+      + 'ngoài — anh đã chốt là ⛔ không tải ảnh của họ về máy. Cần thật thì nhờ anh '
+      + 'gửi lại vào tin nhắn riêng.');
+  }
+
+  let tin;
+  try {
+    tin = kho.mediaMessage(db, { chatId, msgId: thamSo?.msgId ?? null });
+  } catch (e) {
+    return _loi(MA_LOI.DB_LOI, cleanError('không tra được tin có ảnh/file', e).message);
+  }
+  if (!tin) {
+    return _loi(MA_LOI.KHONG_RO,
+      'Không tìm thấy tin nào có ảnh/file trong hội thoại này. Anh gửi lại ảnh giúp, '
+      + 'hoặc cho msgId cụ thể.');
+  }
+
+  // Đã đọc rồi thì NÓI RA thay vì lẳng lặng tải lại — vừa đỡ một lần chạm mạng,
+  // vừa để model biết chữ cũ còn đó mà đối chiếu.
+  const media = layMediaTuTin(tin.contentRaw);
+  if (!media) {
+    return _loi(MA_LOI.KHONG_RO,
+      `Tin ${tin.msgId} ⛔ không kèm đường tải nào (Zalo chỉ gửi phần mô tả). `
+      + 'Đây là giới hạn thật, ⛔ không phải lỗi tạm thời — nhờ anh gửi lại ảnh.');
+  }
+  if (media.loai === 'khac') {
+    return _loi(MA_LOI.KHONG_RO,
+      `⛔ Không nhận ra loại file này (${media.ten ?? 'không rõ tên'}). Chỉ đọc ảnh, `
+      + 'file chữ và tài liệu — đoán bừa rồi tải một file lạ về máy là chuyện khác.');
+  }
+
+  const thuMuc = thuMucTam(cauHinh?.duongDan?.db ?? cauHinh?.duongDanDb ?? '');
+  const kq = await taiVeTam(media.url, thuMuc, { ten: media.ten });
+  if (!kq.ok) {
+    return _loi(MA_LOI.KHONG_RO,
+      `Tải không được (${kq.ly}). ⛔ Đừng đoán nội dung ảnh — nói thật với anh là `
+      + 'em chưa đọc được, rồi thử lại sau.');
+  }
+
+  _log(`tai_media ${tin.msgId} -> ${kq.soByte} byte (${media.loai})`);
+  return _ok({
+    msgId: tin.msgId,
+    loai: media.loai,
+    duongDan: kq.duongDan,
+    soByte: kq.soByte,
+    tenGoc: media.ten,
+    chuDaLuuTruoc: tin.mediaText,
+    nhac:
+      'Đọc file ở đường dẫn trên bằng công cụ đọc file của bạn. Xong thì gọi '
+      + `${TEN_TOOL_MEDIA.LUU_CHU_ANH} với msgId này — nó vừa lưu chữ vào kho, vừa XOÁ `
+      + 'file tạm. ⛔ Đừng để file nằm lại trên máy.',
+  });
+}
+
+function _luuChuAnh({ kho, db, cauHinh }, thamSo) {
+  const phien = _kiemPhien(kho, db, thamSo);
+  if (phien.loi) return phien.loi;
+
+  const chatId = String(phien.dong.asking_chat_id ?? '');
+  if (!duocPhepDocMedia(chatId, cauHinh)) {
+    return _loi(MA_LOI.KHONG_RO, 'Chỉ lưu được chữ từ ảnh trong tin nhắn riêng của host.');
+  }
+  const msgId = String(thamSo?.msgId ?? '').trim();
+  if (!msgId) return _loi(MA_LOI.KHONG_RO, 'Thiếu msgId — ⛔ không biết chữ này thuộc tin nào.');
+  if (typeof thamSo?.chu !== 'string') {
+    return _loi(MA_LOI.KHONG_RO,
+      'Thiếu `chu`. Ảnh ⛔ không có chữ nào thì truyền chuỗi RỖNG — nó mang nghĩa '
+      + '"đã đọc, không có chữ", khác hẳn việc bỏ qua tool này.');
+  }
+
+  let kq;
+  try {
+    kq = kho.writeMediaText(db, { chatId, msgId, chu: thamSo.chu });
+  } catch (e) {
+    return _loi(MA_LOI.DB_LOI, cleanError('không lưu được chữ đọc từ ảnh', e).message);
+  }
+  if (!kq.ok) {
+    return _loi(MA_LOI.KHONG_RO, `⛔ Không có tin ${msgId} trong hội thoại này để gắn chữ vào.`);
+  }
+
+  // 🔴 XOÁ FILE TẠM — ràng buộc 2 của anh. Làm Ở ĐÂY vì đây là chỗ DUY NHẤT
+  // biết chắc model đã đọc xong. Xoá theo TUỔI (mọi file quá hạn) chứ ⛔ không
+  // theo đường dẫn model truyền lên: đường dẫn do model khai là đường dẫn
+  // ⛔ không kiểm chứng được, mà đây là một lệnh XOÁ.
+  let soXoa = 0;
+  try { soXoa = donFileCu(thuMucTam(cauHinh?.duongDan?.db ?? cauHinh?.duongDanDb ?? ''), Date.now() + GIOI_HAN_MEDIA.TUOI_TOI_DA_MS); }
+  catch (e) { _log(`dọn file tạm lỗi (bỏ qua): ${cleanError('don', e).message}`); }
+
+  _danhDauDaGhi(phien.requestId, TEN_TOOL_MEDIA.LUU_CHU_ANH);
+  return _ok({
+    msgId,
+    soKyTu: thamSo.chu.length,
+    daXoaFileTam: soXoa,
+    ghiChu: thamSo.chu.trim() === ''
+      ? 'Đã ghi nhận: ảnh này ⛔ không có chữ nào. Lần sau ⛔ không phải tải lại.'
+      : 'Đã lưu vào kho, tra lại được bằng tool lịch sử.',
   });
 }
 

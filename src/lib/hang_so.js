@@ -494,6 +494,18 @@ export const LY_DO_DONG = Object.freeze({
    * đã giải quyết. Kèm theo là một tin nhắn riêng cho host.
    */
   HET_LUOT: 'HET_LUOT',
+  /**
+   * 🔴 Người đặt HUỶ cả dòng lịch (`schedule_cancel`). KHÁC `HOST_DONG`: việc
+   * chưa chắc đã xong, chỉ là lời nhắc này không còn được dùng nữa.
+   *
+   * Vì sao phải có giá trị riêng: `cancelSchedule` trước đây chỉ lật `status`
+   * sang `da_huy` mà KHÔNG đụng `follow_up_status`. Dòng theo đuổi bị huỷ nằm
+   * lại ở `dang_theo_duoi` ⇒ `dueFollowUps()` (đòi `da_len_lich`) bỏ qua nên nó
+   * KHÔNG BAO GIỜ nhắc nữa, trong khi `followup_list` vẫn khoe "đang theo đuổi".
+   * Sổ sách NÓI DỐI — đúng họ lỗi mà `brokenInvariantReminders` sinh ra để bắt.
+   * Đã dính thật 15/09/2026 (dòng `75CE`).
+   */
+  HUY_LICH: 'HUY_LICH',
 });
 
 // ─── Tên tool MCP thêm ở v3 ────────────────────────────────────────────
@@ -539,6 +551,21 @@ export const TEN_TOOL_GHI = Object.freeze({
    * ⛔ Tool này TUYỆT ĐỐI không chạm mạng. Nó chỉ đổi một dòng trong DB.
    */
   BO_QUA: 'skip',
+});
+
+/**
+ * ★ v13 — ĐỌC ẢNH VÀ FILE VĂN BẢN (anh chốt 17/09/2026).
+ *
+ * 🔴 HAI TOOL, ⛔ KHÔNG GỘP LÀM MỘT, vì chúng làm hai việc khác hẳn nhau và
+ * hỏng theo hai kiểu khác nhau:
+ *   · `TAI_MEDIA` chạm MẠNG, ghi một file TẠM ra đĩa, và file đó phải biến mất.
+ *   · `LUU_CHU_ANH` chạm KHO, và thứ nó ghi thì ở lại mãi.
+ * Gộp lại thì lần nào đọc ảnh cũng ghi đè kho kể cả khi model đọc sai, và
+ * ⛔ không có bước nào để model nhìn lại chữ trước khi lưu.
+ */
+export const TEN_TOOL_MEDIA = Object.freeze({
+  TAI_MEDIA: 'media_fetch',
+  LUU_CHU_ANH: 'media_text_save',
 });
 
 export const LOAI_GHI_NHO = Object.freeze({
@@ -747,7 +774,7 @@ export const TRANG_THAI_DUYET = Object.freeze({
 });
 
 
-export const PHIEN_BAN_SCHEMA = '12';  // v12 (23/08/2026): đổi tên bảng/cột sang tiếng Anh
+export const PHIEN_BAN_SCHEMA = '13';  // v13 (17/09/2026): chữ đọc ra từ ảnh/file (media_text)
 
 /**
  * ★ BẢNG TÊN TOOL CŨ -> MỚI (đổi sang tiếng Anh 22/08/2026, anh chốt).

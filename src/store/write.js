@@ -1162,3 +1162,37 @@ export function takeStuckOutbound(db, quaMs, bayGioMs = Date.now()) {
       ORDER BY ts_updated ASC LIMIT 50`,
   ).all({ cho: TRANG_THAI_GUI.CHO, dang: TRANG_THAI_GUI.DANG_GUI, moc });
 }
+
+/**
+ * ★ v13 — LƯU CHỮ ĐỌC RA TỪ ẢNH/FILE (anh chốt 17/09/2026).
+ *
+ * 🔴 ĐÂY ⛔ KHÔNG PHẢI CỬA SAU CỦA SPEC H. Cột `content` của tin phi-text vẫn
+ * PHẢI là NULL và hàm này ⛔ không đụng tới nó — thứ được ghi là CHỮ trợ lý đọc
+ * được, vào một cột riêng. Ai sửa hàm này để ghi luôn vào `content` là phá
+ * ràng buộc mà `MSG_TYPE_CO_NOI_DUNG` đang canh.
+ *
+ * ⚠️ Chuỗi RỖNG là một giá trị HỢP LỆ và mang nghĩa: "đã đọc, ⛔ không có chữ
+ * nào" (ảnh phong cảnh chẳng hạn). Khác hẳn NULL = "chưa đọc bao giờ". Gộp hai
+ * thứ đó là mỗi lần tra lại một tấm ảnh câm, trợ lý lại tải nó về đọc lần nữa.
+ *
+ * @param {TDb} db
+ * @param {{chatId: string, msgId: string, chu: string, luc?: string}} p
+ * @returns {{ok: boolean, doiDong: number}}
+ */
+export function writeMediaText(db, p) {
+  const chatId = toIdRequired(p?.chatId, 'mediaText.chatId');
+  const msgId = toIdRequired(p?.msgId, 'mediaText.msgId');
+  if (typeof p?.chu !== 'string') {
+    throw new Error('mediaText.chu phải là chuỗi (chuỗi rỗng = đã đọc mà không có chữ).');
+  }
+  const kq = db.prepare(
+    `UPDATE messages SET media_text = $chu, media_text_at = $luc
+      WHERE chat_id = $c AND msg_id = $m`,
+  ).run({
+    chu: p.chu.slice(0, 20_000),
+    luc: String(p.luc ?? new Date().toISOString()),
+    c: chatId,
+    m: msgId,
+  });
+  return { ok: Number(kq.changes) > 0, doiDong: Number(kq.changes) };
+}
